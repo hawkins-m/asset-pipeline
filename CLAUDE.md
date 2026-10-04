@@ -39,8 +39,18 @@ reflects what was actually verified (see "Drift from PLAN.md").
 | `hf/` | `HF_HOME`: Hugging Face weights and cache. |
 | `outputs/` | Generated images, meshes and GLBs. |
 
+## Building HIP / torch extensions
+- First run `scripts/setup_rocm_toolchain.sh` (one time, no sudo).
+- Then `source scripts/rocm_build_env.sh` in every shell that builds extensions, and
+  activate the target venv.
+- Why: out of the box, torch would compile with Ubuntu's HIP 7.1 headers and clang 21
+  against a ROCm 7.2 runtime. The script switches to AMD LLVM 22 and the 7.2.4 headers,
+  sets the gfx1201 arch, and moves Triton and HF caches off the dirs ComfyUI shares.
+  Comments in the script explain the details.
+
 ## ROCm / gfx1201 pitfalls
 - Build HIP extensions with `PYTORCH_ROCM_ARCH=gfx1201` (and `GPU_ARCHS=gfx1201`).
+  `rocm_build_env.sh` sets both.
 - Most 3D-gen repos assume CUDA. Use ROCm forks and patch sets.
 - No flash-attn. Use sdpa, or the Triton backend.
 - **fp32 GEMMs with more than 524,288 rows silently return corrupt results** on gfx1201
