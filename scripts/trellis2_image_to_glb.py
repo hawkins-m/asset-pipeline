@@ -71,7 +71,11 @@ def main() -> None:
 
     torch.cuda.reset_peak_memory_stats()
     t = time.time()
-    mesh = pipeline.run(Image.open(args.image), seed=args.seed, pipeline_type=args.type)[0]
+    # Save what the model actually sees (background removed, cropped) for debugging.
+    image = pipeline.preprocess_image(Image.open(args.image))
+    image.save(args.out_dir / f"{stem}_input.png")
+    mesh = pipeline.run(image, seed=args.seed, pipeline_type=args.type,
+                        preprocess_image=False)[0]
     stats["generate_s"] = round(time.time() - t, 1)
     stats["raw_vertices"], stats["raw_faces"] = len(mesh.vertices), len(mesh.faces)
     mesh.simplify(16777216)  # nvdiffrast limit
