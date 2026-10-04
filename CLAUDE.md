@@ -1,0 +1,57 @@
+# CLAUDE.md
+
+**[PLAN.md](PLAN.md) is the source of truth for the design** (goal, architecture, stages,
+milestones). Read it before starting work. This file only covers the machine and the
+working rules. If the two disagree on design, PLAN.md wins. On machine facts, this file
+reflects what was actually verified (see "Drift from PLAN.md").
+
+## Repo rules
+- The repo holds only code, ComfyUI workflow JSONs, configs and docs.
+- Never commit venvs, model weights, caches or generated outputs (images, meshes, GLBs).
+  Those live on the storage drive under `$AP_ROOT` (below).
+- Commit after each working step.
+- Every model gets its own isolated venv. Don't install model deps into a shared env.
+
+## Machine (verified 2026-10-04)
+- Ubuntu 26.04, Ryzen 9 9950X3D (32 threads), 64 GB RAM.
+- 2× AMD Radeon AI PRO R9700, 32 GB each, RDNA4 **gfx1201**.
+- ROCm runtime **7.2.4** at `/opt/rocm` (AMD packages).
+- `hipcc` is Ubuntu's **7.1.1** package (`/usr/bin/hipcc`, Ubuntu clang 21). There is no
+  AMD `hipcc` in `/opt/rocm/bin`. AMD's ROCm LLVM 22 lives at `/opt/rocm/llvm`.
+- Default `python3` is **3.14**. Create venvs with `python3.12` explicitly.
+- No sudo for the agent. No `uv`, `git-lfs` or system `ninja`; install them into the
+  venv with pip where needed.
+- Blender is the snap (`/snap/bin/blender`). Blender MCP is connected to Claude Code.
+
+### ComfyUI: do not touch
+- Installs: `~/Projects/AI/ComfyUI` and `~/Projects/AI/ComfyUI-H3`.
+- Its Python env is `~/pytorch_env` (torch 2.12.0+rocm7.2).
+- It runs on port 8188 (GPU 0, image generation) and 8189 (GPU 1, image-to-3D).
+- **Never modify these directories or that env.** Talk to ComfyUI only over HTTP.
+
+### Storage layout (outside the repo)
+`AP_ROOT=/mnt/storage/asset-pipeline` (ext4 NVMe, 1.8 TB):
+
+| Path | Holds |
+|---|---|
+| `envs/<model>/` | One venv per model. |
+| `src/<model>/` | Upstream and fork checkouts plus patches applied. |
+| `hf/` | `HF_HOME`: Hugging Face weights and cache. |
+| `outputs/` | Generated images, meshes and GLBs. |
+
+## ROCm / gfx1201 pitfalls
+- Build HIP extensions with `PYTORCH_ROCM_ARCH=gfx1201` (and `GPU_ARCHS=gfx1201`).
+- Most 3D-gen repos assume CUDA. Use ROCm forks and patch sets.
+- No flash-attn. Use sdpa, or the Triton backend.
+- **fp32 GEMMs with more than 524,288 rows silently return corrupt results** on gfx1201
+  (rocBLAS and hipBLASLt; fp16/bf16 are fine). Chunk large fp32 matmuls.
+  Upstream issue: ROCm/ROCm#6595.
+- **Never set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** on this stack. It
+  produces silent NaNs.
+- Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's 3D GPU, so check
+  whether ComfyUI is running before using it.
+
+## Drift from PLAN.md
+PLAN.md lists ROCm 7.2.1, PyTorch 2.9.1 and Python 3.12. What is actually installed:
+ROCm 7.2.4 runtime with hipcc 7.1.1, torch 2.12 in the ComfyUI env, and system Python 3.14
+with 3.12 alongside.

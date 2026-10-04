@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+
+# Build artifacts
+build/
+dist/
+*.so
+*.o
+*.hip
+
+# Model weights and caches (live under $AP_ROOT on the storage drive)
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.gguf
+*.onnx
+.cache/
+hf/
+models/
+weights/
+
+# Generated outputs
+outputs/
+runs/
+*.glb
+*.gltf
+*.obj
+*.fbx
+*.ply
+*.blend
+*.blend1
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
