@@ -1,0 +1,33 @@
+[project]
+name = "asset-pipeline"
+version = "0.1.0"
+description = "Local-first concept image -> reviewed references -> 3D asset pipeline (see PLAN.md)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+    "pydantic>=2",
+    "pillow",
+    "numpy",
+    "python-multipart",
+    "google-genai",
+    "anthropic",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+ap = "asset_pipeline.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["asset_pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["comfy: needs a live ComfyUI on the configured URL (skipped if unreachable)"]

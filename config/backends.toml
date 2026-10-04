@@ -1,0 +1,27 @@
+# Backend configuration. No secrets here: API keys come from the environment
+# (GEMINI_API_KEY, ANTHROPIC_API_KEY).
+
+[comfyui]
+# Main ComfyUI instance (run_comfy.sh). Both ComfyUI instances run on GPU 1.
+url = "http://127.0.0.1:8188"
+timeout_s = 900
+
+[comfyui.workflows]
+# Logical name -> workflows/<file>.json (+ <file>.bindings.json)
+t2i = "flux_t2i"
+
+[gemini]
+# Filled in at build step 3 after confirming current model ids.
+image_model = ""
+vision_model = ""
+
+[claude]
+vision_model = ""
+
+# Default image backend per stage for new projects; override per project in project.json.
+[defaults.backends]
+style = "comfyui"
+references = "comfyui"
+
+[defaults]
+llm = "gemini"

@@ -45,7 +45,7 @@ trellis my_image.png --seed 7              # different variation (default 42)
 trellis my_image.png --texture-size 4096   # bigger textures (default 2048)
 trellis my_image.png --decimate 300000     # lighter mesh; target vertex count (default 1,000,000)
 trellis my_image.png --out-dir ~/Desktop   # write somewhere else
-TRELLIS_GPU=0 trellis my_image.png         # use GPU 0 instead of GPU 1
+TRELLIS_GPU=1 trellis my_image.png         # use GPU 1 instead of GPU 0
 ```
 
 `--type` selects the resolution:
@@ -70,9 +70,10 @@ The first run after a reboot is slower while caches warm up.
 
 ## GPUs and ComfyUI
 
-`trellis` uses GPU 1 by default, which PLAN.md assigns to image-to-3D. ComfyUI's 3D
-instance (port 8189) uses the same GPU. If it is running, `trellis` prints a note. Both can
-run at once, as long as their combined VRAM fits in 32 GB.
+`trellis` uses GPU 0 by default. Both ComfyUI instances (ports 8188 and 8189) run on
+GPU 1, so the two never compete. If you pick GPU 1 with `TRELLIS_GPU=1` while ComfyUI is
+up, `trellis` prints a note. Both can share a GPU as long as their combined VRAM fits in
+32 GB.
 
 ## Checking a result without opening Blender
 

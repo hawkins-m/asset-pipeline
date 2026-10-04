@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# ap ...  -- asset pipeline CLI (stages 0-4). See USAGE.md. Runs from any directory.
+# AP_ROOT is where projects/outputs live; the venv location is independent of it.
+set -euo pipefail
+export AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+exec "${AP_VENV:-/mnt/storage/asset-pipeline/envs/orchestrator}/bin/ap" "$@"

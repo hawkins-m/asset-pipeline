@@ -3,7 +3,7 @@
 #
 # IMAGE is a path, or a bare filename looked up in $AP_ROOT/inputs/.
 # Options pass through to scripts/trellis2_image_to_glb.py (--seed, --texture-size, ...).
-# GPU: TRELLIS_GPU (default 1, the image-to-3D GPU in PLAN.md).
+# GPU: TRELLIS_GPU (default 0; both ComfyUI instances run on GPU 1).
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 source "$REPO/scripts/rocm_build_env.sh"
@@ -19,9 +19,9 @@ if [ ! -f "$img" ] && [ -f "$AP_ROOT/inputs/$img" ]; then
 fi
 [ -f "$img" ] || { echo "trellis: no such image: $img (also looked in $AP_ROOT/inputs/)" >&2; exit 1; }
 
-gpu="${TRELLIS_GPU:-1}"
-if [ "$gpu" = 1 ] && ss -ltn 2>/dev/null | grep -q ':8189 '; then
-  echo "trellis: note: ComfyUI's 3D instance (port 8189) is running on GPU 1 too." >&2
+gpu="${TRELLIS_GPU:-0}"
+if [ "$gpu" = 1 ] && ss -ltn 2>/dev/null | grep -q -E ':(8188|8189) '; then
+  echo "trellis: note: ComfyUI is running on GPU 1 too." >&2
 fi
 
 HIP_VISIBLE_DEVICES="$gpu" PYTHONPATH="$AP_ROOT/src/TRELLIS.2" \

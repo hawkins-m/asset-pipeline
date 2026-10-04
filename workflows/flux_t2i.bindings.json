@@ -1,0 +1,13 @@
+{
+  "outputs": ["9"],
+  "bindings": {
+    "prompt":   {"node": "6", "input": "text"},
+    "negative": {"node": "7", "input": "text"},
+    "width":    {"node": "5", "input": "width"},
+    "height":   {"node": "5", "input": "height"},
+    "n":        {"node": "5", "input": "batch_size"},
+    "seed":     {"node": "3", "input": "seed"},
+    "steps":    {"node": "3", "input": "steps"},
+    "guidance": {"node": "11", "input": "guidance"}
+  }
+}
