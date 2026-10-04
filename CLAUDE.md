@@ -11,6 +11,10 @@ reflects what was actually verified.
   Those live on the storage drive under `$AP_ROOT` (below).
 - Commit after each working step.
 - Every model gets its own isolated venv. Don't install model deps into a shared env.
+- **Never use paid ComfyUI API nodes (`comfy_api_nodes`) or any other paid API without
+  asking first.** That includes Gemini, Claude/Anthropic, OpenAI and hosted
+  image/3D services. Ask before each new use, even when a key is configured, and that
+  includes tests. Local models are fine.
 
 ## Machine (verified 2026-10-04)
 - Ubuntu 26.04, Ryzen 9 9950X3D (32 threads), 64 GB RAM.
@@ -28,6 +32,12 @@ reflects what was actually verified.
 - Its Python env is `~/pytorch_env` (torch 2.12.0+rocm7.2).
 - It runs on port 8188 (GPU 0, image generation) and 8189 (GPU 1, image-to-3D).
 - **Never modify these directories or that env.** Talk to ComfyUI only over HTTP.
+- Starting the main instance is OK whenever it's needed. Run
+  `~/Projects/AI/ComfyUI/run_comfy.sh` in the background, log to
+  `$AP_ROOT/logs/comfyui.log`, and check it with `ap comfy-check`.
+- `run_comfy.sh` sets `PYTORCH_HIP_ALLOC_CONF=expandable_segments:True`, but ComfyUI's
+  torch logs "expandable_segments not supported on this platform". So it's a no-op
+  there, unlike the NaN problem it caused in the TRELLIS env.
 
 ### Storage layout (outside the repo)
 `AP_ROOT=/mnt/storage/asset-pipeline` (ext4 NVMe, 1.8 TB):
