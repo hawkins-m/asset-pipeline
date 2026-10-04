@@ -28,9 +28,11 @@ Everything goes to `/mnt/storage/asset-pipeline/outputs/trellis2/`, named
 
 | File | What it is |
 |---|---|
-| `…_512_s42.glb` | The asset: one mesh, UVs, a PBR material, 2048² textures. Opens in Blender. |
-| `…_512_s42_input.png` | The background-removed, cropped image the model actually saw. Check this first if a result looks wrong. |
-| `…_512_s42.json` | Timings, peak VRAM, and vertex/face counts. |
+| `…_1024_cascade_s42.glb` | The asset: one mesh, UVs, a PBR material, 2048² textures. Opens in Blender. |
+| `…_1024_cascade_s42_input.png` | The background-removed, cropped image the model actually saw. Check this first if a result looks wrong. |
+| `…_1024_cascade_s42.json` | Timings, peak VRAM, and vertex/face counts. |
+
+For example, `trellis crown.png` writes `crown_1024_cascade_s42.glb`.
 
 Re-running with the same image, mode and seed overwrites the previous files. Use
 `--seed` to get variations.
@@ -38,6 +40,7 @@ Re-running with the same image, mode and seed overwrites the previous files. Use
 ## Options
 
 ```bash
+trellis my_image.png --type 512           # faster, less detail (about 3x quicker to generate)
 trellis my_image.png --seed 7              # different variation (default 42)
 trellis my_image.png --texture-size 4096   # bigger textures (default 2048)
 trellis my_image.png --decimate 300000     # lighter mesh; target vertex count (default 1,000,000)
@@ -45,15 +48,25 @@ trellis my_image.png --out-dir ~/Desktop   # write somewhere else
 TRELLIS_GPU=0 trellis my_image.png         # use GPU 0 instead of GPU 1
 ```
 
-`--type` selects the resolution. **Only `512` (the default) is verified correct right now.**
-The `1024`, `1024_cascade` and `1536_cascade` modes run, but they currently produce meshes
-with missing or hollow sections (a known ROCm bug under investigation; see CLAUDE.md).
+`--type` selects the resolution:
+
+| Mode | Status |
+|---|---|
+| `1024_cascade` (default) | Verified. Best detail and colour. |
+| `512` | Verified. Fast drafts. |
+| `1024` | Not re-verified yet. |
+| `1536_cascade` | Currently runs out of GPU memory. |
 
 ## How long it takes
 
-On one R9700, one image takes about two minutes. The model loads for about 40 s on every
-run, generation takes about 25 s and the GLB export about 15 s. The first run after a
-reboot is slower while caches warm up. Peak VRAM is about 3 GB.
+On one R9700, each run loads the model for about 40 s first. After that:
+
+| Mode | Generate | Export | Total | Peak VRAM |
+|---|---|---|---|---|
+| `1024_cascade` | ~85 s | ~20 s | ~2.5 min | ~8 GB |
+| `512` | ~25 s | ~13 s | ~1.5 min | ~3 GB |
+
+The first run after a reboot is slower while caches warm up.
 
 ## GPUs and ComfyUI
 

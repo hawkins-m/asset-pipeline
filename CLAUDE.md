@@ -36,8 +36,11 @@ reflects what was actually verified.
 |---|---|
 | `envs/<model>/` | One venv per model. |
 | `src/<model>/` | Upstream and fork checkouts plus patches applied. |
+| `models/` | Model weights downloaded to a local dir (e.g. `TRELLIS.2-4B/`). |
 | `hf/` | `HF_HOME`: Hugging Face weights and cache. |
+| `inputs/` | Images to feed the pipeline (`trellis NAME` looks here). |
 | `outputs/` | Generated images, meshes and GLBs. |
+| `logs/` | Install and run logs. |
 
 ## Building HIP / torch extensions
 - First run `scripts/setup_rocm_toolchain.sh` (one time, no sudo).
@@ -53,9 +56,18 @@ reflects what was actually verified.
   `rocm_build_env.sh` sets both.
 - Most 3D-gen repos assume CUDA. Use ROCm forks and patch sets.
 - No flash-attn. Use sdpa, or the Triton backend.
-- **fp32 GEMMs with more than 524,288 rows silently return corrupt results** on gfx1201
-  (rocBLAS and hipBLASLt; fp16/bf16 are fine). Chunk large fp32 matmuls.
-  Upstream issue: ROCm/ROCm#6595.
+- **Tall GEMMs silently return corrupt results** on gfx1201 (rocBLAS and hipBLASLt alike).
+  The row limit depends on dtype and output width N:
+  - fp32: above 2^19 rows.
+  - fp16/bf16 with small N (e.g. 8): above 2^20 rows.
+  - fp16/bf16 with N=64: above 2^22 rows.
+  - With a bias term, even rows below the limit come out wrong.
+  - Sweep: `scripts/diag/gemm_rows_sweep.py`. Upstream issue: ROCm/ROCm#6595 (the fp32 case).
+  - Fix: call `scripts/gfx1201_guard.py`'s `install()` in any torch process. It chunks
+    `F.linear` (all `nn.Linear`) to 2^18 rows. It was the cause of the TRELLIS.2 1024-mode
+    holes: the decoder's `to_subdiv` is an fp16 128→8 linear over 1.6M rows.
+  - The guard does not cover raw `torch.mm/bmm/matmul`. Chunk those yourself when M may
+    exceed 2^18.
 - **`hipMemcpy2D` device-to-device copies only the first 2^20 rows** and still returns
   success; the remaining rows stay unwritten. Chunk 2D copies.
   - Repro: `scripts/diag/hip_memcpy2d_repro.hip`.
@@ -73,7 +85,9 @@ reflects what was actually verified.
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
 - Run with `trellis IMAGE` (`scripts/trellis`, symlinked into `~/bin`). See USAGE.md.
-- Known issue: **512 mode is verified correct. The 1024 and 1024_cascade modes still lose
-  geometry.** The raw mesh has F/V ≈ 1.3 where a healthy one is ≈ 2.0, and parts of the
-  surface come out hollow. The cause is upstream of CuMesh, in the high-res decode or mesh
-  extraction. It is probably another >2^19 / 2^20-row truncation.
+- Verified modes: `1024_cascade` (the default) and `512`, each on two test images (the
+  turret and crown examples). A healthy raw mesh has F/V ≈ 2.0, recorded in each run's
+  JSON as `raw_faces / raw_vertices`.
+- `1536_cascade` runs out of GPU memory in CuMesh `fill_holes` → `get_edges`. That is a
+  genuine OOM error, not silent corruption. Not investigated yet.
+- `1024` (non-cascade) has not been re-verified since the GEMM guard went in.

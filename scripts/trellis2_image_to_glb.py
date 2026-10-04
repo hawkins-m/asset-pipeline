@@ -24,6 +24,11 @@ if "expandable_segments" in os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""):
 import torch  # noqa: E402
 from PIL import Image  # noqa: E402
 
+import gfx1201_guard  # noqa: E402
+
+# Chunk tall GEMMs: rocBLAS/hipBLASLt silently corrupt them on gfx1201 (see the module).
+gfx1201_guard.install()
+
 AP_ROOT = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline"))
 MODEL_DIR = AP_ROOT / "models" / "TRELLIS.2-4B"
 
@@ -47,7 +52,7 @@ def write_rocm_config() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("image", type=Path)
-    ap.add_argument("--type", default="512",  # 1024 modes: see CLAUDE.md known issues
+    ap.add_argument("--type", default="1024_cascade",  # 1536_cascade: OOM, see CLAUDE.md
                     choices=["512", "1024", "1024_cascade", "1536_cascade"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--decimate", type=int, default=1_000_000)
