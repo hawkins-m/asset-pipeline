@@ -49,7 +49,11 @@ A Blender script (BlenderGIS) places generated assets on real footprints at real
 ## Machine
 - Ubuntu 26.04, Ryzen 9950X3D, 64GB RAM
 - 2× AMD Radeon AI Pro R9700, 32GB each, RDNA4 / gfx1201
-- ROCm 7.2.1, PyTorch 2.9.1, Python 3.12
+- ROCm 7.2.4 runtime (`/opt/rocm`); the only `hipcc` is Ubuntu's 7.1.1 package, so HIP
+  builds go through the AMD LLVM 22 shim (`scripts/rocm_build_env.sh`)
+- PyTorch: 2.12.0+rocm7.2 in ComfyUI's env, 2.13.0+rocm7.2 in the TRELLIS.2 env
+- Python: system default 3.14; venvs use 3.12
+- Blender 5.2.2 LTS (snap)
 - Existing ComfyUI on ports 8188/8189 — **do not modify its environment**
 - Blender MCP is already connected to Claude Code
 

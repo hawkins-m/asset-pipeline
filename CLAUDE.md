@@ -3,7 +3,7 @@
 **[PLAN.md](PLAN.md) is the source of truth for the design** (goal, architecture, stages,
 milestones). Read it before starting work. This file only covers the machine and the
 working rules. If the two disagree on design, PLAN.md wins. On machine facts, this file
-reflects what was actually verified (see "Drift from PLAN.md").
+reflects what was actually verified.
 
 ## Repo rules
 - The repo holds only code, ComfyUI workflow JSONs, configs and docs.
@@ -72,13 +72,8 @@ reflects what was actually verified (see "Drift from PLAN.md").
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
-- Run with `scripts/trellis2_image_to_glb.py` (usage is in its docstring).
+- Run with `trellis IMAGE` (`scripts/trellis`, symlinked into `~/bin`). See USAGE.md.
 - Known issue: **512 mode is verified correct. The 1024 and 1024_cascade modes still lose
   geometry.** The raw mesh has F/V ≈ 1.3 where a healthy one is ≈ 2.0, and parts of the
   surface come out hollow. The cause is upstream of CuMesh, in the high-res decode or mesh
   extraction. It is probably another >2^19 / 2^20-row truncation.
-
-## Drift from PLAN.md
-PLAN.md lists ROCm 7.2.1, PyTorch 2.9.1 and Python 3.12. What is actually installed:
-ROCm 7.2.4 runtime with hipcc 7.1.1, torch 2.12 in the ComfyUI env, and system Python 3.14
-with 3.12 alongside.
