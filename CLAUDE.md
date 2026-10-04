@@ -56,10 +56,27 @@ reflects what was actually verified (see "Drift from PLAN.md").
 - **fp32 GEMMs with more than 524,288 rows silently return corrupt results** on gfx1201
   (rocBLAS and hipBLASLt; fp16/bf16 are fine). Chunk large fp32 matmuls.
   Upstream issue: ROCm/ROCm#6595.
+- **`hipMemcpy2D` device-to-device copies only the first 2^20 rows** and still returns
+  success; the remaining rows stay unwritten. Chunk 2D copies.
+  - Repro: `scripts/diag/hip_memcpy2d_repro.hip`.
+  - This is what silently cut TRELLIS.2 meshes off at 1,048,576 vertices/faces inside
+    CuMesh. `install_trellis2.sh` patches CuMesh for it.
 - **Never set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`** on this stack. It
   produces silent NaNs.
+- Silent truncation leaves no NaNs and no errors behind. To check a generated asset,
+  look at it from several angles (`scripts/blender_check_glb.py`) and compare against a
+  CPU reference (`scripts/diag/`).
 - Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's 3D GPU, so check
   whether ComfyUI is running before using it.
+
+## TRELLIS.2 (stage 5) status
+- Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
+  The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
+- Run with `scripts/trellis2_image_to_glb.py` (usage is in its docstring).
+- Known issue: **512 mode is verified correct. The 1024 and 1024_cascade modes still lose
+  geometry.** The raw mesh has F/V ≈ 1.3 where a healthy one is ≈ 2.0, and parts of the
+  surface come out hollow. The cause is upstream of CuMesh, in the high-res decode or mesh
+  extraction. It is probably another >2^19 / 2^20-row truncation.
 
 ## Drift from PLAN.md
 PLAN.md lists ROCm 7.2.1, PyTorch 2.9.1 and Python 3.12. What is actually installed:

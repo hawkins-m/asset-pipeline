@@ -83,6 +83,33 @@ EOF
     sed -i 's/^__device__ __forceinline__ Vec3f::Vec3f() {/__host__ __device__ __forceinline__ Vec3f::Vec3f() {/' src/dtypes.cuh
     sed -i -E '/"(--extended-lambda|--expt-relaxed-constexpr|-U__CUDA_NO_HALF(_OPERATORS|_CONVERSIONS|2_OPERATORS)__)",/d' setup.py
   fi
+  # ROCm 7.2 on gfx1201: hipMemcpy2D device-to-device silently copies only the first
+  # 2^20 rows (returns success). CuMesh::init uses it for vertices/faces, so any mesh
+  # over 1,048,576 rows lost the rest (zeros) -> missing geometry. Chunk the copies.
+  if ! grep -q cumesh_memcpy2d src/io.cu; then
+    python3 - src/io.cu <<'EOF'
+import sys; p = sys.argv[1]; s = open(p).read()
+helper = '''namespace cumesh {
+
+// hipMemcpy2D on ROCm 7.2 (gfx1201) copies at most 2^20 rows and reports success.
+static cudaError_t cumesh_memcpy2d(void* dst, size_t dpitch, const void* src, size_t spitch,
+                                   size_t width, size_t height, cudaMemcpyKind kind) {
+    const size_t chunk = size_t(1) << 19;
+    for (size_t r = 0; r < height; r += chunk) {
+        size_t h = height - r < chunk ? height - r : chunk;
+        cudaError_t e = cudaMemcpy2D((char*)dst + r * dpitch, dpitch,
+                                     (const char*)src + r * spitch, spitch, width, h, kind);
+        if (e != cudaSuccess) return e;
+    }
+    return cudaSuccess;
+}
+'''
+assert s.count("namespace cumesh {") == 1
+s = s.replace("namespace cumesh {", helper, 1)
+s = s.replace("CUDA_CHECK(cudaMemcpy2D(", "CUDA_CHECK(cumesh_memcpy2d(")
+open(p, "w").write(s)
+EOF
+  fi
   local eigen=third_party/cubvh/third_party/eigen
   [ -f "$eigen/Eigen/Dense" ] || { rm -rf "$eigen"; git clone --depth 1 https://gitlab.com/libeigen/eigen.git "$eigen"; }
   PATH="$ENV/bin:$PATH" $PIP install . --no-build-isolation --no-deps -v

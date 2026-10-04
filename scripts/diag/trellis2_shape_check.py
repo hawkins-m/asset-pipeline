@@ -41,7 +41,6 @@ def main():
     runner.write_rocm_config()
     p = Trellis2ImageTo3DPipeline.from_pretrained(str(runner.MODEL_DIR), runner.ROCM_CONFIG)
     p.cuda()
-    p.low_vram = False
 
     image = p.preprocess_image(Image.open(image_path))
     torch.manual_seed(seed)

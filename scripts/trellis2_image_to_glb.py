@@ -47,12 +47,14 @@ def write_rocm_config() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("image", type=Path)
-    ap.add_argument("--type", default="1024_cascade",
+    ap.add_argument("--type", default="512",  # 1024 modes: see CLAUDE.md known issues
                     choices=["512", "1024", "1024_cascade", "1536_cascade"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--decimate", type=int, default=1_000_000)
     ap.add_argument("--texture-size", type=int, default=2048)
     ap.add_argument("--out-dir", type=Path, default=AP_ROOT / "outputs" / "trellis2")
+    ap.add_argument("--save-raw", action="store_true",
+                    help="also save the pre-export mesh (torch .pt) for debugging post-processing")
     args = ap.parse_args()
 
     from trellis2.pipelines import Trellis2ImageTo3DPipeline
@@ -79,6 +81,10 @@ def main() -> None:
     stats["generate_s"] = round(time.time() - t, 1)
     stats["raw_vertices"], stats["raw_faces"] = len(mesh.vertices), len(mesh.faces)
     mesh.simplify(16777216)  # nvdiffrast limit
+    if args.save_raw:
+        torch.save({k: getattr(mesh, k) for k in
+                    ("vertices", "faces", "attrs", "coords", "layout", "voxel_size")},
+                   args.out_dir / f"{stem}_raw.pt")
 
     t = time.time()
     glb = o_voxel.postprocess.to_glb(
