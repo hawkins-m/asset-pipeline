@@ -145,3 +145,37 @@ Projects live in `/mnt/storage/asset-pipeline/projects/<slug>/`:
 - `style/derive/` holds cutouts and redraws.
 - `style/anchor/` holds the saved anchor.
 - `review.json` holds the stars.
+
+# Vision LLM (scene analysis)
+
+Stage 1 sends a scene image to a vision LLM and gets back a JSON asset plan. Each project
+picks one provider:
+
+| Provider | What | Cost |
+|---|---|---|
+| `local` (default) | Qwen3-VL-8B-Instruct on GPU 0 (`ap vlm`) | Free |
+| `gemini` | Gemini API (`GEMINI_API_KEY`) | **Paid** |
+| `claude` | Claude API (`ANTHROPIC_API_KEY`) | **Paid** |
+
+```bash
+ap vlm up             # start the local server on GPU 0 (http://127.0.0.1:8710)
+ap vlm status         # is it up, and is the model loaded?
+ap vlm down           # stop it and free GPU 0
+ap set harbour-town --llm local        # or gemini / claude
+ap set harbour-town --backend references=gemini   # image backend per stage
+```
+
+- `ap vlm up` returns once the server answers. The model itself loads on the first
+  request (6–9 s) and unloads after 10 minutes idle (`--idle-unload SECONDS`), freeing
+  GPU 0 for `trellis` again. While loaded it holds about 17.5 GB of GPU 0, so don't run
+  `trellis` at the same time (`ap vlm down` frees it at once).
+- A scene analysis takes about 25 s warm, about 35 s with the model load. The very first
+  request after installing took about 100 s (one-time GPU kernel warm-up).
+- Log: `/mnt/storage/asset-pipeline/logs/vlm.log`.
+
+**Paid providers are blocked by default.** Gemini and Claude (and the Gemini image
+backend) refuse to run unless you allow it for that one command:
+
+```bash
+AP_ALLOW_PAID_APIS=1 ap ...
+```

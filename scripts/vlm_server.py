@@ -77,9 +77,10 @@ class Model:
                 return_dict=True, return_tensors="pt").to(self.model.device)
             with torch.inference_mode():
                 out = self.model.generate(**inputs, max_new_tokens=4096, do_sample=False)
-            text = self.processor.batch_decode(out[:, inputs["input_ids"].shape[1]:],
-                                               skip_special_tokens=True)[0]
+            n_in = inputs["input_ids"].shape[1]
+            text = self.processor.batch_decode(out[:, n_in:], skip_special_tokens=True)[0]
             self.last_used = time.time()
+            self.last_tokens = (n_in, out.shape[1] - n_in)
             return text
 
 
@@ -109,7 +110,10 @@ def make_handler(model: Model):
                           for i in req.get("images", [])]
                 t = time.time()
                 text = model.generate(req.get("system", ""), req["prompt"], images, req["schema"])
-                print(f"/v1/json {len(images)} image(s) {time.time() - t:.1f}s", flush=True)
+                dt = time.time() - t
+                n_in, n_out = model.last_tokens
+                print(f"/v1/json {len(images)} image(s) {dt:.1f}s, {n_in} tokens in, "
+                      f"{n_out} out ({n_out / dt:.1f} tok/s overall)", flush=True)
                 self._send(200, {"text": text})
             except Exception as e:  # report to the client, keep serving
                 self._send(500, {"error": f"{type(e).__name__}: {e}"})

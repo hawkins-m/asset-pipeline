@@ -141,9 +141,12 @@ def cmd_vlm(a) -> None:
         pid = int(pidfile.read_text())
         try:
             os.kill(pid, signal.SIGTERM)
-            print(f"stopped vlm server (pid {pid})")
+            for _ in range(100):  # wait so an immediate `up` doesn't find the port taken
+                os.kill(pid, 0)
+                time.sleep(0.1)
+            print(f"vlm server (pid {pid}) did not exit after 10 s")
         except ProcessLookupError:
-            print("was not running")
+            print(f"stopped vlm server (pid {pid})")
         pidfile.unlink()
         return
     # up
@@ -161,6 +164,17 @@ def cmd_vlm(a) -> None:
                              "--idle-unload", str(a.idle_unload)],
                             stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
     pidfile.write_text(str(proc.pid))
+    for _ in range(300):  # wait until it serves /health (the model itself loads lazily)
+        if proc.poll() is not None:
+            raise SystemExit(f"vlm server exited with code {proc.returncode}; "
+                             f"see {root / 'logs' / 'vlm.log'}")
+        try:
+            LocalVision(url).health()
+            break
+        except LLMError:
+            time.sleep(0.2)
+    else:
+        raise SystemExit(f"vlm server not answering at {url} after 60 s")
     print(f"started vlm server (pid {proc.pid}, GPU {a.gpu}); log: {root / 'logs' / 'vlm.log'}")
 
 

@@ -95,6 +95,19 @@ reflects what was actually verified.
 - Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's GPU (both instances), so check
   whether ComfyUI is running before using it.
 
+## Vision LLM (stage 1)
+- Providers per project (`ap set PROJECT --llm local|gemini|claude`). Default `local`:
+  Qwen3-VL-8B-Instruct, bf16, env `$AP_ROOT/envs/qwen-vl` (torch 2.13.0+rocm7.2,
+  transformers 5.18), weights `$AP_ROOT/models/Qwen3-VL-8B-Instruct`. Install with
+  `scripts/install_qwen_vl.sh`.
+- `ap vlm up|down|status` runs `scripts/vlm_server.py` on 127.0.0.1:8710, GPU 0. It holds
+  ~17.5 GB while loaded and unloads after 600 s idle. Don't run it alongside `trellis`.
+- Verified 2026-10-05: structured scene analysis on alpine-market validates first try,
+  ~25 s warm (1.4k tokens in, ~560 out, ~23 tok/s).
+- Paid backends (Gemini, Claude, Gemini images) raise `PaidAPIBlocked` unless
+  `AP_ALLOW_PAID_APIS=1` is set for that run. Never set it yourself without the user's OK.
+  Their tests use mocked SDKs only.
+
 ## Style anchor (stage 0) findings
 - Flux Redux conditions on content as well as style. This was measured with a 3-image
   ukiyo-e anchor and the prompt "wooden barrel on white", seed 7 (`attn_bias`, total
