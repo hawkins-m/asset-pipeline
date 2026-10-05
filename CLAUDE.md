@@ -91,6 +91,20 @@ reflects what was actually verified.
 - Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's 3D GPU, so check
   whether ComfyUI is running before using it.
 
+## Style anchor (stage 0) findings
+- Flux Redux conditions on content as well as style. This was measured with a 3-image
+  ukiyo-e anchor and the prompt "wooden barrel on white", seed 7 (`attn_bias`, total
+  strength split across images):
+
+  | Total strength | Result |
+  |---|---|
+  | ≤ 0.06 | Barely stylised |
+  | ~0.08 | Subject kept, mildly stylised (flatter, outlined), palette not transferred |
+  | ≥ 0.12 | Subject replaced by the anchor's scene |
+
+  `multiply` mode at 0.15 also replaced the subject. Treat Redux as weak style plus
+  content leakage, not a clean style transfer.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
