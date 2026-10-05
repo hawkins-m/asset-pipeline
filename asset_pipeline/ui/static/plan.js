@@ -48,11 +48,12 @@ function renderPlan() {
     list.append(el);
   }
 
-  const busy = data.jobs.some(j => j.kind === "plan.analyze" && (j.status === "queued" || j.status === "running"));
+  const busy = data.jobs.some(j => j.kind.startsWith("plan.") && (j.status === "queued" || j.status === "running"));
   const entry = planEntry();
   const btn = $("#analyze-btn");
   btn.disabled = !entry || busy;
-  btn.textContent = busy ? "Analysing…" : entry && entry.plan ? "Re-analyse scene" : "Analyse scene";
+  btn.textContent = busy ? "Working…" : entry && entry.plan ? "Re-analyse scene" : "Analyse scene";
+  $("#refine-btn").disabled = !(entry && entry.plan) || busy;
 
   $("#plan-editor").hidden = !(entry && entry.plan);
   if (!entry || !entry.plan) { draft = null; return; }
@@ -76,7 +77,7 @@ function renderEditor() {
     if (!a.bbox) return;
     const [x0, y0, x1, y1] = a.bbox;
     const box = document.createElement("button");
-    box.type = "button"; box.className = "bbox"; box.dataset.i = i;
+    box.type = "button"; box.className = `bbox ${a.bbox_source}`; box.dataset.i = i;
     box.title = a.name; box.setAttribute("aria-label", `Show ${a.name}`);
     Object.assign(box.style, {left: `${x0 * 100}%`, top: `${y0 * 100}%`,
       width: `${(x1 - x0) * 100}%`, height: `${(y1 - y0) * 100}%`});
@@ -102,9 +103,11 @@ function assetCard(a, i) {
       <label class="check"><input type="checkbox" data-f="include" ${a.include ? "checked" : ""}> Include</label>
       <input data-f="name" value="${esc(a.name)}" aria-label="Name" class="name">
       <span class="id" title="Stable id (file names use it)">${esc(a.id || "new")}</span>
+      ${a.sam_found == null ? "" : `<span class="sam" title="Copies SAM 3.1 found for this name (at most 8). The box is ${a.bbox_source === "sam" ? "SAM's" : "the LLM's"}.">SAM: ${a.sam_found || "none"}</span>`}
       <button type="button" class="remove" title="Delete asset" aria-label="Delete ${esc(a.name)}">×</button>
     </div>
     <div class="asset-fields">
+      <label title="Plain noun SAM 3.1 looks for when refining the box">Segment as <input data-f="noun" value="${esc(a.noun || "")}" placeholder="${esc(a.name)}"></label>
       <label>Category <select data-f="category">${CATEGORIES.map(c => `<option ${c === a.category ? "selected" : ""}>${c}</option>`).join("")}</select></label>
       <label>Count <input data-f="count" type="number" min="1" step="1" value="${a.count}"></label>
       <label>Width m <input data-f="dimensions.width" type="number" min="0.01" step="any" value="${d.width}"></label>
@@ -168,7 +171,7 @@ $("#plan-summary").oninput = e => { draft.summary = e.target.value; setDirty(); 
 $("#plan-scale").oninput = e => { draft.scale_notes = e.target.value; setDirty(); };
 
 $("#add-asset").onclick = () => {
-  draft.assets.push({id: "", name: "new asset", category: "prop", description: "", count: 1,
+  draft.assets.push({id: "", name: "new asset", noun: "", category: "prop", description: "", count: 1,
     dimensions: {width: 1, depth: 1, height: 1}, kit: null, placement: "", bbox: null,
     usage: "game", include: true});
   setDirty(); renderEditor();
@@ -203,6 +206,13 @@ $("#analyze-btn").onclick = async () => {
     setDirty(false); draft = null;
     await load();
   } catch (err) { alert(err.message); }
+};
+
+$("#refine-btn").onclick = async () => {
+  const entry = planEntry();
+  if (dirty) { alert("Save or discard your changes first: refining rewrites the plan's boxes."); return; }
+  try { await api(`/api/projects/${slug}/plans/${entry.name}/refine`, {}); await load(); }
+  catch (err) { alert(err.message); }
 };
 
 $("#scene-upload").onchange = async e => {

@@ -7,6 +7,7 @@ relations resolved to ids (unmatched ones dropped), boxes as 0-1 fractions.
 Layout under the project:
     scenes/<file>                 scene images imported from outside stage 0
     plan/<scene name>.json        one AssetPlan per scene (+ .prev.json before re-analysis)
+    plan/masks/<scene name>/<asset id>.npz   SAM 3.1 mask behind each refined box
 where <scene name> is s0_style.scene_name(): batch_001__scene_002.
 """
 import io
@@ -16,10 +17,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from .. import review
+from .. import config, review, segment
+from ..comfy.client import ComfyClient
 from ..llm.base import VisionLLM, structured
 from ..llm.registry import llm_for
 from ..project import ProjectStore, read_json, write_json
@@ -40,6 +43,8 @@ class PlanExists(ValueError):
 class AnalyzedAsset(BaseModel):
     name: str = Field(description="short lowercase noun phrase, unique in this list, "
                                   "e.g. 'timber market stall'")
+    noun: str = Field(description="the plain generic object noun, 1-2 words, no adjectives, "
+                                  "e.g. 'market stall', 'barrel', 'pine tree', 'house'")
     category: Category
     description: str = Field(description="the object on its own: shape, parts, materials, "
                                          "colours. No scene, lighting or art style.")
@@ -159,6 +164,7 @@ def analyze(store: ProjectStore, scene: Path | str, force: bool = False,
     plan = to_plan(analysis, key, llm.name)
     if old:
         shutil.copyfile(path, path.with_suffix(".prev.json"))
+    shutil.rmtree(store.root / PLAN / "masks" / name, ignore_errors=True)  # new ids, new boxes
     save(store, name, plan)
     store.log_run({"stage": "plan.analyze", "llm": llm.name, "scene": key, "plan": name,
                    "assets": len(plan.assets), "relations": len(plan.relations),
@@ -178,7 +184,7 @@ def _bbox(b: list[int] | None) -> list[float] | None:
 
 
 def to_plan(a: SceneAnalysis, scene_key: str, llm_name: str) -> AssetPlan:
-    assets = [PlanAsset(name=x.name.strip(), category=x.category, description=x.description.strip(),
+    assets = [PlanAsset(name=x.name.strip(), noun=x.noun.strip(), category=x.category, description=x.description.strip(),
                         count=x.count, kit=(x.kit or "").strip() or None,
                         placement=x.placement.strip(), bbox=_bbox(x.bbox_2d),
                         dimensions=Dimensions(width=x.width_m, depth=x.depth_m, height=x.height_m))
@@ -207,6 +213,59 @@ def assign_ids(plan: AssetPlan) -> None:
         while x.id in seen:
             x.id, i = f"{base}-{i}", i + 1
         seen.add(x.id)
+
+
+# --- Box refinement (SAM 3.1) ---------------------------------------------------------
+
+def _box_iou(a: list[float], b: list[float]) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def refine_boxes(store: ProjectStore, name: str, client: ComfyClient | None = None,
+                 max_dets: int = 8) -> AssetPlan:
+    """Replace each asset's LLM box with a SAM 3.1 box for its noun (plain nouns segment
+    far better than descriptive names: "alpine timber stall" returned whole houses,
+    "market stall" the stalls). SAM may find several copies: take the one overlapping the
+    LLM's box most; without overlap, prefer copies not cut off by the frame, then the
+    largest. The LLM box is kept in bbox_llm, so this can be re-run after edits."""
+    plan = load(store, name)
+    if not plan:
+        raise FileNotFoundError(f"no plan {name}")
+    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    scene = store.root / plan.scene
+    w, h = Image.open(scene).size
+    mdir = store.root / PLAN / "masks" / name
+    mdir.mkdir(parents=True, exist_ok=True)
+    t, changed = time.time(), 0
+    for a in plan.assets:
+        llm_box = a.bbox_llm if a.bbox_source == "sam" else a.bbox
+        dets = segment.detect(c, scene, a.noun or a.name, max_dets=max_dets)
+        a.sam_found = len(dets)
+        if not dets:  # SAM doesn't know the name: keep (or go back to) the LLM's box
+            a.bbox, a.bbox_source, a.bbox_llm, a.mask = llm_box, "llm", None, None
+            continue
+        boxes = [[d.bbox[0] / w, d.bbox[1] / h, d.bbox[2] / w, d.bbox[3] / h] for d in dets]
+        def score(i):
+            iou = _box_iou(boxes[i], llm_box) if llm_box else 0.0
+            edge = dets[i].touches_border
+            return (iou * (0.5 if edge else 1.0), not edge, dets[i].area_frac)
+        best = max(range(len(dets)), key=score)
+        mask = mdir / f"{a.id}.npz"
+        np.savez_compressed(mask, mask=dets[best].mask)
+        a.bbox, a.bbox_source, a.bbox_llm = [round(v, 4) for v in boxes[best]], "sam", llm_box
+        a.mask = mask.relative_to(store.root).as_posix()
+        changed += 1
+    for old in mdir.glob("*.npz"):  # masks of deleted or renamed-id assets
+        if old.stem not in {a.id for a in plan.assets}:
+            old.unlink()
+    write_json(plan_file(store, name), plan.model_dump(mode="json"))  # keeps `edited`
+    store.log_run({"stage": "plan.refine", "plan": name, "refined": changed,
+                   "assets": len(plan.assets), "seconds": round(time.time() - t, 1)})
+    return plan
 
 
 # --- Editor ----------------------------------------------------------------------------

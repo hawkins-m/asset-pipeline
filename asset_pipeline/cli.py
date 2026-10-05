@@ -125,8 +125,33 @@ def cmd_plan_analyze(a) -> None:
     for k in keys:
         t = time.time()
         plan = s1_plan.analyze(store, k, force=a.force)
-        print(f"{s1_plan.plan_name(plan.scene)}: {len(plan.assets)} assets, "
+        name = s1_plan.plan_name(plan.scene)
+        print(f"{name}: {len(plan.assets)} assets, "
               f"{len(plan.relations)} relations via {plan.llm} in {time.time() - t:.0f}s")
+        if not a.no_refine:
+            _refine(store, name)
+
+
+def _refine(store, name: str) -> None:
+    from .stages import s1_plan
+    t = time.time()
+    try:
+        plan = s1_plan.refine_boxes(store, name)
+    except ComfyError as e:
+        print(f"  boxes left as the LLM drew them ({e}); `ap plan refine` later")
+        return
+    n = sum(x.bbox_source == "sam" for x in plan.assets)
+    print(f"  SAM 3.1 boxes for {n}/{len(plan.assets)} assets in {time.time() - t:.0f}s")
+
+
+def cmd_plan_refine(a) -> None:
+    from .stages import s1_plan
+    store = ProjectStore.open(a.project)
+    names = [a.name] if a.name else [s1_plan.plan_name(k) for k in s1_plan.scenes(store)
+                                     if s1_plan.load(store, s1_plan.plan_name(k))]
+    for name in names:
+        print(name)
+        _refine(store, name)
 
 
 def cmd_plan_show(a) -> None:
@@ -146,7 +171,8 @@ def cmd_plan_show(a) -> None:
         for x in plan.assets:
             d = x.dimensions
             print(f"  {'x' if x.include else '-'} {x.id:<28} {x.category:<10} x{x.count:<3} "
-                  f"{d.width:g}x{d.depth:g}x{d.height:g} m  {x.usage}"
+                  f"{d.width:g}x{d.depth:g}x{d.height:g} m  {x.usage}  box={x.bbox_source}"
+                  + (f" (SAM found {x.sam_found})" if x.sam_found is not None else "")
                   + (f"  kit={x.kit}" if x.kit else ""))
         for r in plan.relations:
             print(f"    {r.subject} {r.relation} {r.object}")
@@ -310,7 +336,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("scenes", nargs="*", help="scene paths (absolute or project-relative)")
     p.add_argument("--force", action="store_true", help="replace plans edited in the UI")
+    p.add_argument("--no-refine", action="store_true",
+                   help="keep the LLM's boxes (default: SAM 3.1 boxes if ComfyUI is up)")
     p.set_defaults(fn=cmd_plan_analyze)
+    p = psub.add_parser("refine", help="redo asset boxes with SAM 3.1 (needs ComfyUI)")
+    p.add_argument("project")
+    p.add_argument("name", nargs="?", help="one plan (default: all)")
+    p.set_defaults(fn=cmd_plan_refine)
     p = psub.add_parser("show", help="print plans")
     p.add_argument("project")
     p.add_argument("name", nargs="?", help="one plan, e.g. batch_001__scene_002")

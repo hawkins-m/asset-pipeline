@@ -6,7 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from asset_pipeline import review
+import numpy as np
+
+from asset_pipeline import review, segment
 from asset_pipeline.jobs import JobQueue
 from asset_pipeline.paid import PaidAPIBlocked
 from asset_pipeline.project import ProjectStore
@@ -16,16 +18,16 @@ ANALYSIS = {
     "summary": "An alpine market square.",
     "scale_notes": "door ~2 m",
     "assets": [
-        {"name": "Market Stall", "category": "structure", "description": "timber stall, red awning",
+        {"name": "Market Stall", "noun": "market stall", "category": "structure", "description": "timber stall, red awning",
          "count": 3, "width_m": 3, "depth_m": 2, "height_m": 2.8, "kit": None,
          "placement": "around the square", "bbox_2d": [100, 200, 400, 700]},
-        {"name": "market stall", "category": "structure", "description": "smaller stall",
+        {"name": "market stall", "noun": "stall", "category": "structure", "description": "smaller stall",
          "count": 1, "width_m": 2, "depth_m": 1.5, "height_m": 2.5, "kit": "  ",
          "placement": "left", "bbox_2d": [500, 500, 400, 600]},          # inverted box
-        {"name": "barrel", "category": "prop", "description": "oak barrel, iron hoops",
+        {"name": "barrel", "noun": "barrel", "category": "prop", "description": "oak barrel, iron hoops",
          "count": 4, "width_m": 0.6, "depth_m": 0.6, "height_m": 0.9, "kit": None,
          "placement": "by the stalls", "bbox_2d": [0, 900, 50, 1200]},   # clamped to 1000
-        {"name": "stone wall", "category": "structure", "description": "dry stone",
+        {"name": "stone wall", "noun": "wall", "category": "structure", "description": "dry stone",
          "count": 6, "width_m": 4, "depth_m": 0.5, "height_m": 1.2, "kit": "stone wall kit",
          "placement": "edge"},
     ],
@@ -157,6 +159,8 @@ def test_ui_plan_flow(store, monkeypatch):
     llm = ScriptedLLM(json.dumps(ANALYSIS))
     real = s1_plan.analyze
     monkeypatch.setattr(s1_plan, "analyze", lambda st, sc, force=False: real(st, sc, force, llm=llm))
+    refined = []
+    monkeypatch.setattr(s1_plan, "refine_boxes", lambda st, name: refined.append(name))
     client = TestClient(ui_app.create_app(JobQueue()))
     url = "/api/projects/demo/plans"
 
@@ -165,6 +169,7 @@ def test_ui_plan_flow(store, monkeypatch):
 
     job = client.post(f"{url}/analyze", json={"scene": SCENE}).json()
     assert _wait(client, job["id"])["result"] == "batch_001__scene_000"
+    assert refined == ["batch_001__scene_000"]                  # analyse is followed by SAM boxes
     plan = client.get(url).json()[0]["plan"]
     assert len(plan["assets"]) == 4
 
@@ -187,3 +192,50 @@ def test_ui_plan_flow(store, monkeypatch):
     r = client.post("/api/projects/demo/scenes", files={"file": ("../evil name.png", buf.getvalue(), "image/png")})
     assert r.json() == {"scene": "scenes/evil_name.png"}
     assert [e["scene"] for e in client.get(url).json()] == [SCENE, "scenes/evil_name.png"]
+
+
+# --- SAM 3.1 box refinement ------------------------------------------------------------
+
+def _det(w, h, x0, y0, x1, y1):
+    m = np.zeros((h, w), bool)
+    m[y0:y1, x0:x1] = True
+    return segment.Detection(mask=m, bbox=segment._bbox(m), area_frac=float(m.mean()),
+                             touches_border=False)
+
+
+def test_refine_picks_copy_overlapping_llm_box(store, monkeypatch):
+    # scene is 64x36. LLM box for "Market Stall": x 0.1-0.4, y 0.2-0.7 -> px 6-25, 7-25
+    s1_plan.analyze(store, SCENE, llm=ScriptedLLM(json.dumps(ANALYSIS)))
+    near, big = _det(64, 36, 8, 8, 24, 24), _det(64, 36, 34, 2, 62, 34)
+    asked = []
+
+    def detect(client, image, noun, **kw):
+        asked.append(noun)
+        return {"market stall": [big, near], "barrel": [], "wall": [big]}.get(noun, [near])
+    monkeypatch.setattr(segment, "detect", detect)
+    name = "batch_001__scene_000"
+    plan = s1_plan.refine_boxes(store, name, client=object())
+    stall, stall2, barrel, wall = plan.assets
+    assert asked == ["market stall", "stall", "barrel", "wall"]  # nouns, not names
+    assert stall.bbox_source == "sam" and stall.bbox == [0.125, 0.2222, 0.375, 0.6667]
+    assert stall.bbox_llm == [0.1, 0.2, 0.4, 0.7] and stall.sam_found == 2
+    assert np.load(store.root / stall.mask)["mask"].sum() == near.mask.sum()
+    assert barrel.bbox_source == "llm" and barrel.bbox == [0.0, 0.9, 0.05, 1.0]
+    assert barrel.sam_found == 0 and barrel.mask is None
+    assert wall.bbox_source == "sam" and wall.bbox_llm is None   # no LLM box: largest copy
+    # re-running matches against the kept LLM box, not the SAM box from the first run
+    monkeypatch.setattr(segment, "detect", lambda c, i, noun, **kw: [big, near])
+    assert s1_plan.refine_boxes(store, name, client=object()).assets[0].bbox == stall.bbox
+
+
+def test_refine_keeps_edited_flag_and_drops_stale_masks(store, monkeypatch):
+    name = "batch_001__scene_000"
+    plan = s1_plan.analyze(store, SCENE, llm=ScriptedLLM(json.dumps(ANALYSIS)))
+    monkeypatch.setattr(segment, "detect", lambda c, i, noun, **kw: [_det(64, 36, 8, 8, 24, 24)])
+    s1_plan.refine_boxes(store, name, client=object())
+    plan = s1_plan.load(store, name)
+    plan.assets = plan.assets[:1]
+    s1_plan.save(store, name, plan, edited=True)
+    out = s1_plan.refine_boxes(store, name, client=object())
+    assert out.edited is not None
+    assert sorted(p.stem for p in (store.root / "plan/masks" / name).glob("*.npz")) == ["market-stall"]

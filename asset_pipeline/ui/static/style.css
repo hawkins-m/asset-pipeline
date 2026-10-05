@@ -65,6 +65,7 @@ code { font-size: 13px; background: var(--bg); padding: 1px 4px; border-radius: 
 .figure img { display: block; width: 100%; height: auto; }
 .bbox { position: absolute; padding: 0; background: transparent; border: 2px solid rgba(255,255,255,.75);
         box-shadow: 0 0 0 1px rgba(0,0,0,.5); border-radius: 2px; }
+.bbox.llm { border-style: dashed; }
 .bbox.active { border-color: var(--star); box-shadow: 0 0 0 2px rgba(0,0,0,.6); background: rgba(242,182,48,.15); }
 .plan-assets h3 { font-size: 14px; margin: 16px 0 6px; }
 #plan-asset-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
@@ -74,6 +75,7 @@ code { font-size: 13px; background: var(--bg); padding: 1px 4px; border-radius: 
 .asset-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .asset-head .name { flex-basis: 12em; }
 .asset-head .name { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.asset-head .sam { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .asset-head .id { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace;
                   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }

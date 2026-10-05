@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import config, review
+from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from ..llm.base import LLMError
@@ -165,9 +166,26 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             raise HTTPException(400, str(e))
         if old and old.edited and not req.force:  # checked here too so the UI can confirm
             raise HTTPException(409, "this plan has edits; re-analysing replaces them")
-        job = jobs.submit("plan.analyze", slug, lambda: s1_plan.plan_name(
-            s1_plan.analyze(store, key, force=req.force).scene))
+        def run():
+            name = s1_plan.plan_name(s1_plan.analyze(store, key, force=req.force).scene)
+            try:
+                s1_plan.refine_boxes(store, name)
+            except ComfyError:
+                pass  # ComfyUI not up: the LLM's boxes stay; "Refine boxes" later
+            return name
+        job = jobs.submit("plan.analyze", slug, run)
         return job.public()
+
+    @app.post("/api/projects/{slug}/plans/{name}/refine")
+    def refine(slug: str, name: str):
+        store = _store(slug)
+        try:
+            if not s1_plan.load(store, name):
+                raise HTTPException(404, f"no plan {name}")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return jobs.submit("plan.refine", slug, lambda: s1_plan.refine_boxes(store, name)
+                           and name).public()
 
     @app.put("/api/projects/{slug}/plans/{name}")
     def save_plan(slug: str, name: str, plan: AssetPlan):

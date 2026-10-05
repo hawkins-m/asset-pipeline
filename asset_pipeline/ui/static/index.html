@@ -85,11 +85,13 @@
       <h2>1 · Scenes</h2>
       <p class="hint">Starred scenes from stage 0, plus any you upload. Pick one and analyse it:
         the vision LLM lists the assets to model, with counts, real-world sizes and where
-        they sit.</p>
+        they sit. When ComfyUI is running, SAM 3.1 then redraws the boxes (solid); dashed boxes
+        are the LLM's own.</p>
       <p id="vlm-status" class="hint"></p>
       <div id="plan-scene-list" class="grid small"></div>
       <div class="row">
         <button id="analyze-btn" disabled>Analyse scene</button>
+        <button id="refine-btn" class="secondary" disabled title="Redo the boxes with SAM 3.1 (needs ComfyUI). Runs after every analysis when ComfyUI is up.">Refine boxes</button>
         <label>Upload a scene <input id="scene-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
       </div>
     </section>

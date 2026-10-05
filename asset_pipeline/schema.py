@@ -53,6 +53,7 @@ class PlanAsset(BaseModel):
     """One thing to model. Identical copies in the scene are one asset with a count."""
     id: str = ""                  # stable slug; later stages name files after it
     name: str
+    noun: str = ""                # short generic noun SAM 3.1 is prompted with ("market stall")
     category: Category = "prop"
     description: str = ""         # the object alone (shape, materials, colours): the stage 2 prompt
     count: int = Field(default=1, ge=1)
@@ -60,6 +61,10 @@ class PlanAsset(BaseModel):
     kit: str | None = None        # modular set; stage 2 draws a kit's pieces in one sheet
     placement: str = ""           # where it sits in the scene
     bbox: list[float] | None = None  # [x0, y0, x1, y1] as fractions of the scene image
+    bbox_source: Literal["llm", "sam"] = "llm"
+    bbox_llm: list[float] | None = None  # the LLM's own box, kept when SAM replaces bbox
+    sam_found: int | None = None  # how many SAM 3.1 found for the name (vs count); None = not run
+    mask: str | None = None       # project-relative SAM mask (.npz) of the chosen copy
     usage: Literal["game", "cine"] = "game"
     include: bool = True          # unticked assets stay in the plan but aren't generated
 
