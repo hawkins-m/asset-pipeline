@@ -74,7 +74,7 @@ ROCm uses the Triton backend. Install every model in its own isolated environmen
 TRELLIS.2 installed in isolation, extensions built for gfx1201, one test image → textured
 GLB that opens in Blender.
 
-## Current status / next steps (2026-10-05)
+## Current status / next steps (2026-10-05, updated after stage 1)
 Done and verified:
 - **Stage 5 (TRELLIS.2):** `trellis IMAGE` on GPU 0. Modes `512` and `1024_cascade` work.
   The gfx1201 GEMM guard and the CuMesh memcpy patch fix silent corruption.
@@ -87,8 +87,16 @@ Done and verified:
   25 s per scene. Gemini and Claude adapters exist but are tested only with mocked SDKs.
   Paid APIs stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
 
+- **Stage 1 (asset plan):** `ap plan analyze` / the UI's Plan tab drafts one `AssetPlan`
+  per scene (`plan/<batch>__<scene>.json`) with the local Qwen3-VL. Live-verified on both
+  alpine-market scenes (45–70 s each). The editor edits, includes/excludes, adds and deletes
+  assets and relations, and protects hand edits from re-analysis. Outside images can be
+  imported as scenes.
+
 Next, in order:
-1. **Stage 1:** scene → `AssetPlan` via the vision LLM, plus a plan editor in the UI.
+1. **Stage 1 follow-ups:** tighten the LLM's rough boxes with SAM 3.1 (text = asset
+   name, pick the detection that best overlaps the LLM box); "break this asset into
+   components" (recursion, `parent` field).
 2. **Stage 2:** reference sheets (front | side | back grid, kit groups in one sheet).
 3. **Stage 3:** SAM 3.1 segmentation with view labels and view-sets in `review.json`.
 4. **Stage 4:** review grid (star, game/cine tag) and the send-to-trellis job queue.

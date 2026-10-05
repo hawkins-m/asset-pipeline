@@ -109,6 +109,50 @@ def cmd_style_show(a) -> None:
               f"style text {p.anchor.style_text!r}")
 
 
+def cmd_plan_import(a) -> None:
+    from .stages import s1_plan
+    store = ProjectStore.open(a.project)
+    for img in a.images:
+        print(s1_plan.import_scene(store, img))
+
+
+def cmd_plan_analyze(a) -> None:
+    from .stages import s1_plan
+    store = ProjectStore.open(a.project)
+    keys = a.scenes or s1_plan.scenes(store)
+    if not keys:
+        raise ValueError("no scenes: star stage-0 scenes or `ap plan import` an image")
+    for k in keys:
+        t = time.time()
+        plan = s1_plan.analyze(store, k, force=a.force)
+        print(f"{s1_plan.plan_name(plan.scene)}: {len(plan.assets)} assets, "
+              f"{len(plan.relations)} relations via {plan.llm} in {time.time() - t:.0f}s")
+
+
+def cmd_plan_show(a) -> None:
+    from .stages import s1_plan
+    store = ProjectStore.open(a.project)
+    names = [a.name] if a.name else [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]
+    for name in names:
+        plan = s1_plan.load(store, name)
+        if a.json:
+            print(json.dumps(plan.model_dump(mode="json") if plan else None, indent=2))
+            continue
+        if not plan:
+            print(f"{name}: not analysed yet\n")
+            continue
+        print(f"{name}  ({plan.scene}, {plan.llm}{', edited' if plan.edited else ''})")
+        print(f"  {plan.summary}\n  scale: {plan.scale_notes}")
+        for x in plan.assets:
+            d = x.dimensions
+            print(f"  {'x' if x.include else '-'} {x.id:<28} {x.category:<10} x{x.count:<3} "
+                  f"{d.width:g}x{d.depth:g}x{d.height:g} m  {x.usage}"
+                  + (f"  kit={x.kit}" if x.kit else ""))
+        for r in plan.relations:
+            print(f"    {r.subject} {r.relation} {r.object}")
+        print()
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -255,6 +299,23 @@ def main(argv: list[str] | None = None) -> None:
     p = ssub.add_parser("show", help="list batches, stars and the anchor")
     p.add_argument("project")
     p.set_defaults(fn=cmd_style_show)
+
+    pl = sub.add_parser("plan", help="stage 1: scene -> asset plan via the vision LLM")
+    psub = pl.add_subparsers(dest="plan_cmd", required=True)
+    p = psub.add_parser("import", help="copy outside scene images into the project's scenes/")
+    p.add_argument("project")
+    p.add_argument("images", nargs="+", type=Path)
+    p.set_defaults(fn=cmd_plan_import)
+    p = psub.add_parser("analyze", help="draft plans (default: every starred/imported scene)")
+    p.add_argument("project")
+    p.add_argument("scenes", nargs="*", help="scene paths (absolute or project-relative)")
+    p.add_argument("--force", action="store_true", help="replace plans edited in the UI")
+    p.set_defaults(fn=cmd_plan_analyze)
+    p = psub.add_parser("show", help="print plans")
+    p.add_argument("project")
+    p.add_argument("name", nargs="?", help="one plan, e.g. batch_001__scene_002")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_plan_show)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

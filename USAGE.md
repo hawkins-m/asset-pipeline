@@ -169,8 +169,9 @@ ap set harbour-town --backend references=gemini   # image backend per stage
   request (6–9 s) and unloads after 10 minutes idle (`--idle-unload SECONDS`), freeing
   GPU 0 for `trellis` again. While loaded it holds about 17.5 GB of GPU 0, so don't run
   `trellis` at the same time (`ap vlm down` frees it at once).
-- A scene analysis takes about 25 s warm, about 35 s with the model load. The very first
-  request after installing took about 100 s (one-time GPU kernel warm-up).
+- A full stage 1 plan takes 45–70 s warm (6–10 assets, 1–1.6k output tokens at ~22 tok/s).
+  The model load adds about 7 s. The very first request after installing took about
+  100 s (one-time GPU kernel warm-up).
 - Log: `/mnt/storage/asset-pipeline/logs/vlm.log`.
 
 **Paid providers are blocked by default.** Gemini and Claude (and the Gemini image
@@ -179,3 +180,50 @@ backend) refuse to run unless you allow it for that one command:
 ```bash
 AP_ALLOW_PAID_APIS=1 ap ...
 ```
+
+# Stage 1: scene → asset plan
+
+The vision LLM reads a scene and drafts an **asset plan**: the things to model, each with
+a category, a count, a real-world size in metres, a description for drawing it alone, where
+it sits, and a rough box on the scene. You then fix it in the editor. Stage 2 will generate
+references from the included assets.
+
+Start the local LLM first (`ap vlm up`). The project's provider is used (`ap set`); paid
+ones stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
+
+## In the browser
+
+`ap ui`, then the **1 · Plan** tab.
+
+1. **Scenes** lists the starred stage-0 scenes plus any you upload. Pick one and click
+   *Analyse scene*. It runs as a background job; the plan appears when it's done.
+2. **Asset plan**: the scene with each asset's box, and a card per asset. Hovering a card
+   highlights its box; clicking a box jumps to its card.
+   - Untick *Include* to keep an asset in the plan but not generate it.
+   - Fix names, sizes, counts and descriptions. Set *Use* to `game` or `cine`.
+   - *Kit* groups modular pieces (wall segments, fence sections) that stage 2 draws
+     together in one sheet. Leave it empty for everything else.
+   - × deletes an asset (and its relations); *Add asset* adds one.
+   - *Save plan* writes it. *Discard changes* goes back to the saved copy.
+3. Re-analysing a plan you've edited asks first. The previous plan is kept as
+   `plan/<name>.prev.json`.
+
+What to expect from the local Qwen3-VL-8B: the main assets and counts are usually right.
+It still lists some parts (doors, windows, chimneys) or backdrop (a distant mountain)
+despite being told not to, and sizes can be off (a 1.5 m barrel). The boxes are rough:
+some are tight, others are offset or far too large. Treat the plan as a draft to edit.
+
+## From the command line
+
+```bash
+ap plan analyze alpine-market                     # every starred/imported scene
+ap plan analyze alpine-market style/explore/batch_001/scene_002.png
+ap plan analyze alpine-market --force             # also replace plans edited in the UI
+ap plan import alpine-market ~/Pictures/town.png  # use your own concept image
+ap plan show alpine-market                        # summary table of every plan
+ap plan show alpine-market batch_001__scene_002 --json
+```
+
+Plans live in `/mnt/storage/asset-pipeline/projects/<slug>/plan/`, one per scene, named
+after the scene's batch and file (`batch_001__scene_002.json`). Imported scenes are copied
+to `scenes/`. Asset `id`s are stable once created; later stages name files after them.

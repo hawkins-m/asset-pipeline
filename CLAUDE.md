@@ -104,6 +104,11 @@ reflects what was actually verified.
   ~17.5 GB while loaded and unloads after 600 s idle. Don't run it alongside `trellis`.
 - Verified 2026-10-05: structured scene analysis on alpine-market validates first try,
   ~25 s warm (1.4k tokens in, ~560 out, ~23 tok/s).
+- Stage 1 plans (verified 2026-10-05, alpine-market): both scenes validated first try,
+  45–70 s warm. Without the explicit "parts are not assets" and "kit only when ≥2 pieces
+  share it" rules, Qwen split stalls into poles/awnings/shingles (23 assets, 173 s) and
+  gave every asset its own kit. Its `bbox_2d` boxes are rough (some tight, many offset or
+  oversized); refine with SAM 3.1 before relying on them.
 - Paid backends (Gemini, Claude, Gemini images) raise `PaidAPIBlocked` unless
   `AP_ALLOW_PAID_APIS=1` is set for that run. Never set it yourself without the user's OK.
   Their tests use mocked SDKs only.

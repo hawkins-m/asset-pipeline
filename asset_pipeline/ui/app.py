@@ -4,7 +4,7 @@ All state is on disk (project.json, review.json); the server holds only job stat
 """
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -12,7 +12,10 @@ from pydantic import BaseModel
 from .. import config, review
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
-from ..stages import s0_style
+from ..llm.base import LLMError
+from ..llm.local import LocalVision
+from ..schema import AssetPlan
+from ..stages import s0_style, s1_plan
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -39,6 +42,11 @@ class DeriveReq(BaseModel):
 class StarReq(BaseModel):
     path: str
     starred: bool = True
+
+
+class AnalyzeReq(BaseModel):
+    scene: str
+    force: bool = False
 
 
 class AnchorReq(BaseModel):
@@ -135,6 +143,60 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e))
         return a.model_dump(mode="json")
+
+    @app.get("/api/projects/{slug}/plans")
+    def plans(slug: str):
+        store = _store(slug)
+        out = []
+        for key in s1_plan.scenes(store):
+            name = s1_plan.plan_name(key)
+            plan = s1_plan.load(store, name)
+            out.append({"name": name, "scene": key,
+                        "plan": plan.model_dump(mode="json") if plan else None})
+        return out
+
+    @app.post("/api/projects/{slug}/plans/analyze")
+    def analyze(slug: str, req: AnalyzeReq):
+        store = _store(slug)
+        try:
+            key = review.rel(store, req.scene)
+            old = s1_plan.load(store, s1_plan.plan_name(key))
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(400, str(e))
+        if old and old.edited and not req.force:  # checked here too so the UI can confirm
+            raise HTTPException(409, "this plan has edits; re-analysing replaces them")
+        job = jobs.submit("plan.analyze", slug, lambda: s1_plan.plan_name(
+            s1_plan.analyze(store, key, force=req.force).scene))
+        return job.public()
+
+    @app.put("/api/projects/{slug}/plans/{name}")
+    def save_plan(slug: str, name: str, plan: AssetPlan):
+        store = _store(slug)
+        try:
+            old = s1_plan.load(store, name)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if not old:
+            raise HTTPException(404, f"no plan {name}")
+        plan.scene, plan.llm, plan.created = old.scene, old.llm, old.created
+        return s1_plan.save(store, name, plan, edited=True).model_dump(mode="json")
+
+    @app.post("/api/projects/{slug}/scenes")
+    async def upload_scene(slug: str, file: UploadFile):
+        store = _store(slug)
+        try:
+            return {"scene": s1_plan.import_scene(store, Path(file.filename or "scene.png"),
+                                                  await file.read())}
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/vlm")
+    def vlm():
+        url = config.backends().get("local", {}).get("vlm_url", "")
+        try:
+            return {"up": True, **LocalVision(url, timeout_s=2).health()}
+        except LLMError as e:
+            return {"up": False, "error": str(e)}
 
     @app.get("/api/jobs/{job_id}")
     def job(job_id: int):

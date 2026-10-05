@@ -50,3 +50,43 @@ button:disabled { opacity: .5; cursor: default; }
 #jobs .error { color: var(--danger); }
 #anchor-current .grid { margin-top: 10px; }
 @media (max-width: 600px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Stage 1: plan editor */
+main[hidden], section[hidden] { display: none; }
+#empty { padding: 16px; margin: 0; }
+button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+code { font-size: 13px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+.plan-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .plan-layout { grid-template-columns: minmax(0, 1fr); } }
+.plan-scene { display: grid; gap: 8px; position: sticky; top: 8px; }
+@media (max-width: 1000px) { .plan-scene { position: static; } }
+.plan-scene textarea { width: 100%; }
+.figure { position: relative; border-radius: 6px; overflow: hidden; background: var(--bg); }
+.figure img { display: block; width: 100%; height: auto; }
+.bbox { position: absolute; padding: 0; background: transparent; border: 2px solid rgba(255,255,255,.75);
+        box-shadow: 0 0 0 1px rgba(0,0,0,.5); border-radius: 2px; }
+.bbox.active { border-color: var(--star); box-shadow: 0 0 0 2px rgba(0,0,0,.6); background: rgba(242,182,48,.15); }
+.plan-assets h3 { font-size: 14px; margin: 16px 0 6px; }
+#plan-asset-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.asset { border: 1px solid var(--line); border-radius: 6px; padding: 10px; display: grid; gap: 8px; background: var(--panel); }
+.asset.active { border-color: var(--star); }
+.asset.excluded { opacity: .55; }
+.asset-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.asset-head .name { flex-basis: 12em; }
+.asset-head .name { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.asset-head .id { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace;
+                  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.asset-fields input, .asset-fields select { width: 100%; }
+.asset textarea, .asset input[data-f=placement] { width: 100%; }
+label.check { display: flex; gap: 4px; align-items: center; white-space: nowrap; }
+button.remove { background: transparent; color: var(--muted); border: 1px solid var(--line);
+                width: 28px; height: 28px; padding: 0; line-height: 1; font-size: 18px; }
+button.remove:hover { color: var(--danger); border-color: var(--danger); }
+#plan-relations { margin: 0 0 8px; padding-left: 18px; }
+#plan-relations li { margin: 4px 0; }
+#plan-relations .remove { width: 22px; height: 22px; font-size: 14px; margin-left: 6px; }
+#relation-form select { max-width: 30%; }
+.sticky-actions { position: sticky; bottom: 0; background: var(--panel); padding: 10px 0 2px;
+                  margin: 12px 0 0; border-top: 1px solid var(--line); }
+.sticky-actions #plan-dirty { margin: 0 auto 0 0; }

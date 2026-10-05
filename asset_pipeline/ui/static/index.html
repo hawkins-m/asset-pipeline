@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Asset Pipeline</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -25,14 +26,14 @@
 
   <nav role="tablist">
     <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
-    <button role="tab" data-tab="plan" disabled title="build step 4">1 · Plan</button>
+    <button role="tab" data-tab="plan">1 · Plan</button>
     <button role="tab" data-tab="refs" disabled title="build step 5">2 · References</button>
     <button role="tab" data-tab="review" disabled title="build steps 6-7">3–4 · Review</button>
   </nav>
 
-  <main id="style-tab">
-    <p id="empty" hidden>Create or pick a project to start.</p>
+  <p id="empty" hidden>Create or pick a project to start.</p>
 
+  <main id="style-tab" data-tab="style">
     <section id="explore">
       <h2>1 · Explore scenes</h2>
       <p class="hint">Generate environment concepts from a brief. Star the scenes worth
@@ -78,6 +79,51 @@
       <div id="anchor-current"></div>
     </section>
   </main>
+
+  <main id="plan-tab" data-tab="plan" hidden>
+    <section id="plan-scenes">
+      <h2>1 · Scenes</h2>
+      <p class="hint">Starred scenes from stage 0, plus any you upload. Pick one and analyse it:
+        the vision LLM lists the assets to model, with counts, real-world sizes and where
+        they sit.</p>
+      <p id="vlm-status" class="hint"></p>
+      <div id="plan-scene-list" class="grid small"></div>
+      <div class="row">
+        <button id="analyze-btn" disabled>Analyse scene</button>
+        <label>Upload a scene <input id="scene-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      </div>
+    </section>
+
+    <section id="plan-editor" hidden>
+      <h2>2 · Asset plan</h2>
+      <div class="plan-layout">
+        <div class="plan-scene">
+          <div id="plan-figure" class="figure"></div>
+          <label>Summary <textarea id="plan-summary" rows="2"></textarea></label>
+          <label>Scale notes <textarea id="plan-scale" rows="2"></textarea></label>
+          <p id="plan-meta" class="hint"></p>
+        </div>
+        <div class="plan-assets">
+          <div id="plan-asset-list"></div>
+          <h3>Relations</h3>
+          <ul id="plan-relations"></ul>
+          <form id="relation-form" class="row">
+            <select name="subject" aria-label="Subject"></select>
+            <input name="relation" placeholder="on top of" aria-label="Relation" required>
+            <select name="object" aria-label="Object"></select>
+            <button>Add relation</button>
+          </form>
+        </div>
+      </div>
+      <div class="row sticky-actions">
+        <button id="add-asset" type="button" class="secondary">Add asset</button>
+        <span id="plan-dirty" class="hint"></span>
+        <button id="discard-plan" type="button" class="secondary" disabled>Discard changes</button>
+        <button id="save-plan" type="button" disabled>Save plan</button>
+      </div>
+    </section>
+  </main>
   <script src="/static/app.js"></script>
+  <script src="/static/plan.js"></script>
 </body>
 </html>

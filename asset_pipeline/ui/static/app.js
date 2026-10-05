@@ -1,12 +1,17 @@
-// Asset pipeline UI: stage 0 (Style). State lives on the server; this re-renders from it.
+// Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
+// from it. Stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
-let slug = null, data = null, selectedScene = null, polling = null;
+let slug = null, data = null, plans = [], selectedScene = null, polling = null;
 
-async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : {
-    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+async function api(path, body, method = "POST") {
+  const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
+    method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.detail || r.statusText);
+  if (!r.ok) {
+    const d = j.detail;  // FastAPI: a string, or a list of pydantic validation errors
+    throw new Error(Array.isArray(d) ? d.map(e => `${e.loc.filter(x => x !== "body").join(" › ")}: ${e.msg}`).join("\n")
+      : d || r.statusText);
+  }
   return j;
 }
 
@@ -83,6 +88,8 @@ function render() {
     cur.append(g);
   }
 
+  renderPlan();
+
   const active = data.jobs.filter(j => j.status === "queued" || j.status === "running");
   const failed = data.jobs.filter(j => j.status === "error").slice(-1);
   $("#jobs").innerHTML = active.length ? `${active.length} job(s) running: ${active.map(j => j.kind).join(", ")}…` :
@@ -93,7 +100,7 @@ function render() {
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; return; }
-  data = await api(`/api/projects/${slug}`);
+  [data, plans] = await Promise.all([api(`/api/projects/${slug}`), api(`/api/projects/${slug}/plans`)]);
   render();
 }
 
@@ -107,7 +114,17 @@ async function loadProjects(pick) {
   await load();
 }
 
-$("#project").onchange = e => { slug = e.target.value; localStorage.setItem("ap.project", slug); load(); };
+function showTab(tab) {
+  document.querySelectorAll("nav [data-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  document.querySelectorAll("main[data-tab]").forEach(m => { m.hidden = m.dataset.tab !== tab; });
+  localStorage.setItem("ap.tab", tab);
+}
+document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
+showTab(localStorage.getItem("ap.tab") === "plan" ? "plan" : "style");
+
+$("#project").onchange = e => {
+  if (!confirmDiscard()) { e.target.value = slug; return; }
+  slug = e.target.value; localStorage.setItem("ap.project", slug); load(); };
 
 $("#new-form").onsubmit = async e => {
   e.preventDefault();
