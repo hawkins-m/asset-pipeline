@@ -20,7 +20,7 @@ We aim to fix those.
   The orchestrator fills inputs and queues jobs over HTTP. Tuning a stage = editing its
   workflow in Comfy, not code.
   - Port 8188 (main instance): image generation and SAM 3 segmentation
-  - Port 8189 (H3 instance): video/other workflows
+  - Port 8189 (ComfyUI-H3 instance): not used by this pipeline
   - Both instances run on GPU 1. GPU 0 runs TRELLIS.2 and other local 3D jobs.
 - **Adapters:** one interface per stage (analyze, generate, segment, to_3d, cleanup) with
   swappable backends, so models can be upgraded without touching orchestration.
