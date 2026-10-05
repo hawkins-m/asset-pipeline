@@ -108,6 +108,14 @@ reflects what was actually verified.
 
   `multiply` mode at 0.15 also replaced the subject. Treat Redux as weak style plus
   content leakage, not a clean style transfer.
+- **Anchors of single objects on white leak far less** (`scripts/diag/style_anchor_ab.py`).
+  With 3 lantern-on-white anchors plus `style_text`, the barrel was kept at total 0.08
+  and at 0.15, and took on the anchor set's look (flat shading, bold outlines, warm
+  palette, cream ground). So stage 0 should generate isolated-object concepts by default.
+  Scene anchors need ≤ 0.04 when combined with `style_text`.
+- Side effect: object anchors plus text pull the anchors' cream background into
+  "plain white background" prompts. Stage 2 must prompt hard for pure white, and stage 3
+  cuts out regardless.
 
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
