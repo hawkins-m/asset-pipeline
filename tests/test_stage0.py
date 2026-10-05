@@ -208,7 +208,7 @@ def test_rederiving_a_noun_replaces_unstarred_items_and_keeps_starred(env, monke
     s0_style.derive(store, scene, ["crate"], per_noun=2, regenerate=False)
     # crate_0 (a, unstarred) replaced; crate_1 (b, starred) kept; b not re-cut; c new
     assert sorted(p.name for p in out.glob("cut_*.png")) == ["cut_crate_0.png", "cut_crate_1.png"]
-    assert review.load(store)["stars"] == {"style/derive/scene_000/cut_crate_1.png": True}
+    assert review.load(store)["stars"] == {"style/derive/batch_001__scene_000/cut_crate_1.png": True}
     meta = json.loads((out / "meta.json").read_text())
     assert sorted(m["cut"] for m in meta["items"]) == ["cut_crate_0.png", "cut_crate_1.png"]
     new = np.load(out / "mask_crate_0.npz")["mask"]
@@ -221,3 +221,31 @@ def test_forget_removes_all_given_stars(env):
     keys = [review.set_star(store, batch / f"scene_00{i}.png") for i in range(3)]
     review.forget(store, keys)
     assert review.load(store)["stars"] == {}
+
+
+def test_same_scene_filename_in_two_batches_gets_separate_derive_dirs(env, monkeypatch):
+    store, _ = env
+    a = _scene(store)                                            # batch_001/scene_000.png
+    b = s0_style.explore(store, n=1) / "scene_000.png"           # batch_002/scene_000.png
+    Image.new("RGB", (64, 48), "gray").save(b)
+    barrel = _det(48, 64, 10, 30, 10, 30)                        # same place in both scenes
+    monkeypatch.setattr(segment, "detect", lambda c, img, noun, **kw: [barrel])
+    out_a = s0_style.derive(store, a, ["barrel"], regenerate=False)
+    out_b = s0_style.derive(store, b, ["barrel"], regenerate=False)
+    assert (out_a.name, out_b.name) == ("batch_001__scene_000", "batch_002__scene_000")
+    # b's barrel isn't a duplicate of a's: different scenes
+    assert (out_b / "cut_barrel_0.png").is_file()
+    assert json.loads((out_b / "meta.json").read_text())["scene"] == "style/explore/batch_002/scene_000.png"
+
+
+def test_legacy_stem_named_derive_dir_is_kept_for_its_own_scene(env, monkeypatch):
+    store, _ = env
+    a = _scene(store)
+    b = s0_style.explore(store, n=1) / "scene_000.png"
+    Image.new("RGB", (64, 48), "gray").save(b)
+    legacy = store.root / s0_style.DERIVE / "scene_000"           # made by the old code for a
+    legacy.mkdir(parents=True)
+    (legacy / "meta.json").write_text(json.dumps({"scene": "style/explore/batch_001/scene_000.png",
+                                                  "items": []}))
+    assert s0_style.derive_dir(store, "style/explore/batch_001/scene_000.png") == legacy
+    assert s0_style.derive_dir(store, "style/explore/batch_002/scene_000.png").name == "batch_002__scene_000"

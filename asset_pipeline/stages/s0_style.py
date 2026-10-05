@@ -9,7 +9,8 @@
 
 Layout under the project:
     style/explore/batch_NNN/scene_###.png + meta.json
-    style/derive/<scene stem>/cut_<noun>_<i>.png, obj_<noun>_<i>.png + meta.json
+    style/derive/<scene name>/cut_<noun>_<i>.png, obj_<noun>_<i>.png + meta.json
+        (scene name: see scene_name(); dirs from before it may be named by the bare stem)
     style/anchor/*.png  (copies of the starred derived objects)
 """
 import re
@@ -29,6 +30,7 @@ from ..schema import StyleAnchor
 EXPLORE = "style/explore"
 DERIVE = "style/derive"
 ANCHOR = "style/anchor"
+SCENES = "scenes"                 # scene images imported from outside stage 0
 
 SCENE_SUFFIX = "environment concept art, wide establishing view, cohesive art direction"
 OBJECT_PROMPT = ("a single {noun}, complete and fully visible, centered, isolated on a plain "
@@ -48,6 +50,25 @@ def _next_batch(root: Path) -> Path:
 
 def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:32] or "object"
+
+
+def scene_name(key: str) -> str:
+    """File-safe name for a scene, unique within the project: its path below
+    style/explore/ or scenes/ with "/" -> "__", no suffix (batch_001__scene_002). The
+    bare stem isn't unique: every batch has a scene_000."""
+    p = Path(key)
+    for prefix in (EXPLORE, SCENES):
+        if p.is_relative_to(prefix):
+            p = p.relative_to(prefix)
+            break
+    return "__".join(p.with_suffix("").parts)
+
+
+def derive_dir(store: ProjectStore, key: str) -> Path:
+    legacy = store.root / DERIVE / Path(key).stem  # pre-scene_name() layout, still in use
+    if (read_json(legacy / "meta.json", default=None) or {}).get("scene") == key:
+        return legacy
+    return store.root / DERIVE / scene_name(key)
 
 
 def explore(store: ProjectStore, brief: str | None = None, n: int = 8, seed: int | None = None,
@@ -95,7 +116,7 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
     project = store.load()
     style_text = style_text or (project.anchor.style_text if project.anchor else "")
     c = client or ComfyClient(config.backends()["comfyui"]["url"])
-    out = store.root / DERIVE / Path(key).stem
+    out = derive_dir(store, key)
     out.mkdir(parents=True, exist_ok=True)
     backend = backend_for("style", project) if regenerate else None
     meta = read_json(out / "meta.json", default=None) or {"scene": key, "items": []}

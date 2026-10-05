@@ -134,7 +134,7 @@ ap style explore harbour-town -n 8
 ap style star harbour-town style/explore/batch_001/scene_003.png
 ap style derive harbour-town style/explore/batch_001/scene_003.png \
     --nouns "boat, lantern, crate" --style-text "painterly, muted blues and rust"
-ap style star harbour-town style/derive/scene_003/obj_boat_0.png
+ap style star harbour-town style/derive/batch_001__scene_003/obj_boat_0.png
 ap style anchor harbour-town             # strength 0.06; keeps the derive style text
 ap style show harbour-town               # batches, stars, anchor
 ap gen "a wooden pier post, isolated on white" --project harbour-town --anchor

@@ -7,8 +7,7 @@ relations resolved to ids (unmatched ones dropped), boxes as 0-1 fractions.
 Layout under the project:
     scenes/<file>                 scene images imported from outside stage 0
     plan/<scene name>.json        one AssetPlan per scene (+ .prev.json before re-analysis)
-where <scene name> is the scene's path below style/explore/ or scenes/, "/" -> "__",
-without the suffix (batch_001__scene_002), so equal file names in two batches don't collide.
+where <scene name> is s0_style.scene_name(): batch_001__scene_002.
 """
 import io
 import re
@@ -28,7 +27,7 @@ from ..schema import AssetPlan, Category, Dimensions, PlanAsset, Relation
 from . import s0_style
 
 PLAN = "plan"
-SCENES = "scenes"
+SCENES = s0_style.SCENES
 MAX_ASSETS = 20
 
 
@@ -95,12 +94,7 @@ Rules:
 # --- Paths -----------------------------------------------------------------------------
 
 def plan_name(scene_key: str) -> str:
-    p = Path(scene_key)
-    for prefix in (s0_style.EXPLORE, SCENES):
-        if p.is_relative_to(prefix):
-            p = p.relative_to(prefix)
-            break
-    return "__".join(p.with_suffix("").parts)
+    return s0_style.scene_name(scene_key)
 
 
 def plan_file(store: ProjectStore, name: str) -> Path:
