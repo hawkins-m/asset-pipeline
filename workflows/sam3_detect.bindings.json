@@ -1,0 +1,9 @@
+{
+  "outputs": ["6"],
+  "bindings": {
+    "image":     {"node": "1", "input": "image"},
+    "text":      {"node": "3", "input": "text"},
+    "threshold": {"node": "4", "input": "threshold"},
+    "refine":    {"node": "4", "input": "refine_iterations"}
+  }
+}

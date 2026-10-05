@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asset Pipeline</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Asset Pipeline</h1>
+    <label>Project
+      <select id="project"></select>
+    </label>
+    <details id="new-project">
+      <summary>New project</summary>
+      <form id="new-form">
+        <input name="slug" placeholder="slug (e.g. harbour-town)" required pattern="[a-z0-9][a-z0-9_-]*">
+        <input name="brief" placeholder="brief (optional)">
+        <button>Create</button>
+      </form>
+    </details>
+    <span id="jobs" aria-live="polite"></span>
+  </header>
+
+  <nav role="tablist">
+    <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
+    <button role="tab" data-tab="plan" disabled title="build step 4">1 · Plan</button>
+    <button role="tab" data-tab="refs" disabled title="build step 5">2 · References</button>
+    <button role="tab" data-tab="review" disabled title="build steps 6-7">3–4 · Review</button>
+  </nav>
+
+  <main id="style-tab">
+    <p id="empty" hidden>Create or pick a project to start.</p>
+
+    <section id="explore">
+      <h2>1 · Explore scenes</h2>
+      <p class="hint">Generate environment concepts from a brief. Star the scenes worth
+        keeping. Starred scenes go to scene analysis (stage 1) and are the source for the
+        style anchor below.</p>
+      <form id="explore-form" class="row">
+        <textarea name="brief" rows="2" placeholder="Brief: e.g. a misty fishing harbour at dawn, painterly, muted blues and rust"></textarea>
+        <label>Images <input name="n" type="number" min="1" max="32" value="8"></label>
+        <label>Seed <input name="seed" type="number" placeholder="random"></label>
+        <button>Generate scenes</button>
+      </form>
+      <div id="batches"></div>
+    </section>
+
+    <section id="derive">
+      <h2>2 · Derive anchor objects</h2>
+      <p class="hint">Pick a starred scene and name objects in it. Each one is cut out
+        with SAM 3 and redrawn as a whole object on white in the scene's style. Star the
+        good ones (cutouts or redraws).</p>
+      <div id="starred-scenes" class="grid small"></div>
+      <form id="derive-form" class="row">
+        <input name="nouns" placeholder="objects, comma-separated: boat, house, lantern" required>
+        <label>Per object <input name="per_noun" type="number" min="1" max="6" value="2"></label>
+        <button>Derive objects</button>
+      </form>
+      <div id="derived"></div>
+    </section>
+
+    <section id="anchor">
+      <h2>3 · Style anchor</h2>
+      <p class="hint">The starred derived objects plus this style text condition every later
+        image. The text carries most of the style; the images add the look.</p>
+      <form id="anchor-form" class="col">
+        <textarea name="style_text" rows="2" placeholder="Style text: medium, palette, linework, lighting…"></textarea>
+        <label>Image strength <output id="strength-out">0.06</output>
+          <input name="strength" type="range" min="0.02" max="0.3" step="0.01" value="0.06">
+        </label>
+        <p class="hint">Start low (0.06). If new images pick up parts of the anchor objects
+          (awnings, produce…), lower it or star more varied objects; if the style is too
+          weak, raise it a little or strengthen the style text.</p>
+        <button>Save anchor</button>
+      </form>
+      <div id="anchor-current"></div>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

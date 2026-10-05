@@ -40,7 +40,13 @@ def cmd_gen(a) -> None:
         project = store.load()
     backend = make_backend(a.backend) if a.backend else backend_for(a.stage, project)
     w, h = _size(a.size)
-    req = GenRequest(prompt=a.prompt, width=w, height=h, n=a.n, seed=a.seed, steps=a.steps)
+    anchor = None
+    if a.anchor:
+        if not (project and project.anchor):
+            raise ValueError("--anchor needs --project with a saved style anchor")
+        anchor = project.anchor
+    req = GenRequest(prompt=a.prompt, width=w, height=h, n=a.n, seed=a.seed, steps=a.steps,
+                     anchor=anchor)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = a.out or ((store.root if store else config.ap_root() / "outputs") / "gen" / stamp)
     t = time.time()
@@ -52,6 +58,60 @@ def cmd_gen(a) -> None:
     for r in results:
         print(r.path)
     print(f"{len(results)} image(s) via {backend.name} in {elapsed}s", file=sys.stderr)
+
+
+def cmd_style_explore(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    out = s0_style.explore(store, a.brief, n=a.n, seed=a.seed)
+    for img in sorted(out.glob("scene_*.png")):
+        print(img)
+
+
+def cmd_style_star(a) -> None:
+    from . import review
+    store = ProjectStore.open(a.project)
+    for p in a.paths:
+        print(("unstarred " if a.unstar else "starred ") + review.set_star(store, p, not a.unstar))
+
+
+def cmd_style_derive(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    out = s0_style.derive(store, a.scene, [n for n in a.nouns.split(",")], per_noun=a.per_noun,
+                          regenerate=not a.no_redraw, style_text=a.style_text or "")
+    for img in sorted(out.glob("*.png")):
+        print(img)
+
+
+def cmd_style_anchor(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    anchor = s0_style.save_anchor(store, strength=a.strength, style_text=a.style_text)
+    print(f"anchor: {len(anchor.images)} image(s), strength {anchor.strength}, "
+          f"style text {anchor.style_text!r}")
+
+
+def cmd_style_show(a) -> None:
+    from . import review
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    p = store.load()
+    print(f"project {p.slug}: brief {p.brief!r}")
+    for b in sorted((store.root / s0_style.EXPLORE).glob("batch_*")):
+        print(f"  {b.relative_to(store.root)}: {len(list(b.glob('scene_*.png')))} scenes")
+    print("starred scenes:", *review.starred(store, s0_style.EXPLORE + "/") or ["(none)"], sep="\n  ")
+    print("starred derived:", *review.starred(store, s0_style.DERIVE + "/") or ["(none)"], sep="\n  ")
+    if p.anchor:
+        print(f"anchor: {len(p.anchor.images)} image(s), strength {p.anchor.strength}, "
+              f"style text {p.anchor.style_text!r}")
+
+
+def cmd_ui(a) -> None:
+    import uvicorn
+    from .ui.app import create_app
+    print(f"Asset pipeline UI: http://127.0.0.1:{a.port}")
+    uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -76,8 +136,43 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--project", help="project slug: use its backends, log to its runs.jsonl")
     p.add_argument("--stage", default="style", help="which stage's backend to use (default style)")
     p.add_argument("--backend", help="override: comfyui | gemini")
+    p.add_argument("--anchor", action="store_true", help="apply the project's style anchor")
     p.add_argument("--out", type=Path, help="output dir (default: project or $AP_ROOT/outputs/gen/<time>)")
     p.set_defaults(fn=cmd_gen)
+
+    st = sub.add_parser("style", help="stage 0: explore scenes, derive the style anchor")
+    ssub = st.add_subparsers(dest="style_cmd", required=True)
+    p = ssub.add_parser("explore", help="generate scene concepts from the brief")
+    p.add_argument("project")
+    p.add_argument("--brief", help="defaults to the project's brief")
+    p.add_argument("-n", type=int, default=8)
+    p.add_argument("--seed", type=int)
+    p.set_defaults(fn=cmd_style_explore)
+    p = ssub.add_parser("star", help="star (or --unstar) images by path")
+    p.add_argument("project")
+    p.add_argument("paths", nargs="+")
+    p.add_argument("--unstar", action="store_true")
+    p.set_defaults(fn=cmd_style_star)
+    p = ssub.add_parser("derive", help="cut objects from a starred scene and redraw them on white")
+    p.add_argument("project")
+    p.add_argument("scene", help="scene image path (absolute or project-relative)")
+    p.add_argument("--nouns", required=True, help="comma-separated objects, e.g. 'boat,house'")
+    p.add_argument("--per-noun", type=int, default=2)
+    p.add_argument("--style-text", help="defaults to the current anchor's style text")
+    p.add_argument("--no-redraw", action="store_true", help="only cut out, don't regenerate")
+    p.set_defaults(fn=cmd_style_derive)
+    p = ssub.add_parser("anchor", help="save starred derived objects as the style anchor")
+    p.add_argument("project")
+    p.add_argument("--strength", type=float, default=0.06)
+    p.add_argument("--style-text", help="keeps the current style text if omitted")
+    p.set_defaults(fn=cmd_style_anchor)
+    p = ssub.add_parser("show", help="list batches, stars and the anchor")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_style_show)
+
+    p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
+    p.add_argument("--port", type=int, default=8700)
+    p.set_defaults(fn=cmd_ui)
 
     a = ap.parse_args(argv)
     try:

@@ -95,3 +95,53 @@ HIP_VISIBLE_DEVICES=1 PYTHONPATH=$AP_ROOT/src/TRELLIS.2 \
 
 Never set `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. On this GPU it produces
 silent NaNs, and the script refuses to start if it is set.
+
+---
+
+# Stage 0: exploring scenes and setting a style anchor
+
+ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with
+`ap comfy-check`). Everything below runs locally. No paid APIs are used.
+
+## In the browser
+
+```bash
+ap ui                 # then open http://127.0.0.1:8700
+```
+
+1. **New project.** Give it a slug and a brief, e.g. `harbour-town` and "a misty fishing
+   harbour at dawn, painterly, muted blues and rust".
+2. **Explore scenes.** Click *Generate scenes*. Each image is a 1344×768 environment
+   concept, at about 45 s per batch of 4. Star the scenes worth keeping (☆ → ★). Starred
+   scenes are what stage 1 (scene analysis) will use.
+3. **Derive anchor objects.** Click a starred scene, type objects you can see in it
+   (`barrel, market stall, lantern`), then *Derive objects*.
+   - SAM 3 cuts each one out of the scene (*cutout*), skipping objects cut off by the frame.
+   - Each cutout is redrawn as a whole object on white in the scene's style (*redraw*).
+   - Star the good ones. Redraws are usually cleaner.
+4. **Style anchor.** Write the style text (medium, palette, linework, lighting), then
+   *Save anchor*. The starred objects plus this text condition every later image.
+   - Keep the strength low (default 0.06).
+   - If new images pick up parts of the anchor objects (an awning, produce), lower the
+     strength or star more varied objects.
+   - If the style is too weak, raise the strength slightly or strengthen the text.
+
+## From the command line
+
+```bash
+ap new harbour-town --brief "a misty fishing harbour at dawn, painterly"
+ap style explore harbour-town -n 8
+ap style star harbour-town style/explore/batch_001/scene_003.png
+ap style derive harbour-town style/explore/batch_001/scene_003.png \
+    --nouns "boat, lantern, crate" --style-text "painterly, muted blues and rust"
+ap style star harbour-town style/derive/scene_003/obj_boat_0.png
+ap style anchor harbour-town             # strength 0.06; keeps the derive style text
+ap style show harbour-town               # batches, stars, anchor
+ap gen "a wooden pier post, isolated on white" --project harbour-town --anchor
+```
+
+Projects live in `/mnt/storage/asset-pipeline/projects/<slug>/`:
+- `style/explore/` holds the scenes.
+- `style/derive/` holds cutouts and redraws.
+- `style/anchor/` holds the saved anchor.
+- `review.json` holds the stars.

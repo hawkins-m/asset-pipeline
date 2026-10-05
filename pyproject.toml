@@ -28,6 +28,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["asset_pipeline*"]
 
+[tool.setuptools.package-data]
+asset_pipeline = ["ui/static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["comfy: needs a live ComfyUI on the configured URL (skipped if unreachable)"]

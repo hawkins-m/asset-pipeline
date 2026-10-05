@@ -43,3 +43,11 @@ def test_log_run_appends_jsonl():
     lines = [json.loads(l) for l in (store.root / "runs.jsonl").read_text().splitlines()]
     assert [l["outputs"] for l in lines] == [["a.png"], ["b.png"]]
     assert all("time" in l for l in lines)
+
+
+def test_json_files_get_normal_permissions():
+    import os, stat
+    store = ProjectStore.create("perms")
+    mode = stat.S_IMODE(os.stat(store.project_file).st_mode)
+    umask = os.umask(0); os.umask(umask)
+    assert mode == 0o666 & ~umask

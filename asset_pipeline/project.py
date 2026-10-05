@@ -13,6 +13,8 @@ from . import config
 from .schema import Project
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_UMASK = os.umask(0)
+os.umask(_UMASK)
 
 
 def write_json(path: Path, data) -> None:
@@ -20,6 +22,7 @@ def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
+        os.fchmod(fd, 0o666 & ~_UMASK)  # mkstemp creates 0600; match normal file perms
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2, default=str)
             f.write("\n")

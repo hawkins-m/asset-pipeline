@@ -113,6 +113,10 @@ reflects what was actually verified.
   and at 0.15, and took on the anchor set's look (flat shading, bold outlines, warm
   palette, cream ground). So stage 0 should generate isolated-object concepts by default.
   Scene anchors need ≤ 0.04 when combined with `style_text`.
+- **The safe strength depends on the anchor set.** A 4-image set (barrel, planter, two
+  market stalls) at 0.12 turned "wooden hand cart" into a stall-cart with an awning. At
+  0.08 produce remained; at 0.05 the cart was clean and in the anchor style. Default is
+  0.06. Distinctive multi-part objects (stalls) carry more content than simple ones.
 - Side effect: object anchors plus text pull the anchors' cream background into
   "plain white background" prompts. Stage 2 must prompt hard for pure white, and stage 3
   cuts out regardless.

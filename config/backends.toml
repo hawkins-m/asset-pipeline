@@ -10,6 +10,7 @@ timeout_s = 900
 # Logical name -> workflows/<file>.json (+ <file>.bindings.json)
 t2i = "flux_t2i"
 t2i_anchor = "flux_t2i_anchor"   # + Flux Redux style anchor and optional style LoRA
+segment = "sam3_detect"          # SAM 3.1 text-prompted masks (one image per object)
 
 [gemini]
 # Filled in at build step 3 after confirming current model ids.
