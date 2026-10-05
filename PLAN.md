@@ -73,3 +73,32 @@ ROCm uses the Triton backend. Install every model in its own isolated environmen
 ## First milestone
 TRELLIS.2 installed in isolation, extensions built for gfx1201, one test image → textured
 GLB that opens in Blender.
+
+## Current status / next steps (2026-10-05)
+Done and verified:
+- **Stage 5 (TRELLIS.2):** `trellis IMAGE` on GPU 0. Modes `512` and `1024_cascade` work.
+  The gfx1201 GEMM guard and the CuMesh memcpy patch fix silent corruption.
+- **Orchestrator foundation:** `ap` CLI, ComfyUI client and workflow templates, and an
+  image adapter (ComfyUI by default, Gemini optional, chosen per stage).
+- **Stage 0 (style anchor):** scenes are explored, then object-on-white anchors are
+  derived from starred scenes via SAM 3.1, with duplicates removed. The anchor is Flux
+  Redux at 0.06 plus style text. There is a UI on 127.0.0.1:8700.
+- **Step 3 (vision LLM):** local Qwen3-VL-8B on GPU 0 (`ap vlm`), live-verified at about
+  25 s per scene. Gemini and Claude adapters exist but are tested only with mocked SDKs.
+  Paid APIs stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
+
+Next, in order:
+1. **Stage 1:** scene → `AssetPlan` via the vision LLM, plus a plan editor in the UI.
+2. **Stage 2:** reference sheets (front | side | back grid, kit groups in one sheet).
+3. **Stage 3:** SAM 3.1 segmentation with view labels and view-sets in `review.json`.
+4. **Stage 4:** review grid (star, game/cine tag) and the send-to-trellis job queue.
+5. **Docs pass:** this file's Stages and Architecture sections need several updates:
+   - stage 0;
+   - the adapter;
+   - SAM 3.1 replacing GDINO+SAM2;
+   - the GPU map (ComfyUI → GPU 1, TRELLIS/VLM → GPU 0).
+
+Open items:
+- `1536_cascade` runs out of memory in CuMesh `fill_holes`.
+- Non-cascade `1024` mode hasn't been re-verified since the GEMM guard went in.
+- The first real Gemini or Claude call needs the user's OK.
