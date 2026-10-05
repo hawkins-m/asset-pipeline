@@ -29,6 +29,13 @@ def _bbox(mask: np.ndarray) -> tuple[int, int, int, int]:
     return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
 
 
+def overlap(a: np.ndarray, b: np.ndarray) -> float:
+    """Intersection over the smaller mask: ~1 when one mask lies inside the other (an
+    object and one of its parts), unlike IoU."""
+    small = min(a.sum(), b.sum())
+    return float(np.logical_and(a, b).sum() / small) if small else 0.0
+
+
 def iou(a: np.ndarray, b: np.ndarray) -> float:
     union = np.logical_or(a, b).sum()
     return float(np.logical_and(a, b).sum() / union) if union else 0.0

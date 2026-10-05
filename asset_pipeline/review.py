@@ -46,3 +46,11 @@ def starred(store: ProjectStore, prefix: str = "") -> list[str]:
     """Starred keys under a prefix (e.g. "style/explore/"), in sorted order."""
     return sorted(k for k, v in load(store)["stars"].items() if v and k.startswith(prefix)
                   and (store.root / k).is_file())
+
+
+def forget(store: ProjectStore, keys: list[str]) -> None:
+    """Drop stars for keys whose files are being deleted (no existence check)."""
+    data = load(store)
+    removed = [k for k in keys if data["stars"].pop(k, None) is not None]
+    if removed:
+        write_json(_file(store), data)

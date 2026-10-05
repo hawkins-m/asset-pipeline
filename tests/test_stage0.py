@@ -1,3 +1,4 @@
+import json
 import time
 
 import numpy as np
@@ -162,3 +163,61 @@ def test_save_anchor_falls_back_to_derive_style_text(env, monkeypatch):
     out = s0_style.derive(store, scene, ["boat"], per_noun=1, style_text="painterly")
     review.set_star(store, out / "obj_boat_0.png")
     assert s0_style.save_anchor(store).style_text == "painterly"
+
+
+def _det(h, w, y0, y1, x0, x1, border=False):
+    m = np.zeros((h, w), bool)
+    m[y0:y1, x0:x1] = True
+    return segment.Detection(mask=m, bbox=segment._bbox(m), area_frac=float(m.mean()),
+                             touches_border=border)
+
+
+def _scene(store):
+    scene = s0_style.explore(store, n=1) / "scene_000.png"
+    Image.new("RGB", (64, 48), "gray").save(scene)
+    return scene
+
+
+def test_derive_skips_part_of_an_object_already_taken(env, monkeypatch):
+    store, _ = env
+    scene = _scene(store)
+    whole, lid = _det(48, 64, 10, 30, 10, 30), _det(48, 64, 10, 14, 12, 28)  # lid inside barrel
+    monkeypatch.setattr(segment, "detect", lambda c, img, noun, **kw: [whole, lid])
+    out = s0_style.derive(store, scene, ["barrel"], per_noun=3, regenerate=False)
+    assert sorted(p.name for p in out.glob("cut_*.png")) == ["cut_barrel_0.png"]
+
+
+def test_derive_dedupes_across_runs_and_nouns(env, monkeypatch):
+    store, _ = env
+    scene = _scene(store)
+    barrel = _det(48, 64, 10, 30, 10, 30)
+    monkeypatch.setattr(segment, "detect", lambda c, img, noun, **kw: [barrel])
+    s0_style.derive(store, scene, ["barrel"], regenerate=False)
+    out = s0_style.derive(store, scene, ["flower pot"], regenerate=False)  # later run, same object
+    assert sorted(p.name for p in out.glob("cut_*.png")) == ["cut_barrel_0.png"]
+
+
+def test_rederiving_a_noun_replaces_unstarred_items_and_keeps_starred(env, monkeypatch):
+    store, _ = env
+    scene = _scene(store)
+    a, b, c = _det(48, 64, 5, 15, 5, 15), _det(48, 64, 25, 40, 30, 50), _det(48, 64, 20, 30, 5, 15)
+    monkeypatch.setattr(segment, "detect", lambda c_, img, noun, **kw: [a, b])
+    out = s0_style.derive(store, scene, ["crate"], per_noun=2, regenerate=False)
+    review.set_star(store, out / "cut_crate_1.png")                 # keep b
+    monkeypatch.setattr(segment, "detect", lambda c_, img, noun, **kw: [b, c])
+    s0_style.derive(store, scene, ["crate"], per_noun=2, regenerate=False)
+    # crate_0 (a, unstarred) replaced; crate_1 (b, starred) kept; b not re-cut; c new
+    assert sorted(p.name for p in out.glob("cut_*.png")) == ["cut_crate_0.png", "cut_crate_1.png"]
+    assert review.load(store)["stars"] == {"style/derive/scene_000/cut_crate_1.png": True}
+    meta = json.loads((out / "meta.json").read_text())
+    assert sorted(m["cut"] for m in meta["items"]) == ["cut_crate_0.png", "cut_crate_1.png"]
+    new = np.load(out / "mask_crate_0.npz")["mask"]
+    assert segment.iou(new, c.mask) == 1.0                          # crate_0 is now c, unstarred
+
+
+def test_forget_removes_all_given_stars(env):
+    store, _ = env
+    batch = s0_style.explore(store, n=3)
+    keys = [review.set_star(store, batch / f"scene_00{i}.png") for i in range(3)]
+    review.forget(store, keys)
+    assert review.load(store)["stars"] == {}

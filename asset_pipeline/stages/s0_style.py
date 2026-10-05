@@ -17,6 +17,8 @@ import shutil
 import time
 from pathlib import Path
 
+import numpy as np
+
 from .. import config, review, segment
 from ..comfy.client import ComfyClient
 from ..imagegen.base import GenRequest
@@ -96,18 +98,36 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
     out = store.root / DERIVE / Path(key).stem
     out.mkdir(parents=True, exist_ok=True)
     backend = backend_for("style", project) if regenerate else None
-    t, items, taken = time.time(), [], []
+    meta = read_json(out / "meta.json", default=None) or {"scene": key, "items": []}
+    t, items = time.time(), []
+    stars = review.load(store)["stars"]
     for noun in [n.strip() for n in nouns if n.strip()]:
-        # SAM 3 can return the same object for different nouns (a barrel as "flower pot");
-        # skip masks that mostly overlap one already taken.
-        dets = [d for d in segment.detect(c, scene_path, noun) if not d.touches_border
-                and all(segment.iou(d.mask, m) < 0.8 for m in taken)]
-        for i, det in enumerate(dets[:per_noun]):
+        # Re-deriving a noun replaces its unstarred items; starred ones are kept (and still
+        # block duplicates). New items take free filenames, so stars never move.
+        slug = _slug(noun)
+        old = [m for m in meta["items"] if _slug(m["noun"]) == slug
+               and not _is_starred(store, out, m, stars)]
+        _remove_items(store, out, old)
+        meta["items"] = [m for m in meta["items"] if m not in old]
+        # The same object must not come out twice: not for two nouns (SAM 3 returned a
+        # barrel for "flower pot"), not as a part of an object already taken (a barrel's
+        # lid), and not across separate derive runs on this scene (masks are stored).
+        taken = [_load_mask(out, m) for m in meta["items"] + items]
+        taken = [m for m in taken if m is not None]
+        kept = 0
+        for det in segment.detect(c, scene_path, noun):
+            if kept >= per_noun:
+                break
+            if det.touches_border or any(segment.overlap(det.mask, m) > 0.6 for m in taken):
+                continue
             taken.append(det.mask)
-            name = f"{_slug(noun)}_{i}"
+            name = _free_name(out, slug)
+            kept += 1
             cut = out / f"cut_{name}.png"
             segment.cutout(scene_path, det)[1].save(cut)
-            item = {"noun": noun, "cut": cut.name, "area_frac": round(det.area_frac, 4)}
+            np.savez_compressed(out / f"mask_{name}.npz", mask=det.mask)
+            item = {"noun": noun, "cut": cut.name, "mask": f"mask_{name}.npz",
+                    "area_frac": round(det.area_frac, 4)}
             if backend:
                 req = GenRequest(prompt=OBJECT_PROMPT.format(noun=noun), seed=seed + len(items),
                                  anchor=StyleAnchor(images=[cut], strength=DERIVE_STRENGTH,
@@ -117,13 +137,36 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
                 res.path.rename(obj)
                 item["obj"] = obj.name
             items.append(item)
-    meta = read_json(out / "meta.json", default={"scene": key, "items": []})
-    meta["items"] = [m for m in meta["items"] if m["cut"] not in {i["cut"] for i in items}] + items
+    meta["items"] += items
     meta["style_text"] = style_text
     write_json(out / "meta.json", meta)
     store.log_run({"stage": "style.derive", "scene": key, "nouns": nouns, "n": len(items),
                    "seconds": round(time.time() - t, 1)})
     return out
+
+
+def _is_starred(store: ProjectStore, out: Path, item: dict, stars: dict) -> bool:
+    return any(stars.get((out / item[k]).relative_to(store.root).as_posix())
+               for k in ("cut", "obj") if item.get(k))
+
+
+def _free_name(out: Path, slug: str) -> str:
+    i = 0
+    while (out / f"cut_{slug}_{i}.png").exists():
+        i += 1
+    return f"{slug}_{i}"
+
+
+def _load_mask(out: Path, item: dict) -> np.ndarray | None:
+    path = out / item.get("mask", "")
+    return np.load(path)["mask"] if item.get("mask") and path.is_file() else None
+
+
+def _remove_items(store: ProjectStore, out: Path, items: list[dict]) -> None:
+    files = [out / item[k] for item in items for k in ("cut", "obj", "mask") if item.get(k)]
+    review.forget(store, [f.relative_to(store.root).as_posix() for f in files])
+    for f in files:
+        f.unlink(missing_ok=True)
 
 
 def _derive_style_text(store: ProjectStore, keys: list[str]) -> str:
