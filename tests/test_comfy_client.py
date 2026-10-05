@@ -139,3 +139,13 @@ def test_unreachable_server_gives_launch_hint():
     c = ComfyClient("http://127.0.0.1:1", transport=httpx.MockTransport(down))
     with pytest.raises(ComfyUnavailable, match="run_comfy.sh"):
         c.health()
+
+
+def test_style_text_appended_to_prompt(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    fake = FakeComfy()
+    backend = ComfyUIBackend(make_client(fake), WORKFLOWS)
+    anchor = StyleAnchor(images=_anchor_files(tmp_path, 1), style_text="ukiyo-e print, flat colours")
+    res = backend.generate(GenRequest(prompt="a barrel.", anchor=anchor), tmp_path / "out")
+    assert fake.queued[0]["6"]["inputs"]["text"] == "a barrel, ukiyo-e print, flat colours"
+    assert res[0].meta["prompt"] == "a barrel, ukiyo-e print, flat colours"

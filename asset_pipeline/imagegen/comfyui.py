@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..comfy import workflow
 from ..comfy.client import ComfyClient
-from .base import BackendCapabilityError, GenRequest, GenResult
+from .base import BackendCapabilityError, GenRequest, GenResult, effective_prompt
 
 
 class ComfyUIBackend:
@@ -36,7 +36,8 @@ class ComfyUIBackend:
         name = self.workflows["t2i_anchor"] if (anchor or lora) else self.workflows["t2i"]
         graph, manifest = workflow.load_template(name)
         seed = req.seed if req.seed is not None else random.randrange(2**32)
-        values = {"prompt": req.prompt, "negative": req.negative, "width": req.width,
+        prompt = effective_prompt(req)
+        values = {"prompt": prompt, "negative": req.negative, "width": req.width,
                   "height": req.height, "n": req.n, "seed": seed}
         if req.steps is not None:
             values["steps"] = req.steps
@@ -54,7 +55,7 @@ class ComfyUIBackend:
             # per-image noise from it), so record the batch seed and index.
             results.append(GenResult(path=path, seed=seed, backend=self.name,
                                      meta={"workflow": name, "batch_index": i,
-                                           "prompt": req.prompt,
+                                           "prompt": prompt,
                                            "anchor_images": [str(p) for p in req.anchor.images]
                                            if req.anchor else [],
                                            "lora": lora.model_dump() if lora else None,

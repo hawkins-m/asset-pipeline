@@ -19,6 +19,9 @@ class StyleAnchor(BaseModel):
     # <= 0.06 barely styles, ~0.08 styles while keeping the prompt's subject, >= 0.12
     # replaces the subject with the anchor's content. See CLAUDE.md.
     strength: float = 0.08
+    # Editable style descriptor (medium, palette, linework...) appended to every prompt.
+    # It carries most of the style, since Redux alone can't without leaking content.
+    style_text: str = ""
     lora: LoraRef | None = None
 
 

@@ -28,6 +28,12 @@ class GenResult(BaseModel):
     meta: dict = Field(default_factory=dict)  # includes "ignored": request fields not honoured
 
 
+def effective_prompt(req: GenRequest) -> str:
+    """The prompt every backend sends: the request prompt plus the anchor's style text."""
+    style = req.anchor.style_text.strip() if req.anchor else ""
+    return f"{req.prompt.rstrip(' ,.')}, {style}" if style else req.prompt
+
+
 class BackendCapabilityError(RuntimeError):
     """The backend can't honour a request field it is expected to support (yet)."""
 
