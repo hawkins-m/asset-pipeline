@@ -15,7 +15,10 @@ class LoraRef(BaseModel):
 class StyleAnchor(BaseModel):
     """Curated stage-0 images that condition every later generation."""
     images: list[Path] = Field(default_factory=list)
-    strength: float = 0.5
+    # Total Flux Redux strength (attn_bias), split across images. Measured 2026-10-04:
+    # <= 0.06 barely styles, ~0.08 styles while keeping the prompt's subject, >= 0.12
+    # replaces the subject with the anchor's content. See CLAUDE.md.
+    strength: float = 0.08
     lora: LoraRef | None = None
 
 

@@ -9,6 +9,7 @@ timeout_s = 900
 [comfyui.workflows]
 # Logical name -> workflows/<file>.json (+ <file>.bindings.json)
 t2i = "flux_t2i"
+t2i_anchor = "flux_t2i_anchor"   # + Flux Redux style anchor and optional style LoRA
 
 [gemini]
 # Filled in at build step 3 after confirming current model ids.

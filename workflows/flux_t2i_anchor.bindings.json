@@ -1,0 +1,20 @@
+{
+  "outputs": ["9"],
+  "bindings": {
+    "prompt":   {"node": "6", "input": "text"},
+    "negative": {"node": "7", "input": "text"},
+    "width":    {"node": "5", "input": "width"},
+    "height":   {"node": "5", "input": "height"},
+    "n":        {"node": "5", "input": "batch_size"},
+    "seed":     {"node": "3", "input": "seed"},
+    "steps":    {"node": "3", "input": "steps"},
+    "guidance": {"node": "11", "input": "guidance"},
+    "lora":     {"node": "12", "optional": true, "passthrough": "model",
+                 "fields": {"file": "lora_name", "strength": "strength_model"}},
+    "anchor":   {"repeat": {"nodes": ["22", "23", "24"],
+                            "chain_in": {"node": "24", "input": "conditioning"},
+                            "out": "24"},
+                 "fields": {"image": {"node": "22", "input": "image"},
+                            "strength": {"node": "24", "input": "strength"}}}
+  }
+}
