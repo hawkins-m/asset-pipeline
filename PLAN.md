@@ -19,8 +19,9 @@ We aim to fix those.
 - **ComfyUI as headless backend:** each generation stage is a saved API-format workflow JSON.
   The orchestrator fills inputs and queues jobs over HTTP. Tuning a stage = editing its
   workflow in Comfy, not code.
-  - Port 8188 → GPU 0: image generation
-  - Port 8189 → GPU 1: image-to-3D
+  - Port 8188 (main instance): image generation and SAM 3 segmentation
+  - Port 8189 (H3 instance): video/other workflows
+  - Both instances run on GPU 1. GPU 0 runs TRELLIS.2 and other local 3D jobs.
 - **Adapters:** one interface per stage (analyze, generate, segment, to_3d, cleanup) with
   swappable backends, so models can be upgraded without touching orchestration.
 
@@ -51,7 +52,8 @@ A Blender script (BlenderGIS) places generated assets on real footprints at real
 - 2× AMD Radeon AI Pro R9700, 32GB each, RDNA4 / gfx1201
 - ROCm 7.2.4 runtime (`/opt/rocm`); the only `hipcc` is Ubuntu's 7.1.1 package, so HIP
   builds go through the AMD LLVM 22 shim (`scripts/rocm_build_env.sh`)
-- PyTorch: 2.12.0+rocm7.2 in ComfyUI's env, 2.13.0+rocm7.2 in the TRELLIS.2 env
+- PyTorch: 2.9.1+rocm7.2.1 in main ComfyUI's venv, 2.13.0+rocm7.2 in ComfyUI-H3's and
+  in the TRELLIS.2 env
 - Python: system default 3.14; venvs use 3.12
 - Blender 5.2.2 LTS (snap)
 - Existing ComfyUI on ports 8188/8189 — **do not modify its environment**

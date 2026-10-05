@@ -29,8 +29,12 @@ reflects what was actually verified.
 
 ### ComfyUI: do not touch
 - Installs: `~/Projects/AI/ComfyUI` and `~/Projects/AI/ComfyUI-H3`.
-- Its Python env is `~/pytorch_env` (torch 2.12.0+rocm7.2).
-- It runs on port 8188 (GPU 0, image generation) and 8189 (GPU 1, image-to-3D).
+- Each has its own venv:
+  - Main (`run_comfy.sh`, port 8188): `~/Projects/AI/ComfyUI/venv`, torch 2.9.1+rocm7.2.1.
+  - H3 (`run_comfy_h3.sh`, port 8189): `~/Projects/AI/ComfyUI-H3/venv`, torch 2.13.0+rocm7.2.
+  - `~/pytorch_env` (torch 2.12) is a separate env, not ComfyUI's.
+- **Both instances are pinned to GPU 1** (`HIP_VISIBLE_DEVICES=1` in the launchers). GPU 0
+  carries the desktop and is where TRELLIS and other local 3D work run.
 - **Never modify these directories or that env.** Talk to ComfyUI only over HTTP.
 - Starting the main instance is OK whenever it's needed. Run
   `~/Projects/AI/ComfyUI/run_comfy.sh` in the background, log to
@@ -88,7 +92,7 @@ reflects what was actually verified.
 - Silent truncation leaves no NaNs and no errors behind. To check a generated asset,
   look at it from several angles (`scripts/blender_check_glb.py`) and compare against a
   CPU reference (`scripts/diag/`).
-- Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's 3D GPU, so check
+- Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's GPU (both instances), so check
   whether ComfyUI is running before using it.
 
 ## Style anchor (stage 0) findings
