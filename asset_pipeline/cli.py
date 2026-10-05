@@ -10,6 +10,8 @@ from . import config
 from .comfy.client import ComfyClient, ComfyError
 from .imagegen.base import GenRequest
 from .imagegen.registry import backend_for, make_backend
+from .llm.base import LLMError
+from .paid import PaidAPIBlocked
 from .project import ProjectStore
 
 
@@ -114,6 +116,76 @@ def cmd_ui(a) -> None:
     uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 
+VLM_PIDFILE = "vlm.pid"
+
+
+def cmd_vlm(a) -> None:
+    import os
+    import signal
+    import subprocess
+    from .llm.base import LLMError
+    from .llm.local import LocalVision
+    root = config.ap_root()
+    pidfile = root / "logs" / VLM_PIDFILE
+    url = config.backends().get("local", {}).get("vlm_url", "")
+    if a.action == "status":
+        try:
+            print(LocalVision(url).health())
+        except LLMError as e:
+            print(e)
+        return
+    if a.action == "down":
+        if not pidfile.exists():
+            print("not running (no pid file)")
+            return
+        pid = int(pidfile.read_text())
+        try:
+            os.kill(pid, signal.SIGTERM)
+            print(f"stopped vlm server (pid {pid})")
+        except ProcessLookupError:
+            print("was not running")
+        pidfile.unlink()
+        return
+    # up
+    try:
+        print("already running:", LocalVision(url).health())
+        return
+    except LLMError:
+        pass
+    py = root / "envs" / "qwen-vl" / "bin" / "python"
+    if not py.exists():
+        raise FileNotFoundError(f"{py} missing; run scripts/install_qwen_vl.sh")
+    log = (root / "logs" / "vlm.log").open("a")
+    env = dict(os.environ, HIP_VISIBLE_DEVICES=str(a.gpu), AP_ROOT=str(root))
+    proc = subprocess.Popen([str(py), str(config.REPO_ROOT / "scripts" / "vlm_server.py"),
+                             "--idle-unload", str(a.idle_unload)],
+                            stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+    pidfile.write_text(str(proc.pid))
+    print(f"started vlm server (pid {proc.pid}, GPU {a.gpu}); log: {root / 'logs' / 'vlm.log'}")
+
+
+def cmd_set(a) -> None:
+    from .llm.registry import PROVIDERS
+    from .paid import paid_allowed
+    store = ProjectStore.open(a.project)
+    p = store.load()
+    if a.llm:
+        if a.llm not in PROVIDERS:
+            raise ValueError(f"--llm must be one of {', '.join(PROVIDERS)}")
+        p.llm = a.llm
+    for item in a.backend or []:
+        stage, _, name = item.partition("=")
+        if name not in ("comfyui", "gemini"):
+            raise ValueError(f"--backend {item!r}: expected STAGE=comfyui|gemini")
+        p.backends[stage] = name
+    store.save(p)
+    print(f"{p.slug}: llm={p.llm}, backends={p.backends}")
+    paid = [x for x in [p.llm] + list(p.backends.values()) if x in ("gemini", "claude")]
+    if paid and not paid_allowed():
+        print(f"note: {', '.join(sorted(set(paid)))} are paid APIs and stay blocked unless "
+              f"AP_ALLOW_PAID_APIS=1 is set for the run.")
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ap", description="Asset pipeline (see USAGE.md)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -174,10 +246,24 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int, default=8700)
     p.set_defaults(fn=cmd_ui)
 
+    p = sub.add_parser("vlm", help="local vision LLM server (Qwen3-VL on GPU 0)")
+    p.add_argument("action", choices=["up", "down", "status"])
+    p.add_argument("--gpu", type=int, default=0)
+    p.add_argument("--idle-unload", type=float, default=600,
+                   help="free the GPU after this many idle seconds (0 = never)")
+    p.set_defaults(fn=cmd_vlm)
+
+    p = sub.add_parser("set", help="project settings: vision LLM and per-stage image backend")
+    p.add_argument("project")
+    p.add_argument("--llm", help="local | gemini | claude")
+    p.add_argument("--backend", action="append", help="STAGE=comfyui|gemini (repeatable)")
+    p.set_defaults(fn=cmd_set)
+
     a = ap.parse_args(argv)
     try:
         a.fn(a)
-    except (ComfyError, FileNotFoundError, FileExistsError, ValueError, NotImplementedError) as e:
+    except (ComfyError, LLMError, PaidAPIBlocked, FileNotFoundError, FileExistsError,
+            ValueError, NotImplementedError) as e:
         sys.exit(f"ap: {e}")
 
 

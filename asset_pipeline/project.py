@@ -56,7 +56,7 @@ class ProjectStore:
         defaults = config.backends().get("defaults", {})
         project = Project(slug=slug, name=name or slug, brief=brief,
                           backends=dict(defaults.get("backends", {})),
-                          llm=defaults.get("llm", "gemini"))
+                          llm=defaults.get("llm", "local"))
         store.save(project)
         return store
 

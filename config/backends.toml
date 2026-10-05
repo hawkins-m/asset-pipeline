@@ -12,13 +12,19 @@ t2i = "flux_t2i"
 t2i_anchor = "flux_t2i_anchor"   # + Flux Redux style anchor and optional style LoRA
 segment = "sam3_detect"          # SAM 3.1 text-prompted masks (one image per object)
 
+# Paid backends (Gemini, Claude) refuse to run unless AP_ALLOW_PAID_APIS=1 is set for
+# the run. Model ids confirmed 2026-10-05.
 [gemini]
-# Filled in at build step 3 after confirming current model ids.
-image_model = ""
-vision_model = ""
+image_model = "gemini-3.1-flash-image-preview"
+vision_model = "gemini-3.1-pro-preview"
 
 [claude]
-vision_model = ""
+vision_model = "claude-opus-5-5"
+effort = "high"
+
+[local]
+# Qwen3-VL-8B-Instruct on GPU 0 via scripts/vlm_server.py (`ap vlm up`). Free.
+vlm_url = "http://127.0.0.1:8710"
 
 # Default image backend per stage for new projects; override per project in project.json.
 [defaults.backends]
@@ -26,4 +32,4 @@ style = "comfyui"
 references = "comfyui"
 
 [defaults]
-llm = "gemini"
+llm = "local"      # local | gemini | claude

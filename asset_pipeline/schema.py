@@ -31,5 +31,5 @@ class Project(BaseModel):
     brief: str = ""
     created: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     backends: dict[str, str] = Field(default_factory=dict)  # stage -> image backend
-    llm: str = "gemini"
+    llm: str = "local"            # vision LLM: local | gemini | claude
     anchor: StyleAnchor | None = None

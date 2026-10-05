@@ -12,7 +12,8 @@ def make_backend(name: str) -> ImageGenBackend:
         c = cfg["comfyui"]
         return ComfyUIBackend(ComfyClient(c["url"], c.get("timeout_s", 900)), c["workflows"])
     if name == "gemini":
-        raise NotImplementedError("Gemini image backend arrives in build step 3")
+        from .gemini import GeminiImageBackend
+        return GeminiImageBackend(cfg.get("gemini", {}).get("image_model", ""))
     raise ValueError(f"unknown image backend {name!r} (expected 'comfyui' or 'gemini')")
 
 
