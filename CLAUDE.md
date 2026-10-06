@@ -7,6 +7,15 @@ reflects what was actually verified.
 
 ## Repo rules
 - The repo holds only code, ComfyUI workflow JSONs, configs and docs.
+- **This repo is public; projects are private.** Never commit project-specific content:
+  briefs, layouts, shot lists, greyboxes, generated media, project names or brief terms.
+  Keep CLAUDE.md, PLAN.md and USAGE.md generic (placeholders like `my-project`).
+  - Project content lives in `$AP_ROOT/projects/<slug>/`, and each project folder is its
+    own private git repo (with its own `.gitignore` for generated media).
+  - Safety net: `git config core.hooksPath scripts/git-hooks`. Its pre-commit hook refuses
+    staged media, project-shaped files, any project slug, and terms listed in
+    `$AP_ROOT/private-terms.txt`. Don't bypass it.
+  - Sample and test layouts in code must be neutral (`sw_site.starter_layout()`).
 - Never commit venvs, model weights, caches or generated outputs (images, meshes, GLBs).
   Those live on the storage drive under `$AP_ROOT` (below).
 - Commit after each working step.
@@ -235,6 +244,26 @@ reflects what was actually verified.
 - TRELLIS output faces glTF +Z (Blender -Y) and is ~1 unit tall; it can come out as a flat
   card (a barrel 4 mm deep) and with proportions far from the plan (house 2.3x deeper):
   the cleanup report warns about both.
+
+## World mode: greybox and shot passes (verified 2026-10-05)
+- Headless Blender 5.2 (CPU) builds an ~80-slot / ~4.4k-piece greybox in about 4 s.
+  Pieces with the same primitive share one mesh, so kit pieces stay instanceable.
+- The data passes are exact with Cycles on the CPU at 1 sample, with:
+  - a box filter of width 0.01;
+  - `dither_intensity = 0`;
+  - the Raw view transform;
+  - an emission-only material override.
+
+  The ID pass then decodes with 0 unknown pixels, and the ID and depth hit masks agree
+  pixel for pixel. Any of AA, dither or a view transform blends slot colours into
+  colours nobody has.
+- Depth is stored as 16-bit camera Z over 10 km (15 cm steps): the sea plane reaches
+  about 5 km. Sky is 0.
+- About 3.5 s per shot for all four passes at 1344x768.
+- A rebuild always changes the .blend's hash, even from the same layout, so every shot's
+  passes show as stale afterwards. Re-render them.
+- Kit modularity: colonnades snap to whole modules, and a stoa's bay angle is module /
+  radius. Without that, every building had its own entablature length (no reuse).
 
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.

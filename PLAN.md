@@ -112,6 +112,39 @@ Done and verified:
   budget with colour/roughness/normal maps baked from the original. Warnings for flat
   results and proportions far from the plan. `ap cleanup` and *Clean up* in the Review tab.
 
+## World mode (one environment, many shots)
+For a single coherent place seen in many shots, instead of unrelated concept scenes. The
+geometry is fixed first; images are generated onto it.
+
+1. **Site and greybox.**
+   - `site/layout.json` (districts, rings, radial avenues, plazas, plots, ring rows of
+     plots, classical modular kits, vegetation zones, terrain, shots) generates a tagged
+     Blender greybox (`sw_site`, headless).
+   - After that the .blend is the source of truth for layout until the engine import.
+     Hand edits are protected from rebuilds, and tags are read back into `greybox.json`.
+2. **Shots.** Cameras in the .blend. Each renders exact object-ID, depth, normal and canny
+   passes plus a preview (`sw_shots`).
+3. **Concept frames per shot.** Depth/canny-guided Flux (ControlNet Union Pro 2.0; BFL
+   depth LoRA for A/B), with the style anchor. Moodboard images can be imported as anchor
+   sources.
+4. **Asset library.** All approved frames merge into one deduplicated library:
+   - greybox types are keyed by slot type, with counts from the greybox;
+   - props are deduplicated across shots;
+   - classical kits are a fixed piece list, with curved pieces per ring radius.
+
+   Stages 2–6 run on it. Vegetation is scattered (baked points), not generated per asset.
+5. **Export:** a manifest plus asset package (cm, left-handed for the engine).
+6. **Unreal Engine 5.8 importer** (editor Python):
+   - Interchange glTF → Nanite static meshes, instanced static meshes, material instances
+     from the PBR maps;
+   - a Landscape from the heightmap, CineCameras and a Level Sequence.
+
+   After the import the UE level is the layout source of truth. Actor names and tags stay
+   stable for editing over an Unreal MCP server.
+
+Status (2026-10-05): step 1 and 2 done and verified (`ap site`, `ap shots`, UI Site ·
+Shots tab). Next: step 3, then a review of the frames before step 4.
+
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a
 second path that gives the 3D model real side and back information:

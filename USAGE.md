@@ -98,6 +98,49 @@ silent NaNs, and the script refuses to start if it is set.
 
 ---
 
+# World mode: site greybox and shots
+
+For one environment seen in many shots. The layout fixes the geometry, a Blender greybox is
+built from it, and each shot camera renders the control passes its concept frames are
+generated from. Project files stay in the project folder (a private repo), never in this
+one.
+
+```
+ap new my-project
+ap site init my-project                      # a neutral starter layout, or --layout FILE
+# edit $AP_ROOT/projects/my-project/site/layout.json, then:
+ap site build my-project                     # terrain + greybox.blend + greybox.json (~5 s)
+ap site preview my-project                   # four aerial renders in site/preview/
+ap site show my-project --pieces             # slots, kit pieces with counts, shots
+```
+
+**Editing in Blender.** Open `site/greybox.blend`:
+- Each building, plaza or ring is an Empty tagged `ap_id` / `ap_type` / `ap_kit` /
+  `ap_district`, with its pieces as children. Move or duplicate it as a whole; a
+  duplicate gets a new id.
+- New meshes need those tags, or must be parented to a slot.
+- Cameras are shots (`ap_shot`; an untagged camera is adopted under its name).
+
+After saving, run `ap site extract my-project`. `ap site build` then refuses to replace
+the edited file unless `--force`; the old file is kept as `greybox.prev.blend`.
+
+**Shots.**
+```
+ap shots add my-project street-01 --pos 0,-60,19.7 --look-at 0,0,28 --lens 24 --tier medium
+ap shots render my-project                   # every shot; or name some
+ap shots list my-project                     # render state, stale passes, warnings
+```
+
+Each shot gets these in `shots/<shot>/`:
+- `depth.png`: near white;
+- `canny.png`: slot, crease and depth edges;
+- `ids.png` + `ids.json`: which slot covers which pixels;
+- `normal.png` and `preview.png`.
+
+Warnings flag a camera that sees no geometry, flat depth, untagged meshes, or passes
+that disagree. Passes go stale whenever the greybox changes. The UI's **Site · Shots**
+tab does all of this with thumbnails.
+
 # Stage 0: exploring scenes and setting a style anchor
 
 ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with
