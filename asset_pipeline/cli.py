@@ -186,66 +186,16 @@ def cmd_ui(a) -> None:
     uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 
-VLM_PIDFILE = "vlm.pid"
-
-
 def cmd_vlm(a) -> None:
-    import os
-    import signal
-    import subprocess
-    from .llm.base import LLMError
-    from .llm.local import LocalVision
-    root = config.ap_root()
-    pidfile = root / "logs" / VLM_PIDFILE
-    url = config.backends().get("local", {}).get("vlm_url", "")
+    from . import vlm
     if a.action == "status":
-        try:
-            print(LocalVision(url).health())
-        except LLMError as e:
-            print(e)
-        return
-    if a.action == "down":
-        if not pidfile.exists():
-            print("not running (no pid file)")
-            return
-        pid = int(pidfile.read_text())
-        try:
-            os.kill(pid, signal.SIGTERM)
-            for _ in range(100):  # wait so an immediate `up` doesn't find the port taken
-                os.kill(pid, 0)
-                time.sleep(0.1)
-            print(f"vlm server (pid {pid}) did not exit after 10 s")
-        except ProcessLookupError:
-            print(f"stopped vlm server (pid {pid})")
-        pidfile.unlink()
-        return
-    # up
-    try:
-        print("already running:", LocalVision(url).health())
-        return
-    except LLMError:
-        pass
-    py = root / "envs" / "qwen-vl" / "bin" / "python"
-    if not py.exists():
-        raise FileNotFoundError(f"{py} missing; run scripts/install_qwen_vl.sh")
-    log = (root / "logs" / "vlm.log").open("a")
-    env = dict(os.environ, HIP_VISIBLE_DEVICES=str(a.gpu), AP_ROOT=str(root))
-    proc = subprocess.Popen([str(py), str(config.REPO_ROOT / "scripts" / "vlm_server.py"),
-                             "--idle-unload", str(a.idle_unload)],
-                            stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
-    pidfile.write_text(str(proc.pid))
-    for _ in range(300):  # wait until it serves /health (the model itself loads lazily)
-        if proc.poll() is not None:
-            raise SystemExit(f"vlm server exited with code {proc.returncode}; "
-                             f"see {root / 'logs' / 'vlm.log'}")
-        try:
-            LocalVision(url).health()
-            break
-        except LLMError:
-            time.sleep(0.2)
+        print(json.dumps(vlm.status(), indent=2))
+    elif a.action == "down":
+        print(vlm.down(gpu=a.gpu if a.gpu_given else None, force=a.force))
     else:
-        raise SystemExit(f"vlm server not answering at {url} after 60 s")
-    print(f"started vlm server (pid {proc.pid}, GPU {a.gpu}); log: {root / 'logs' / 'vlm.log'}")
+        st = vlm.up(a.model, gpu=a.gpu, idle_unload=a.idle_unload)
+        print(f"vlm {st['model']} up on GPU {st['gpu']} at {st['url']} (pid {st['pid']}); "
+              f"log: {config.ap_root() / 'logs' / ('vlm-' + st['model'] + '.log')}")
 
 
 def cmd_set(a) -> None:
@@ -353,11 +303,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--port", type=int, default=8700)
     p.set_defaults(fn=cmd_ui)
 
-    p = sub.add_parser("vlm", help="local vision LLM server (Qwen3-VL on GPU 0)")
+    p = sub.add_parser("vlm", help="local vision LLM server (Qwen3-VL, GPU 0; see config [local])")
     p.add_argument("action", choices=["up", "down", "status"])
-    p.add_argument("--gpu", type=int, default=0)
-    p.add_argument("--idle-unload", type=float, default=600,
-                   help="free the GPU after this many idle seconds (0 = never)")
+    p.add_argument("--model", help="32b | 8b (default: config, falling back to the 8B)")
+    p.add_argument("--gpu", type=int, default=None,
+                   help="up: GPU to use (default 0); down: only stop it if it's on this GPU")
+    p.add_argument("--idle-unload", type=float, default=None,
+                   help="free the GPU after this many idle seconds (0 = never; default: config)")
+    p.add_argument("--force", action="store_true", help="down: don't wait for a running request")
     p.set_defaults(fn=cmd_vlm)
 
     p = sub.add_parser("set", help="project settings: vision LLM and per-stage image backend")
@@ -367,6 +320,8 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_set)
 
     a = ap.parse_args(argv)
+    if a.cmd == "vlm":
+        a.gpu_given, a.gpu = a.gpu is not None, 0 if a.gpu is None else a.gpu
     try:
         a.fn(a)
     except (ComfyError, LLMError, PaidAPIBlocked, FileNotFoundError, FileExistsError,

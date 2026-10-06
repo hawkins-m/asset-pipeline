@@ -8,9 +8,9 @@ PROVIDERS = ("local", "gemini", "claude")
 
 def make_llm(name: str) -> VisionLLM:
     cfg = config.backends()
-    if name == "local":
-        from .local import LocalVision
-        return LocalVision(cfg.get("local", {}).get("vlm_url", ""))
+    if name == "local":  # whichever local model is configured; started on first use
+        from ..vlm import AutoLocal
+        return AutoLocal()
     if name == "gemini":
         from .gemini import GeminiVision
         return GeminiVision(cfg.get("gemini", {}).get("vision_model", ""))

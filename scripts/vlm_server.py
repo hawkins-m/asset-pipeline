@@ -3,7 +3,7 @@
 Runs in its own venv ($AP_ROOT/envs/qwen-vl, see scripts/install_qwen_vl.sh); the
 orchestrator talks to it via asset_pipeline/llm/local.py. Start with `ap vlm up`.
 
-    GET  /health   -> {"model", "loaded", "device", "idle_unload_s"}
+    GET  /health   -> {"model", "loaded", "busy", "device", "idle_unload_s"}
     POST /v1/json  {"system", "prompt", "images": [{"mime","data"(b64)}], "schema"}
                    -> {"text": "<model output>"}
 
@@ -98,6 +98,7 @@ def make_handler(model: Model):
             if self.path != "/health":
                 return self._send(404, {"error": "not found"})
             self._send(200, {"model": model.path, "loaded": model.model is not None,
+                             "busy": model.lock.locked(),
                              "device": torch.cuda.get_device_name(0),
                              "idle_unload_s": model.idle_unload_s})
 

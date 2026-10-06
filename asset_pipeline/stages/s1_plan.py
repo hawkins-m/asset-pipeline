@@ -32,6 +32,7 @@ from . import s0_style
 PLAN = "plan"
 SCENES = s0_style.SCENES
 MAX_ASSETS = 20
+BACKDROP_M = 200  # an "asset" bigger than this in any dimension is landscape, not a model
 
 
 class PlanExists(ValueError):
@@ -49,9 +50,11 @@ class AnalyzedAsset(BaseModel):
     description: str = Field(description="the object on its own: shape, parts, materials, "
                                          "colours. No scene, lighting or art style.")
     count: int = Field(ge=1, description="how many copies are visible")
-    width_m: float = Field(gt=0, le=1000)
-    depth_m: float = Field(gt=0, le=1000)
-    height_m: float = Field(gt=0, le=1000)
+    # No upper bound here: an oversized asset is backdrop, dropped by to_plan() rather
+    # than costing a retry (a 32B retry is ~110 s).
+    width_m: float = Field(gt=0)
+    depth_m: float = Field(gt=0)
+    height_m: float = Field(gt=0)
     kit: str | None = Field(default=None, description="name of the modular set this piece "
                             "belongs to (e.g. 'stone wall kit'), else null")
     placement: str = Field(description="where it is in the scene, a few words")
@@ -77,16 +80,23 @@ SYSTEM = ("You are a technical art director. You break a concept image into the 
 
 PROMPT = """Break this concept scene into 3D assets.{brief}
 
-Rules:
+List:
 - One entry per distinct asset. Identical or near-identical copies are ONE entry with a count.
-- A whole object is one asset. Its parts are NOT separate assets: doors, windows, roofs,
-  shingles, chimneys, beams, lids, seats, legs, poles, brackets, awnings and shelves
-  belong to the building, stall, barrel or bench they are part of.
-- `kit` is only for pieces made to snap together into bigger structures (wall segments,
-  fence sections, paving tiles), and only when two or more listed assets share that
-  kit name. Everything else has kit null.
-- Skip sky, clouds, light, fog, distant mountains and backdrop, and people or animals.
-  Include the ground surface only if it needs a modelled material (cobbles, planks).
+- Whole objects: a building, a stall, a barrel, a bench, a tree, a planter.
+- Modular pieces only if the scene clearly reuses them to build bigger structures (wall
+  segments, fence sections, paving tiles): one entry per piece type, all with the same
+  `kit` name. Everything else has kit null.
+- The ground the scene stands on, if it needs a modelled material (cobbles, planks).
+
+Do NOT list:
+- Parts of an object: doors, windows, roofs, shingles, chimneys, beams, awnings, lids,
+  seats, legs, poles, brackets, shelves. They belong to the building, stall, barrel or
+  bench they are on.
+- Landscape or backdrop: mountains, peaks, hills, cliffs, distant forests or tree lines,
+  sky, clouds, sun, light, fog, water stretching to the horizon.
+- People or animals.
+
+Fields:
 - Sizes are real-world metres. Judge them from things of known size (doors ~2 m tall,
   steps ~0.18 m, a person ~1.75 m) and say which you used in `scale_notes`.
 - `description` is for drawing the object alone on a white background: shape, parts,
@@ -184,13 +194,19 @@ def _bbox(b: list[int] | None) -> list[float] | None:
 
 
 def to_plan(a: SceneAnalysis, scene_key: str, llm_name: str) -> AssetPlan:
+    keep, dropped = [], []
+    for x in a.assets[:MAX_ASSETS]:
+        if max(x.width_m, x.depth_m, x.height_m) > BACKDROP_M:  # the 32B lists the mountain
+            dropped.append(f"{x.name.strip()} ({x.width_m:g}x{x.depth_m:g}x{x.height_m:g} m)")
+        else:
+            keep.append(x)
     assets = [PlanAsset(name=x.name.strip(), noun=x.noun.strip(), category=x.category, description=x.description.strip(),
                         count=x.count, kit=(x.kit or "").strip() or None,
                         placement=x.placement.strip(), bbox=_bbox(x.bbox_2d),
                         dimensions=Dimensions(width=x.width_m, depth=x.depth_m, height=x.height_m))
-              for x in a.assets[:MAX_ASSETS]]
+              for x in keep]
     plan = AssetPlan(scene=scene_key, summary=a.summary.strip(), scale_notes=a.scale_notes.strip(),
-                     assets=assets, llm=llm_name)
+                     assets=assets, llm=llm_name, dropped=dropped)
     assign_ids(plan)
     by_name = {}
     for x in plan.assets:  # the LLM refers to assets by name; match loosely

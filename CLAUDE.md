@@ -100,8 +100,12 @@ reflects what was actually verified.
   Qwen3-VL-8B-Instruct, bf16, env `$AP_ROOT/envs/qwen-vl` (torch 2.13.0+rocm7.2,
   transformers 5.18), weights `$AP_ROOT/models/Qwen3-VL-8B-Instruct`. Install with
   `scripts/install_qwen_vl.sh`.
-- `ap vlm up|down|status` runs `scripts/vlm_server.py` on 127.0.0.1:8710, GPU 0. It holds
-  ~17.5 GB while loaded and unloads after 600 s idle. Don't run it alongside `trellis`.
+- **Default local VLM is Qwen3-VL-32B Q5_K_M (llama.cpp, :8711); the 8B (:8710) is the
+  fallback** (config `[local]`). `asset_pipeline/vlm.py` manages it: started on demand by
+  stage 1, state in `$AP_ROOT/logs/vlm.json`, idle unload after 600 s for both.
+- **VLM and TRELLIS never share a GPU.** `scripts/trellis` writes
+  `logs/trellis-gpu<N>-<pid>.lock`, then `ap vlm down --gpu N` (waits for a request in
+  flight); `vlm.up()` refuses a GPU with a live lock. Verified live 2026-10-05.
 - Verified 2026-10-05: structured scene analysis on alpine-market validates first try,
   ~25 s warm (1.4k tokens in, ~560 out, ~23 tok/s).
 - Stage 1 plans (verified 2026-10-05, alpine-market): both scenes validated first try,
@@ -121,8 +125,9 @@ reflects what was actually verified.
     (`$AP_ROOT/outputs/vlm_ab/`, `scripts/diag/vlm_ab*.py`): 32B Q5 greedy 18/20,
     8B bf16 13/20, 8B Q8 9.5/20, 30B-A3B <=8.5/20. LLM box hits SAM object (IoU>=0.3):
     32B 79%, 8B bf16 36%.
-  - The 32B lists a dominant mountain (1500x2000x3000 m) despite the rules; the 1000 m
-    size cap rejects it and a retry usually drops it.
+  - The 32B listed a dominant mountain (1500x2000x3000 m). Fixed by a "Do NOT list"
+    prompt block (parts, landscape/backdrop, people) plus dropping any asset > 200 m
+    without a retry (`plan.dropped`). Part violations on the 4 scenes: 10 -> 3.
 - SAM 3.1 finding nothing for a noun fails the ComfyUI graph (empty batch -> IndexError
   in the image output node). `segment.detect` treats that as no detections.
 - Paid backends (Gemini, Claude, Gemini images) raise `PaidAPIBlocked` unless

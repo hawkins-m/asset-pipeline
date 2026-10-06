@@ -23,8 +23,23 @@ vision_model = "claude-opus-5-5"
 effort = "high"
 
 [local]
-# Qwen3-VL-8B-Instruct on GPU 0 via scripts/vlm_server.py (`ap vlm up`). Free.
-vlm_url = "http://127.0.0.1:8710"
+# Local vision LLM on GPU 0, managed by asset_pipeline/vlm.py (`ap vlm`, or started on
+# demand by stage 1). Never runs alongside TRELLIS: `trellis` stops it first. Free.
+# Default 32B (A/B 2026-10-05: much better plans and boxes); 8B if the 32B can't start.
+model = "32b"
+fallback = "8b"
+idle_unload_s = 600          # free the GPU after this long without requests
+
+[local.models.32b]           # Qwen3-VL-32B-Instruct Q5_K_M, llama.cpp Vulkan, ~27 GB
+backend = "llamacpp"
+url = "http://127.0.0.1:8711"
+gguf = "gguf/Qwen3-VL-32B-Instruct-GGUF/Qwen3-VL-32B-Instruct-Q5_K_M.gguf"   # under $AP_ROOT/models
+mmproj = "gguf/Qwen3-VL-32B-Instruct-GGUF/mmproj-F16.gguf"
+ctx = 8192
+
+[local.models.8b]            # Qwen3-VL-8B-Instruct bf16, transformers (scripts/vlm_server.py), ~18 GB
+backend = "transformers"
+url = "http://127.0.0.1:8710"
 
 # Default image backend per stage for new projects; override per project in project.json.
 [defaults.backends]

@@ -82,5 +82,6 @@ class AssetPlan(BaseModel):
     assets: list[PlanAsset] = Field(default_factory=list)
     relations: list[Relation] = Field(default_factory=list)
     llm: str = ""                 # provider that drafted it
+    dropped: list[str] = Field(default_factory=list)  # LLM "assets" dropped as backdrop (> 200 m)
     created: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     edited: datetime | None = None  # last save from the editor; re-analysis then needs force

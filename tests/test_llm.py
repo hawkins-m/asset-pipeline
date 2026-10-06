@@ -179,7 +179,7 @@ def test_local_errors_give_hints(img):
 
 
 def test_registry():
-    assert make_llm("local").name == "local"
+    assert make_llm("local").name == "local"  # lazy: starts the server on first request
     assert make_llm("gemini").name == "gemini"
     assert make_llm("claude").name == "claude"
     with pytest.raises(ValueError):

@@ -264,3 +264,15 @@ def test_detect_returns_nothing_when_sam_finds_nothing(tmp_path):
                                                                 "exception_message": "HIP OOM"}]])
     with pytest.raises(ComfyError):
         segment.detect(Client(other), img, "signpost")
+
+
+def test_oversized_assets_are_dropped_as_backdrop(store):
+    mountain = {"name": "snow-capped mountain", "noun": "mountain", "category": "terrain",
+                "description": "peak", "count": 1, "width_m": 1500, "depth_m": 2000, "height_m": 3000,
+                "placement": "background"}
+    llm = ScriptedLLM(json.dumps(dict(ANALYSIS, assets=ANALYSIS["assets"] + [mountain])))
+    plan = s1_plan.analyze(store, SCENE, llm=llm)
+    assert len(llm.calls) == 1                                   # no retry
+    assert [a.name for a in plan.assets][-1] == "stone wall"
+    assert plan.dropped == ["snow-capped mountain (1500x2000x3000 m)"]
+    assert "mountains, peaks" in llm.calls[0]["prompt"]

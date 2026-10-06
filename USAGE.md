@@ -153,26 +153,35 @@ picks one provider:
 
 | Provider | What | Cost |
 |---|---|---|
-| `local` (default) | Qwen3-VL-8B-Instruct on GPU 0 (`ap vlm`) | Free |
+| `local` (default) | Qwen3-VL-32B on GPU 0 (8B as fallback), started automatically | Free |
 | `gemini` | Gemini API (`GEMINI_API_KEY`) | **Paid** |
 | `claude` | Claude API (`ANTHROPIC_API_KEY`) | **Paid** |
 
+The local server starts by itself on the first analysis, so usually you never touch it.
+To manage it by hand:
+
 ```bash
-ap vlm up             # start the local server on GPU 0 (http://127.0.0.1:8710)
-ap vlm status         # is it up, and is the model loaded?
-ap vlm down           # stop it and free GPU 0
+ap vlm up             # start the default model (32B), or the 8B if the 32B can't start
+ap vlm up --model 8b  # the 8B explicitly
+ap vlm status         # which model, which GPU, busy or not
+ap vlm down           # stop it now (waits for a request in flight; --force doesn't)
 ap set harbour-town --llm local        # or gemini / claude
 ap set harbour-town --backend references=gemini   # image backend per stage
 ```
 
-- `ap vlm up` returns once the server answers. The model itself loads on the first
-  request (6–9 s) and unloads after 10 minutes idle (`--idle-unload SECONDS`), freeing
-  GPU 0 for `trellis` again. While loaded it holds about 17.5 GB of GPU 0, so don't run
-  `trellis` at the same time (`ap vlm down` frees it at once).
-- A full stage 1 plan takes 45–70 s warm (6–10 assets, 1–1.6k output tokens at ~22 tok/s).
-  The model load adds about 7 s. The very first request after installing took about
-  100 s (one-time GPU kernel warm-up).
-- Log: `/mnt/storage/asset-pipeline/logs/vlm.log`.
+| Model | Engine | GPU 0 while loaded | Per scene | Notes |
+|---|---|---|---|---|
+| 32B (default) | llama.cpp, Q5_K_M | ~27 GB | 55–105 s | Much better plans and boxes (A/B in CLAUDE.md) |
+| 8B (fallback) | transformers, bf16 | ~18 GB | 45–75 s | Used when the 32B's files are missing or it fails to start |
+
+- **It never runs alongside TRELLIS.** `trellis` stops the VLM before it starts (waiting
+  for an analysis in progress to finish) and holds GPU 0 until it's done. Meanwhile the
+  VLM refuses to start ("a TRELLIS job is using GPU 0"), so start the analysis again
+  afterwards.
+- Both models free GPU 0 after 10 minutes idle (config `[local] idle_unload_s`) and
+  reload on the next request (~2 s for the 32B's server, 6–9 s for the 8B).
+- Logs: `/mnt/storage/asset-pipeline/logs/vlm-32b.log`, `vlm-8b.log`.
+- Installing: `scripts/install_llamacpp_vlm.sh` (llama.cpp + 32B), `scripts/install_qwen_vl.sh` (8B).
 
 **Paid providers are blocked by default.** Gemini and Claude (and the Gemini image
 backend) refuse to run unless you allow it for that one command:
@@ -189,8 +198,8 @@ it sits, and a box on the scene. If ComfyUI is running, SAM 3.1 then redraws eac
 *Boxes* below). You then fix it in the editor. Stage 2 will generate
 references from the included assets.
 
-Start the local LLM first (`ap vlm up`). The project's provider is used (`ap set`); paid
-ones stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
+The project's provider is used (`ap set`); the local one starts by itself. Paid ones stay
+blocked unless `AP_ALLOW_PAID_APIS=1` is set.
 
 ## In the browser
 
@@ -214,14 +223,14 @@ ones stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
 3. Re-analysing a plan you've edited asks first. The previous plan is kept as
    `plan/<name>.prev.json`.
 
-What to expect from the local Qwen3-VL-8B: the main assets and counts are usually right.
-It still lists some parts (doors, windows, chimneys) or backdrop (a distant mountain)
-despite being told not to, and sizes can be off (a 1.5 m barrel). The boxes are rough:
-some are tight, others are offset or far too large. Treat the plan as a draft to edit.
+What to expect from the local Qwen3-VL-32B: the main assets, counts and sizes are usually
+right. It occasionally still lists a part (chimneys) despite being told not to. Anything
+over 200 m in any dimension (a mountain) is left out as backdrop and named under the
+plan. Treat the plan as a draft to edit.
 
 ## Boxes
 
-The LLM's boxes are rough (3–4 of 16 usable on alpine-market). After each analysis, if
+The LLM's own boxes are approximate. After each analysis, if
 ComfyUI is up, SAM 3.1 segments every asset's noun and the box becomes the copy that
 overlaps the LLM's box most (else the largest copy not cut off by the frame); about 12 of
 16 then sit on a correct whole object. It takes ~1.6 s per asset on GPU 1. The LLM's box

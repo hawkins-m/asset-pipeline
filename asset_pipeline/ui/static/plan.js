@@ -27,8 +27,9 @@ async function refreshVlm() {
     return;
   }
   const s = await api("/api/vlm").catch(e => ({up: false, error: e.message}));
-  el.innerHTML = s.up ? `Vision LLM: local Qwen3-VL, server up (model ${s.loaded ? "loaded" : "loads on first request"}).`
-    : `Vision LLM: local Qwen3-VL, <strong>server not running</strong>. Start it with <code>ap vlm up</code>.`;
+  el.textContent = s.up ? `Vision LLM: local Qwen3-VL ${s.model.toUpperCase()} on GPU ${s.gpu}` +
+      `${s.busy ? ", working" : ""}.`
+    : `Vision LLM: local Qwen3-VL ${String(s.default).toUpperCase()}, not running; it starts on the first analysis (about 30 s).`;
 }
 
 function renderPlan() {
@@ -69,7 +70,8 @@ function renderEditor() {
   $("#plan-summary").value = draft.summary;
   $("#plan-scale").value = draft.scale_notes;
   $("#plan-meta").textContent = `Drafted by ${draft.llm} on ${new Date(draft.created).toLocaleString()}` +
-    (draft.edited ? `, edited ${new Date(draft.edited).toLocaleString()}` : "") + `. File: plan/${entry.name}.json`;
+    (draft.edited ? `, edited ${new Date(draft.edited).toLocaleString()}` : "") + `. File: plan/${entry.name}.json` +
+    (draft.dropped && draft.dropped.length ? `. Left out as backdrop: ${draft.dropped.join(", ")}.` : "");
 
   const fig = $("#plan-figure");
   fig.innerHTML = `<img alt="Scene ${esc(entry.scene)}" src="${fileUrl(entry.scene)}">`;

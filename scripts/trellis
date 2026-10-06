@@ -20,6 +20,16 @@ fi
 [ -f "$img" ] || { echo "trellis: no such image: $img (also looked in $AP_ROOT/inputs/)" >&2; exit 1; }
 
 gpu="${TRELLIS_GPU:-0}"
+
+# Never share a GPU with the local vision LLM: hold a lock (the VLM won't start on this
+# GPU while it exists), then stop the VLM if it's here; `ap vlm down` waits for a request
+# in flight. See asset_pipeline/vlm.py.
+lock="$AP_ROOT/logs/trellis-gpu$gpu-$$.lock"
+mkdir -p "$AP_ROOT/logs"; : > "$lock"; trap 'rm -f "$lock"' EXIT
+ap_bin="$AP_ROOT/envs/orchestrator/bin/ap"
+if [ -x "$ap_bin" ]; then
+  "$ap_bin" vlm down --gpu "$gpu" | sed 's/^/trellis: vlm: /' >&2
+fi
 if [ "$gpu" = 1 ] && ss -ltn 2>/dev/null | grep -q -E ':(8188|8189) '; then
   echo "trellis: note: ComfyUI is running on GPU 1 too." >&2
 fi

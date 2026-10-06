@@ -9,12 +9,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .. import config, review
+from .. import config, review, vlm
 from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
-from ..llm.base import LLMError
-from ..llm.local import LocalVision
 from ..schema import AssetPlan
 from ..stages import s0_style, s1_plan
 
@@ -209,12 +207,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             raise HTTPException(400, str(e))
 
     @app.get("/api/vlm")
-    def vlm():
-        url = config.backends().get("local", {}).get("vlm_url", "")
-        try:
-            return {"up": True, **LocalVision(url, timeout_s=2).health()}
-        except LLMError as e:
-            return {"up": False, "error": str(e)}
+    def vlm_status():
+        return vlm.status()
 
     @app.get("/api/jobs/{job_id}")
     def job(job_id: int):
