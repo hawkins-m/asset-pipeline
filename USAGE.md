@@ -252,3 +252,35 @@ ap plan show alpine-market batch_001__scene_002 --json
 Plans live in `/mnt/storage/asset-pipeline/projects/<slug>/plan/`, one per scene, named
 after the scene's batch and file (`batch_001__scene_002.json`). Imported scenes are copied
 to `scenes/`. Asset `id`s are stable once created; later stages name files after them.
+
+# Stage 2: reference sheets
+
+Every included asset in every plan gets reference images on white, in the project's style
+(the style anchor's images and text). ComfyUI must be running; it uses GPU 1.
+
+| Asset | Unit | Sheet |
+|---|---|---|
+| Ordinary object | its id | The object drawn three times side by side (asked for as front, side and back) |
+| Pieces sharing a *Kit* name in one plan | `kit-<name>` | All pieces in one sheet, so trim and proportions match |
+| Ground surface (category `terrain`) | its id | A square, top-down texture swatch (style text only) |
+
+**In the browser:** the **2 · References** tab. *Generate missing* makes sheets for every
+asset that has none (2 each by default); *+ 2 more* adds variants for one asset. Star the
+sheets worth keeping; stage 3 cuts the views out of starred sheets.
+
+**From the command line:**
+
+```bash
+ap refs generate alpine-market                      # every asset without sheets, 2 each
+ap refs generate alpine-market --unit wooden-barrel -n 4   # 4 more for one asset
+ap refs show alpine-market                          # units, sheet counts, stars
+```
+
+Sheets land in `/mnt/storage/asset-pipeline/projects/<slug>/refs/<plan>/<unit>/sheet_NNN.png`
+with a `meta.json` (prompt, seed, size). The canvas shape follows the asset's real
+proportions (wide strips for barrels and walls, taller cells for houses and trees). About
+55 s per sheet.
+
+What to expect from Flux.1-dev: the three copies match each other well (shape, colours,
+trim), but they're usually three similar three-quarter views rather than a true front,
+side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.

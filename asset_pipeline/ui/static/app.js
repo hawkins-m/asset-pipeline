@@ -1,7 +1,7 @@
 // Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
 // from it. Stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
-let slug = null, data = null, plans = [], selectedScene = null, polling = null;
+let slug = null, data = null, plans = [], refs = [], selectedScene = null, polling = null;
 
 async function api(path, body, method = "POST") {
   const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
@@ -89,6 +89,7 @@ function render() {
   }
 
   renderPlan();
+  renderRefs();
 
   const active = data.jobs.filter(j => j.status === "queued" || j.status === "running");
   const failed = data.jobs.filter(j => j.status === "error").slice(-1);
@@ -100,7 +101,8 @@ function render() {
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; return; }
-  [data, plans] = await Promise.all([api(`/api/projects/${slug}`), api(`/api/projects/${slug}/plans`)]);
+  [data, plans, refs] = await Promise.all([api(`/api/projects/${slug}`), api(`/api/projects/${slug}/plans`),
+                                           api(`/api/projects/${slug}/refs`)]);
   render();
 }
 
@@ -120,7 +122,7 @@ function showTab(tab) {
   localStorage.setItem("ap.tab", tab);
 }
 document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
-showTab(localStorage.getItem("ap.tab") === "plan" ? "plan" : "style");
+showTab(["plan", "refs"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
 
 $("#project").onchange = e => {
   if (!confirmDiscard()) { e.target.value = slug; return; }

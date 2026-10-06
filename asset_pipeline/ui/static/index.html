@@ -27,7 +27,7 @@
   <nav role="tablist">
     <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
     <button role="tab" data-tab="plan">1 · Plan</button>
-    <button role="tab" data-tab="refs" disabled title="build step 5">2 · References</button>
+    <button role="tab" data-tab="refs">2 · References</button>
     <button role="tab" data-tab="review" disabled title="build steps 6-7">3–4 · Review</button>
   </nav>
 
@@ -125,7 +125,24 @@
       </div>
     </section>
   </main>
+  <main id="refs-tab" data-tab="refs" hidden>
+    <section>
+      <h2>Reference sheets</h2>
+      <p class="hint">Each included asset of every plan, drawn on white in the project's style:
+        three views side by side, a kit's pieces together in one sheet, ground surfaces as a
+        top-down texture. Star the sheets worth keeping; stage 3 cuts the views out of
+        starred sheets. About 55 s per sheet (ComfyUI, GPU 1).</p>
+      <div class="row">
+        <button id="refs-missing" type="button">Generate missing</button>
+        <label>Sheets per asset <input id="refs-n" type="number" min="1" max="8" value="2"></label>
+        <span id="refs-summary" class="hint"></span>
+      </div>
+    </section>
+    <div id="refs-list"></div>
+  </main>
+
   <script src="/static/app.js"></script>
+  <script src="/static/refs.js"></script>
   <script src="/static/plan.js"></script>
 </body>
 </html>

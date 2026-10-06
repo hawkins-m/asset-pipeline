@@ -14,7 +14,7 @@ from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from ..schema import AssetPlan
-from ..stages import s0_style, s1_plan
+from ..stages import s0_style, s1_plan, s2_refs
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -46,6 +46,12 @@ class StarReq(BaseModel):
 class AnalyzeReq(BaseModel):
     scene: str
     force: bool = False
+
+
+class RefsReq(BaseModel):
+    plan: str | None = None
+    unit: str | None = None       # None: every unit without sheets
+    n: int = 2
 
 
 class AnchorReq(BaseModel):
@@ -205,6 +211,27 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                                                   await file.read())}
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    @app.get("/api/projects/{slug}/refs")
+    def refs(slug: str):
+        store = _store(slug)
+        return [{"plan": u.plan, "key": u.key, "kind": u.kind, "title": u.title,
+                 "assets": [a.model_dump(mode="json", include={"id", "name", "category", "count",
+                                                                "dimensions", "description"})
+                            for a in u.assets],
+                 "sheets": s2_refs.sheets(store, u)} for u in s2_refs.units(store)]
+
+    @app.post("/api/projects/{slug}/refs/generate")
+    def refs_generate(slug: str, req: RefsReq):
+        store = _store(slug)
+        if req.unit:
+            match = [u for u in s2_refs.units(store, req.plan) if u.key == req.unit]
+            if not match:
+                raise HTTPException(404, f"no unit {req.unit}")
+            fn = lambda: len(s2_refs.generate(store, match[0], n=req.n))  # noqa: E731
+        else:
+            fn = lambda: len(s2_refs.generate_missing(store, n=req.n, plan=req.plan))  # noqa: E731
+        return jobs.submit("refs.generate", slug, fn).public()
 
     @app.get("/api/vlm")
     def vlm_status():

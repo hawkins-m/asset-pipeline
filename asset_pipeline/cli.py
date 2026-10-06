@@ -179,6 +179,37 @@ def cmd_plan_show(a) -> None:
         print()
 
 
+def cmd_refs_generate(a) -> None:
+    from .stages import s2_refs
+    store = ProjectStore.open(a.project)
+    if not a.unit:
+        paths = s2_refs.generate_missing(store, n=a.n, plan=a.plan)
+    else:
+        by_key = {(u.plan, u.key): u for u in s2_refs.units(store, a.plan)}
+        paths = []
+        for key in a.unit:
+            matches = [u for (plan, k), u in by_key.items() if k == key]
+            if not matches:
+                raise ValueError(f"no unit {key!r} (see `ap refs show`)")
+            for u in matches:
+                paths += s2_refs.generate(store, u, n=a.n, seed=a.seed)
+    for p in paths:
+        print(p)
+    if not paths:
+        print("nothing to do: every unit has sheets (name units with --unit to add more)")
+
+
+def cmd_refs_show(a) -> None:
+    from . import review
+    from .stages import s2_refs
+    store = ProjectStore.open(a.project)
+    stars = review.load(store)["stars"]
+    for u in s2_refs.units(store, a.plan):
+        sh = s2_refs.sheets(store, u)
+        print(f"{u.plan}/{u.key:<32} {u.kind:<8} {len(sh)} sheet(s), "
+              f"{sum(1 for k in sh if stars.get(k))} starred  [{', '.join(x.id for x in u.assets)}]")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -298,6 +329,20 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("name", nargs="?", help="one plan, e.g. batch_001__scene_002")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_plan_show)
+
+    rf = sub.add_parser("refs", help="stage 2: reference sheets for the plans' assets")
+    rsub = rf.add_subparsers(dest="refs_cmd", required=True)
+    p = rsub.add_parser("generate", help="sheets for units without any (or --unit to add more)")
+    p.add_argument("project")
+    p.add_argument("--plan", help="one plan only")
+    p.add_argument("--unit", action="append", help="asset id or kit-<name> (repeatable)")
+    p.add_argument("-n", type=int, default=2, help="sheets per unit (default 2)")
+    p.add_argument("--seed", type=int)
+    p.set_defaults(fn=cmd_refs_generate)
+    p = rsub.add_parser("show", help="list units, sheet counts and stars")
+    p.add_argument("project")
+    p.add_argument("--plan")
+    p.set_defaults(fn=cmd_refs_show)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

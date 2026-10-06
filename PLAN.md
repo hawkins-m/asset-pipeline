@@ -95,9 +95,15 @@ Done and verified:
   3-4/16 for the 8B's own boxes). Default local VLM: Qwen3-VL-32B (llama.cpp), 8B as
   fallback; auto-started, and stopped before any TRELLIS job on the same GPU.
 
+- **Stage 2 (reference sheets):** `ap refs generate` / the References tab draw every
+  included asset on white with the style anchor: objects as a three-up sheet, kits in one
+  sheet, terrain as a top-down swatch. Flux.1-dev keeps the three copies consistent but
+  rarely gives true side/back views (see CLAUDE.md).
+
 Next, in order:
 1. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
-2. **Stage 2:** reference sheets (front | side | back grid, kit groups in one sheet).
+2. **Multi-view decision:** true front/side/back needs another model (none installed
+   locally); options in the stage 2 report.
 3. **Stage 3:** SAM 3.1 segmentation with view labels and view-sets in `review.json`.
 4. **Stage 4:** review grid (star, game/cine tag) and the send-to-trellis job queue.
 5. **Docs pass:** this file's Stages and Architecture sections need several updates:

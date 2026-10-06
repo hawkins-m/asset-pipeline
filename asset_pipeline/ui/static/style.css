@@ -92,3 +92,15 @@ button.remove:hover { color: var(--danger); border-color: var(--danger); }
 .sticky-actions { position: sticky; bottom: 0; background: var(--panel); padding: 10px 0 2px;
                   margin: 12px 0 0; border-top: 1px solid var(--line); }
 .sticky-actions #plan-dirty { margin: 0 auto 0 0; }
+
+/* Stage 2: reference sheets */
+#refs-tab > section, .refs-plan { margin-bottom: 0; }
+.refs-plan h3 { font-size: 14px; margin: 0 0 8px; }
+.unit { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 8px; }
+.unit:first-of-type { border-top: none; }
+.unit-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.unit-head .title { font-weight: 600; }
+.chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+.unit-head .more { margin-left: auto; }
+.grid.sheets { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.unit .empty { color: var(--muted); font-size: 13px; }

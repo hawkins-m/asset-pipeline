@@ -160,6 +160,17 @@ reflects what was actually verified.
   "plain white background" prompts. Stage 2 must prompt hard for pure white, and stage 3
   cuts out regardless.
 
+## Reference sheets (stage 2) findings
+- Flux.1-dev (+ Redux anchor at the project's strength) reliably draws three copies of
+  one object side by side on white, consistent in shape, colour and trim, but ignores
+  "front / side / back": mostly three near-identical three-quarter views (tested
+  2026-10-05 on barrel, stall, house; spelling out the rotations didn't help). The
+  anchor didn't break the three-up layout.
+- The explicit "LEFT/MIDDLE/RIGHT ... no ground, no shadow" wording gave cleaner white
+  than the "character turnaround sheet" wording (no sand/dirt patches).
+- ~55 s per 1.2 MP sheet on GPU 1. No local multi-view model is installed in ComfyUI
+  (the Kontext/Qwen-Image edit nodes there are paid API nodes).
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
