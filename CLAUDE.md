@@ -185,6 +185,20 @@ reflects what was actually verified.
 - A scratch AP_ROOT for UI tests needs symlinks to `envs`, `models`, `tools`, `hf`, `src`,
   since `scripts/trellis` finds its env through AP_ROOT.
 
+## Hero orbit (Wan 2.2) prototype findings (2026-10-05)
+- `workflows/wan22_i2v_orbit.json`: Wan 2.2 I2V 14B fp8 high/low + lightx2v 4-step LoRAs,
+  640x640, 81 frames: ~150-180 s per orbit on GPU 1 (ComfyUI swaps Flux out; the next
+  Flux job reloads it).
+- Orbits are visually consistent (same object, centred, same size, white kept). The
+  default "slow turntable" prompt turned a stall only ~180 deg in 81 frames; "rotates
+  quickly through one complete 360-degree turn in five seconds ..." gave a turn that
+  returns to the start (similarity to frame 0: 0.98 at frame ~79).
+- Image-only frame angles are NOT reliable: Wan eases in/out (frame 20 of 80 was ~45 deg,
+  frame 40 ~90 deg), may swing back instead of completing the turn, and front/back-similar
+  objects (stalls, gable houses) fool both the loop-closure and the mirror test.
+- Wan's background is off-white (~250) with VAE specks on the frame edge: measure the
+  background from the border and ignore a 4 px frame (`s5_hero._silhouette`).
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

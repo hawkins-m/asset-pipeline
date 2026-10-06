@@ -256,6 +256,18 @@ def cmd_3d(a) -> None:
     print(store.root / rec["glb"])
 
 
+def cmd_hero_orbit(a) -> None:
+    from .stages import s5_hero
+    store = ProjectStore.open(a.project)
+    out = s5_hero.orbit(store, a.plan, a.asset, seed=a.seed)
+    r = s5_hero.analyse(out)
+    print(out)
+    print(f"drift {r['drift_frac']:.0%}, closes at frame {r['closure_frame']} "
+          f"(similarity {r['closure_similarity']}), picks {r['picks'] or '-'}; contact sheet: "
+          f"{out / 'contact.png'}")
+    print("prototype: the picked frames' angles are approximate (see CLAUDE.md)")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -423,6 +435,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--mode", default="1024_cascade", help="1024_cascade (default) | 512 | 1024")
     p.add_argument("--seed", type=int, default=42)
     p.set_defaults(fn=cmd_3d)
+
+    hr = sub.add_parser("hero", help="hero tier PROTOTYPE: Wan 2.2 turntable orbit of the chosen view")
+    hsub = hr.add_subparsers(dest="hero_cmd", required=True)
+    p = hsub.add_parser("orbit", help="orbit video frames + drift / closure analysis (GPU 1, ~3 min)")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("--seed", type=int)
+    p.set_defaults(fn=cmd_hero_orbit)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

@@ -127,8 +127,17 @@ second path that gives the 3D model real side and back information:
    Texture from the front view (TRELLIS) or Hunyuan3D 2.1 paint.
 4. **Fallback:** an orbit that fails the checks leaves the asset on single-image TRELLIS.
 
+Prototype status (`ap hero orbit`, `stages/s5_hero.py`): step 1 works (consistent full
+turns with the "quick complete turn" prompt, ~2.5-3 min per orbit). Step 2's angle picking
+does not: frames labelled 90/180/270 are really ~45/90/135 (non-constant speed, possible
+swing-back, front/back-similar objects). Angle sources to try next:
+- a pose estimator on the orbit frames (VGGT / MASt3R-style feed-forward reconstruction
+  gives a camera per frame; new install, own env);
+- matching frames to textured renders of the asset's single-image TRELLIS mesh at known
+  yaw angles (no new model; hero assets have that mesh anyway).
+
 Next, in order:
-1. **Hero orbit prototype** (step 1-2 above) on a few alpine-market views.
+1. **Hero frame angles** (step 2): pick a pose source (above), then re-test.
 2. **Multi-view 3D backend** for hero assets (step 3; needs a decision on where weights go).
 3. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
 4. **Stage 6:** Blender cleanup (scale to plan dimensions, pivots; retopo for game).

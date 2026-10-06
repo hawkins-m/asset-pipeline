@@ -339,3 +339,17 @@ mid-request.
 
 The UI runs ComfyUI work (GPU 1) and GPU 0 work (analysis, 3D) in two separate queues, so a
 3D build doesn't wait behind sheet generation.
+
+# Hero assets (prototype)
+
+Tag an asset **hero** in the Review tab for the planned multi-view path (PLAN.md). Until it
+exists, hero assets go through TRELLIS like the others. The first step can be tried from
+the command line:
+
+```bash
+ap hero orbit alpine-market batch_001__scene_000 timber-market-stall   # ~3 min, GPU 1
+```
+
+It animates the asset's chosen view as a turntable with Wan 2.2 and writes the frames, a
+contact sheet and an analysis to `hero/<plan>/<asset>/orbit_s<seed>/`. The frames it picks
+as 0/90/180/270 degrees are only approximate so far.
