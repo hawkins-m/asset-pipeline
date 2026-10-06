@@ -284,6 +284,17 @@ reflects what was actually verified.
 
   Canny edges from the greybox are what flatten surfaces: they ask for the greybox's
   plain planes.
+- Cross-shot references (`--ref`, an approved wide frame as extra Redux image at total
+  +0.08), tried on two medium shots, same seeds:
+  - they carry palette, light and planting across shots (the mediums took the wide
+    frame's warm backlight and planted parterres: clearly "the same city");
+  - they also carry the reference's sky: a hazy, sun-filled sky turned a large dome
+    into a translucent glow, and a smaller invented dome took its place.
+
+  Keep it opt-in. Try a lower strength (≈0.04) or a reference with a clear sky before
+  making it a default.
+- Wide aerials read a plateau's edge (a depth step around the city) as a circular ring
+  wall, and a sparse layout makes wide shots look like a scale model.
 - The edge score must be chance-corrected: raw recall gave random noise 0.96. Sobel
   edges at the top 12%, dilated 2 px, cover most of a busy image.
 - Shell gotcha: `pgrep -f`/`pkill -f` with a script path also match the calling
