@@ -89,7 +89,7 @@ Done and verified:
 
 - **Stage 1 (asset plan):** `ap plan analyze` / the UI's Plan tab drafts one `AssetPlan`
   per scene (`plan/<batch>__<scene>.json`) with the local Qwen3-VL. Live-verified on both
-  alpine-market scenes (45–70 s each). The editor edits, includes/excludes, adds and deletes
+  test scenes (45–70 s each). The editor edits, includes/excludes, adds and deletes
   assets and relations, and protects hand edits from re-analysis. Outside images can be
   imported as scenes. SAM 3.1 redraws each box from an LLM-given noun (~12/16 correct vs
   3-4/16 for the 8B's own boxes). Default local VLM: Qwen3-VL-32B (llama.cpp), 8B as
@@ -164,12 +164,12 @@ Open items:
 ## Revisit when models improve
 Parked ideas, each tracked as a GitHub issue labelled `revisit`
 (`scripts/create_revisit_issues.sh` creates them). Details of what was tried are in
-CLAUDE.md. Rerun commands use the alpine-market assets; test on a scratch copy, not a
-live project.
+CLAUDE.md. Rerun commands use placeholders (PROJECT, PLAN, ASSET): pick a comparable
+asset and test on a scratch copy, not a live project.
 
 | Idea | What we found | Retry when | Rerun |
 |---|---|---|---|
-| **Hero tier / multi-view 3D** | Flux sheets don't give true side/back views; Wan orbit frames + Hunyuan3D-2mv give a shape slightly cleaner from the sides than front-only, but untextured, on a ground slab, with spikes, and less detailed than single-image TRELLIS. | An open multi-view model that keeps geometry across views (a turnaround / multi-view diffusion model that runs locally), or a TRELLIS release that takes several images. | `ap hero orbit` then `ap hero mesh … orbit_sN --front 0 --left 20 --back 40 --right 60` on `timber-market-stall`; compare with `ap 3d` for the same asset. |
+| **Hero tier / multi-view 3D** | Flux sheets don't give true side/back views; Wan orbit frames + Hunyuan3D-2mv give a shape slightly cleaner from the sides than front-only, but untextured, on a ground slab, with spikes, and less detailed than single-image TRELLIS. | An open multi-view model that keeps geometry across views (a turnaround / multi-view diffusion model that runs locally), or a TRELLIS release that takes several images. | `ap hero orbit` then `ap hero mesh … orbit_sN --front 0 --left 20 --back 40 --right 60` on a multi-part asset (e.g. a market stall); compare with `ap 3d` for the same asset. |
 | **Orbit frame angles** | Render matching is right on synthetic data but fails on real Wan orbits (tracks only 25-50 deg): Wan's "turn" barely changes the silhouette, and TRELLIS's and Wan's unseen sides are different inventions. | A video model whose turntables keep 3D proportions, or a feed-forward pose estimator (VGGT / MASt3R successor) that runs on ROCm. | `pytest tests/test_hero.py::test_match_angles_recovers_a_full_turn` (must still pass), then `ap hero orbit` + `ap hero angles … orbit_sN`: success = rotation close to 360 and all four sides picked. |
 | **Hunyuan texturing** | Not attempted: Hunyuan3D-2mv shapes come out untextured; Hunyuan3D 2.1 paint builds custom rasterizer extensions that were written for CUDA and are untried on ROCm here. | Hunyuan3D paint with ROCm support, or native ComfyUI texturing nodes for Hunyuan meshes. | `ap hero mesh …` (above), then texture it from the chosen view; compare with the TRELLIS GLB in the Review tab. |
 | **TRELLIS.2 `1536_cascade` OOM** | A genuine out-of-memory error in CuMesh `fill_holes` -> `get_edges` on the 32 GB R9700 (not silent corruption); `512` and `1024_cascade` work. | A TRELLIS.2 / CuMesh release with chunked or lower-memory hole filling, or a GPU with more memory. | `trellis turret.webp --type 1536_cascade` and `trellis crown.png --type 1536_cascade`: no OOM, raw F/V close to 2.0 in the run's JSON, and all four views fine in `scripts/blender_check_glb.py`. |

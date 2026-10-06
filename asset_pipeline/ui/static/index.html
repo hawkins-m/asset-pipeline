@@ -16,7 +16,7 @@
     <details id="new-project">
       <summary>New project</summary>
       <form id="new-form">
-        <input name="slug" placeholder="slug (e.g. harbour-town)" required pattern="[a-z0-9][a-z0-9_-]*">
+        <input name="slug" placeholder="slug (e.g. my-project)" required pattern="[a-z0-9][a-z0-9_-]*">
         <input name="brief" placeholder="brief (optional)">
         <button>Create</button>
       </form>
@@ -25,6 +25,7 @@
   </header>
 
   <nav role="tablist">
+    <button role="tab" data-tab="site">Site · Shots</button>
     <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
     <button role="tab" data-tab="plan">1 · Plan</button>
     <button role="tab" data-tab="refs">2 · References</button>
@@ -32,6 +33,28 @@
   </nav>
 
   <p id="empty" hidden>Create or pick a project to start.</p>
+
+  <main id="site-tab" data-tab="site" hidden>
+    <section>
+      <h2>Site and shots (world mode)</h2>
+      <p class="hint">One city instead of separate scenes. <code>site/layout.json</code>
+        (districts, rings, radial avenues, plots, kits, shots) builds a Blender greybox; after
+        that the .blend is the source of truth: move buildings or cameras in Blender, then
+        <em>Re-read .blend</em>. Each shot camera renders depth, canny and object-id passes
+        that guide its concept frames. Blender runs on the CPU (seconds per shot).</p>
+      <div class="row">
+        <button id="site-init" type="button">Start from the starter layout</button>
+        <button id="site-build" type="button">Build greybox</button>
+        <button id="site-extract" type="button" class="secondary">Re-read .blend</button>
+        <button id="site-preview" type="button" class="secondary">Aerial previews</button>
+        <button id="shots-render" type="button">Render all passes</button>
+        <button type="button" id="site-stop" class="stop" hidden>Stop</button>
+      </div>
+      <p id="site-summary" class="hint"></p>
+      <div id="site-previews" class="grid"></div>
+    </section>
+    <div id="shots-list"></div>
+  </main>
 
   <main id="style-tab" data-tab="style">
     <section id="explore">
@@ -166,5 +189,6 @@
   <script src="/static/review.js"></script>
   <script src="/static/refs.js"></script>
   <script src="/static/plan.js"></script>
+  <script src="/static/site.js"></script>
 </body>
 </html>

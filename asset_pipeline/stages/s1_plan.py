@@ -244,7 +244,7 @@ def _box_iou(a: list[float], b: list[float]) -> float:
 def refine_boxes(store: ProjectStore, name: str, client: ComfyClient | None = None,
                  max_dets: int = 8) -> AssetPlan:
     """Replace each asset's LLM box with a SAM 3.1 box for its noun (plain nouns segment
-    far better than descriptive names: "alpine timber stall" returned whole houses,
+    far better than descriptive names: "rustic timber stall" returned whole houses,
     "market stall" the stalls). SAM may find several copies: take the one overlapping the
     LLM's box most; without overlap, prefer copies not cut off by the frame, then the
     largest. The LLM box is kept in bbox_llm, so this can be re-run after edits."""

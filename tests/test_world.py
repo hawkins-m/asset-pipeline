@@ -1,0 +1,203 @@
+"""World mode phase 1: layout -> greybox spec, terrain, shot pass decoding; real Blender
+build / extract / passes on a small layout."""
+import json
+import math
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from asset_pipeline import greybox
+from asset_pipeline.project import ProjectStore
+from asset_pipeline.schema import (Kit, Plot, Radial, Ring, RingRow, ShotSpec, SiteLayout,
+                                   TerrainSpec)
+from asset_pipeline.stages import sw_shots, sw_site
+
+REAL_BLENDER = Path("/snap/bin/blender")
+
+
+def small_layout(**kw) -> SiteLayout:
+    return SiteLayout(
+        terrain=TerrainSpec(extent_m=1000, resolution=129, city_radius_m=200, city_z=10, shore_m=320,
+                            hill_height_m=40),
+        kits=[Kit(id="k", module_m=4, storey_m=6, column_d_m=0.9, ring_radii=[20, 80])],
+        rings=[Ring(id="avenue", radius=50, width=10)],
+        radials=[Radial(id="r0", angle=0, width=12, r_from=30, r_to=180)],
+        plots=[Plot(id="rotunda", type="rotunda", center=(0, 0), size=(30, 30, 30), kit="k"),
+               Plot(id="stoa-a", type="stoa", arc=(80, 30, 150), kit="k")],
+        rows=[RingRow(id="villa", radius=120, count=4, type="villa", size=(30, 30, 8), kit="k")],
+        shots=[ShotSpec(id="look", pos=(0, -70, 11.7), look_at=(0, 0, 18), resolution=(320, 180))],
+        **kw)
+
+
+def spec_for(layout):
+    return greybox.build_spec(layout, greybox.make_terrain(layout.terrain))
+
+
+# --- layout -> spec ---------------------------------------------------------------------------
+
+def test_starter_layout_builds_a_spec():
+    layout = sw_site.starter_layout()
+    spec = spec_for(SiteLayout.model_validate_json(layout.model_dump_json()))  # survives a JSON round-trip
+    counts = greybox.piece_counts(spec)
+    assert counts["colonnade:entablature"] > 20 and len(layout.shots) == 2
+    assert {s["type"] for s in spec["slots"]} >= {"rotunda", "stoa", "block", "villa", "radial", "garden"}
+
+
+def test_ring_rows_skip_radials_and_face_the_centre():
+    layout = small_layout()
+    plots = [p for p in greybox.expand_rows(layout) if p.id.startswith("villa")]
+    assert [p.id for p in plots] == ["villa-01", "villa-02", "villa-03"]  # villa-00 sits on radial r0
+    for p in plots:
+        a = math.degrees(math.atan2(p.center[1], p.center[0]))
+        front = greybox._rot(0, -1, p.rot)          # local -Y in world
+        to_centre = (-math.cos(math.radians(a)), -math.sin(math.radians(a)))
+        assert front[0] * to_centre[0] + front[1] * to_centre[1] == pytest.approx(1, abs=1e-6)
+
+
+def test_kit_pieces_repeat_exactly():
+    """Every kit piece type is one primitive (one shared mesh -> one instanced mesh later)."""
+    spec = spec_for(small_layout())
+    prims: dict[str, set] = {}
+    for s in spec["slots"]:
+        for p in s["pieces"]:
+            if p["piece"].startswith("k:"):
+                prims.setdefault(p["piece"], set()).add(json.dumps(p["prim"], sort_keys=True))
+    assert prims and all(len(v) == 1 for v in prims.values()), {k: len(v) for k, v in prims.items()}
+    assert "k:ring-entablature-r20" in prims         # rotunda peristyle snapped to the kit radius
+    assert "k:stoa-entablature-r80" in prims
+
+
+def test_pieces_are_stored_relative_to_their_slot():
+    spec = spec_for(small_layout())
+    rot = next(s for s in spec["slots"] if s["id"] == "rotunda")
+    shafts = [p for p in rot["pieces"] if "column-shaft" in p["piece"]]
+    radii = {round(math.hypot(p["loc"][0], p["loc"][1]), 2) for p in shafts}
+    assert radii == {20.0} and len(shafts) == round(2 * math.pi * 20 / 4)
+    stoa = next(s for s in spec["slots"] if s["id"] == "stoa-a")
+    # back to world: rotate by the slot's rot_z, add its loc -> columns on the r=80 arc
+    for p in [p for p in stoa["pieces"] if "column-shaft" in p["piece"]]:
+        wx, wy = greybox._rot(p["loc"][0], p["loc"][1], stoa["rot_z"])
+        assert math.hypot(wx + stoa["loc"][0], wy + stoa["loc"][1]) == pytest.approx(80, abs=1e-3)
+
+
+def test_duplicate_slot_ids_and_unknown_kits_are_rejected():
+    layout = small_layout()
+    layout.plots.append(Plot(id="rotunda", type="temple", center=(0, 300)))
+    with pytest.raises(ValueError, match="duplicate slot id"):
+        spec_for(layout)
+    layout = small_layout()
+    layout.plots[0].kit = "nope"
+    with pytest.raises(ValueError, match="unknown kit"):
+        spec_for(layout)
+
+
+def test_terrain_plateau_sea_and_png16_roundtrip():
+    t = small_layout().terrain
+    h = greybox.make_terrain(t)
+    hs = greybox.Heights(h, t.extent_m)
+    assert hs(0, 0) == pytest.approx(t.city_z) and hs(150, 50) == pytest.approx(t.city_z)
+    assert hs(0, -480) < 0 < hs(0, 450)               # sea to the south (sea_dir -90), land north
+    back = greybox.from_png16(greybox.to_png16(h, t.z_range), t.z_range)
+    assert np.abs(back - h).max() < (t.z_range[1] - t.z_range[0]) / 65535
+
+
+# --- pass decoding ------------------------------------------------------------------------------
+
+def test_id_colours_are_unique_and_decode_exactly():
+    ids = [f"s{i}" for i in range(5000)]
+    colors = sw_shots.colors_for(ids)
+    assert len({tuple(c) for c in colors.values()}) == len(colors) and [0, 0, 0] not in colors.values()
+    rgb = np.zeros((2, 3, 3), np.uint8)
+    rgb[0, 1] = colors["s7"]
+    rgb[1, 2] = colors["s4999"]
+    rgb[1, 0] = [1, 2, 3]                              # a colour nobody has
+    idx, names, unknown = sw_shots.decode_ids(rgb, colors)
+    assert names[idx[0, 1]] == "s7" and names[idx[1, 2]] == "s4999"
+    assert idx[0, 0] == -1 and unknown == 1
+
+
+def test_depth_control_is_inverse_depth_near_white_sky_black():
+    z = np.array([[5.0, 10.0, 100.0, 0.0]])
+    hit = z > 0
+    d = sw_shots.depth_control(z, hit)
+    assert d[0, 0] > d[0, 1] > d[0, 2] and d[0, 3] == 0
+
+
+def test_edges_mark_slot_changes_and_creases_only():
+    idx = np.zeros((4, 6), int)
+    idx[:, 3:] = 1
+    n = np.zeros((4, 6, 3))
+    n[..., 2] = 1
+    z = np.full((4, 6), 10.0)
+    e = sw_shots.edges(idx, n, z, np.ones((4, 6), bool))
+    assert e[:, 2].all() and e.sum() == 4             # one column at the slot boundary
+    n[2:, :, :] = [0, 1, 0]                            # a 90 degree crease between rows 1 and 2
+    e = sw_shots.edges(np.zeros((4, 6), int), n, z, np.ones((4, 6), bool))
+    assert e[1].all() and e.sum() == 6
+
+
+# --- real Blender -----------------------------------------------------------------------------
+
+@pytest.fixture
+def site(tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    store = ProjectStore.create("w")
+    path = tmp_path / "layout.json"
+    path.write_text(small_layout().model_dump_json())
+    sw_site.init(store, path)
+    return store
+
+
+@pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
+def test_build_extract_and_hand_edit_protection(site):
+    assert site.load().mode == "world"
+    spec = spec_for(sw_site.load_layout(site))
+    data = sw_site.build(site)
+    assert len(data["slots"]) == len(spec["slots"]) + 2          # + terrain, sea
+    got = sw_site.summary(site)["pieces"]
+    for piece, n in greybox.piece_counts(spec).items():
+        assert got[piece] == n
+    assert [s["id"] for s in data["shots"]] == ["look"] and not data["untagged"]
+    rot = next(s for s in data["slots"] if s["id"] == "rotunda")
+    assert rot["category"] == "building" and rot["kit"] == "k"
+    # shared meshes: every shaft of one height uses the same mesh datablock
+    shafts = {p["mesh"] for s in data["slots"] for p in s["pieces"] if p["piece"] == "k:column-shaft-h6"}
+    assert len(shafts) == 1
+    assert (site.root / "site/terrain.png").is_file()
+    assert np.array(Image.open(site.root / "site/terrain.png")).dtype == np.uint16
+
+    assert not sw_site.edited(site)
+    with sw_site.blend_path(site).open("ab") as f:                 # stand-in for a save in Blender
+        f.write(b"\0")
+    assert sw_site.edited(site) and sw_site.stale(site)
+    with pytest.raises(sw_site.SiteEdited):
+        sw_site.build(site)
+    sw_site.build(site, force=True)
+    assert (site.root / "site/greybox.prev.blend").is_file() and not sw_site.edited(site)
+
+
+@pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
+def test_add_shot_and_passes_are_exact(site):
+    sw_site.build(site)
+    z0 = sw_site.load_layout(site).terrain.city_z
+    # straight down from 100 m above the ring avenue: depth at the centre must read ~100 m
+    # minus the avenue's lift and thickness
+    sw_site.add_shot(site, ShotSpec(id="down", pos=(0.5, -50, z0 + 100), look_at=(0.5, -49.999, z0),
+                                    resolution=(160, 90), lens_mm=50))
+    assert not sw_site.edited(site)                                # pipeline writes aren't hand edits
+    assert any(s.id == "down" for s in sw_site.load_layout(site).shots)
+    res = sw_shots.render(site)
+    assert set(res) == {"look", "down"}
+    for r in res.values():
+        assert r["stats"]["unknown_pixels"] == 0 and r["stats"]["pass_mismatch"] == 0
+        assert not r["warnings"], r["warnings"]
+    raw = np.array(Image.open(sw_shots.shot_dir(site, "down") / "depth_raw.png")).astype(float)
+    z = raw[45, 80] / 65535 * sw_shots.DEPTH_SCALE
+    assert z == pytest.approx(100 - greybox.PAVING_LIFT - 0.1, abs=0.1)
+    ids = json.loads((sw_shots.shot_dir(site, "look") / "ids.json").read_text())
+    assert "rotunda" in ids["slots"] and ids["slots"]["rotunda"]["frac"] > 0.05
+    for f in ("depth.png", "canny.png", "preview.png", "normal.png", "meta.json"):
+        assert (sw_shots.shot_dir(site, "look") / f).is_file()
+    assert [s["id"] for s in sw_shots.status(site)] == ["down", "look"]

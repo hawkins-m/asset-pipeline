@@ -1,7 +1,7 @@
 // Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
 // from it. Stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
-let slug = null, data = null, plans = [], refs = [], reviewData = null, selectedScene = null, polling = null;
+let slug = null, data = null, plans = [], refs = [], reviewData = null, siteData = null, selectedScene = null, polling = null;
 
 async function api(path, body, method = "POST") {
   const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
@@ -40,7 +40,8 @@ function card(key, {label, onSelect, selected} = {}) {
 const isActive = j => j.status === "queued" || j.status === "running";
 const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive", "plan.analyze": "scene analysis",
   "plan.refine": "box refinement", "refs.generate": "reference sheets", "views.cut": "cutting views",
-  "3d.trellis": "3D (TRELLIS)", "cleanup": "cleanup (Blender)"};
+  "3d.trellis": "3D (TRELLIS)", "cleanup": "cleanup (Blender)", "site.build": "greybox build",
+  "site.extract": "reading the .blend", "site.preview": "aerial previews", "shots.render": "shot passes"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
 
@@ -145,6 +146,7 @@ function render() {
     cur.append(g);
   }
 
+  renderSite();
   renderPlan();
   renderRefs();
   renderReview();
@@ -156,8 +158,9 @@ function render() {
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; return; }
-  [data, plans, refs, reviewData] = await Promise.all([api(`/api/projects/${slug}`),
-    api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`)]);
+  [data, plans, refs, reviewData, siteData] = await Promise.all([api(`/api/projects/${slug}`),
+    api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
+    api(`/api/projects/${slug}/site`)]);
   render();
 }
 
@@ -177,7 +180,7 @@ function showTab(tab) {
   localStorage.setItem("ap.tab", tab);
 }
 document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
-showTab(["plan", "refs", "review"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
+showTab(["site", "plan", "refs", "review"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
 
 $("#project").onchange = e => {
   if (!confirmDiscard()) { e.target.value = slug; return; }

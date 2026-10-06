@@ -25,9 +25,9 @@ issue "Revisit: hero tier / multi-view 3D" "**What we found.** Flux reference sh
 
 **How to rerun.**
 \`\`\`
-ap hero orbit alpine-market batch_001__scene_000 timber-market-stall
-ap hero mesh alpine-market batch_001__scene_000 timber-market-stall orbit_sN --front 0 --left 20 --back 40 --right 60
-ap 3d alpine-market batch_001__scene_000 timber-market-stall   # single-image baseline
+ap hero orbit PROJECT PLAN ASSET
+ap hero mesh PROJECT PLAN ASSET orbit_sN --front 0 --left 20 --back 40 --right 60
+ap 3d PROJECT PLAN ASSET   # single-image baseline
 \`\`\`
 Compare the shapes from all four sides (scripts/blender_turntable.py).
 
@@ -40,8 +40,8 @@ issue "Revisit: orbit frame angles (render matching)" "**What we found.** Render
 **How to rerun.**
 \`\`\`
 pytest tests/test_hero.py::test_match_angles_recovers_a_full_turn   # must still pass
-ap hero orbit alpine-market batch_001__scene_000 timber-market-stall
-ap hero angles alpine-market batch_001__scene_000 timber-market-stall orbit_sN
+ap hero orbit PROJECT PLAN ASSET
+ap hero angles PROJECT PLAN ASSET orbit_sN
 \`\`\`
 Success: rotation close to 360 deg and front/left/back/right all picked.
 
@@ -53,7 +53,7 @@ issue "Revisit: texture Hunyuan3D-2mv shapes" "**What we found.** Not attempted.
 
 **How to rerun.**
 \`\`\`
-ap hero mesh alpine-market batch_001__scene_000 timber-market-stall orbit_sN --front 0 --left 20 --back 40 --right 60
+ap hero mesh PROJECT PLAN ASSET orbit_sN --front 0 --left 20 --back 40 --right 60
 \`\`\`
 then texture the shape from the asset's chosen view and compare with its TRELLIS GLB in the Review tab.
 

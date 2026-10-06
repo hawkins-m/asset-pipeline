@@ -305,6 +305,94 @@ def cmd_cleanup(a) -> None:
         print(f"warning: {w}")
 
 
+def _vec(s: str, n: int = 3) -> tuple[float, ...]:
+    v = tuple(float(x) for x in s.split(","))
+    if len(v) != n:
+        raise ValueError(f"expected {n} comma-separated numbers, got {s!r}")
+    return v
+
+
+def cmd_site_init(a) -> None:
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    layout = sw_site.init(store, Path(a.layout) if a.layout else None, force=a.force)
+    print(f"{store.root / 'site/layout.json'}: {len(layout.plots)} plots, {len(layout.rows)} ring rows, "
+          f"{len(layout.shots)} shots; project is in world mode. Next: ap site build {a.project}")
+
+
+def cmd_site_build(a) -> None:
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    sw_site.build(store, force=a.force)
+    _print_site(store)
+
+
+def cmd_site_extract(a) -> None:
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    data = sw_site.extract(store)
+    for f in data["fixed"]:
+        print(f"fixed: {f}")
+    _print_site(store)
+
+
+def cmd_site_show(a) -> None:
+    _print_site(ProjectStore.open(a.project), pieces=a.pieces)
+
+
+def _print_site(store, pieces: bool = False) -> None:
+    from .stages import sw_site
+    s = sw_site.summary(store)
+    state = "edited by hand" if s["edited"] else "as built"
+    print(f"{sw_site.blend_path(store)} ({state}{', greybox.json STALE: run ap site extract' if s['stale'] else ''})")
+    print(f"{s['slots']} slots: " + ", ".join(f"{n} {t}" for t, n in s["types"].items()))
+    if pieces:
+        for p, n in s["pieces"].items():
+            print(f"  {n:5d}  {p}")
+    print(f"shots: {', '.join(s['shots']) or 'none'}")
+    if s["untagged"]:
+        print(f"warning: {len(s['untagged'])} untagged meshes (give them ap_id/ap_type or parent them to a slot): "
+              f"{', '.join(s['untagged'][:8])}{' ...' if len(s['untagged']) > 8 else ''}")
+
+
+def cmd_site_preview(a) -> None:
+    from .stages import sw_shots
+    for p in sw_shots.preview_site(ProjectStore.open(a.project)):
+        print(p)
+
+
+def cmd_shots_add(a) -> None:
+    from .schema import ShotSpec
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    w, h = _size(a.res)
+    shot = ShotSpec(id=a.id, tier=a.tier, pos=_vec(a.pos), look_at=_vec(a.look_at), lens_mm=a.lens,
+                    resolution=(w, h), district=a.district, notes=a.notes or "")
+    sw_site.add_shot(store, shot)
+    print(f"shot {a.id} in {sw_site.blend_path(store)}. Next: ap shots render {a.project} {a.id}")
+
+
+def cmd_shots_list(a) -> None:
+    from .stages import sw_shots
+    for r in sw_shots.status(ProjectStore.open(a.project)):
+        state = "not rendered" if not r["rendered"] else ("STALE" if r["stale"] else f"rendered {r['rendered']}")
+        print(f"{r['id']:20s} {r['tier']:6s} {r['lens_mm']:5.0f} mm  {r['resolution'][0]}x{r['resolution'][1]}  "
+              f"{r['district'] or '-':12s} {state}")
+        for w in r["warnings"]:
+            print(f"    warning: {w}")
+
+
+def cmd_shots_render(a) -> None:
+    from .stages import sw_shots
+    store = ProjectStore.open(a.project)
+    for sid, r in sw_shots.render(store, a.shots or None).items():
+        st = r["stats"]
+        print(f"{sw_shots.shot_dir(store, sid)}: {st['visible_slots']} slots visible, "
+              f"geometry {st['hit_frac']:.0%} of the frame, depth {st['z_range_m']} m")
+        for w in r["warnings"]:
+            print(f"    warning: {w}")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -508,6 +596,49 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--budget", type=int, help="game triangle budget (default by category)")
     p.set_defaults(fn=cmd_cleanup)
 
+    si = sub.add_parser("site", help="world mode: site layout -> Blender greybox (source of truth)")
+    sisub = si.add_subparsers(dest="action", required=True)
+    p = sisub.add_parser("init", help="copy a layout (default: a small neutral starter) into the project")
+    p.add_argument("project")
+    p.add_argument("--layout", help="layout.json to start from")
+    p.add_argument("--force", action="store_true", help="replace an existing site/layout.json")
+    p.set_defaults(fn=cmd_site_init)
+    p = sisub.add_parser("build", help="layout.json -> terrain + greybox.blend + greybox.json (Blender, CPU)")
+    p.add_argument("project")
+    p.add_argument("--force", action="store_true", help="replace a hand-edited greybox.blend")
+    p.set_defaults(fn=cmd_site_build)
+    p = sisub.add_parser("extract", help="re-read greybox.blend after editing it in Blender")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_site_extract)
+    p = sisub.add_parser("show", help="slots, shots and edit state")
+    p.add_argument("project")
+    p.add_argument("--pieces", action="store_true", help="also list kit pieces / massing with counts")
+    p.set_defaults(fn=cmd_site_show)
+    p = sisub.add_parser("preview", help="four aerial preview renders of the greybox")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_site_preview)
+
+    sh = sub.add_parser("shots", help="world mode: shot cameras and their depth/canny/id passes")
+    shsub = sh.add_subparsers(dest="action", required=True)
+    p = shsub.add_parser("add", help="add or replace a shot camera (written to the .blend and the layout)")
+    p.add_argument("project")
+    p.add_argument("id")
+    p.add_argument("--pos", required=True, help="x,y,z in metres")
+    p.add_argument("--look-at", required=True, help="x,y,z in metres")
+    p.add_argument("--lens", type=float, default=35.0, help="focal length in mm (36 mm sensor)")
+    p.add_argument("--tier", choices=["wide", "medium", "tight"], default="medium")
+    p.add_argument("--res", default="1344x768")
+    p.add_argument("--district")
+    p.add_argument("--notes")
+    p.set_defaults(fn=cmd_shots_add)
+    p = shsub.add_parser("list", help="shots with render state and warnings")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_shots_list)
+    p = shsub.add_parser("render", help="render depth / canny / id / normal / preview passes (Blender, CPU)")
+    p.add_argument("project")
+    p.add_argument("shots", nargs="*", help="default: every shot")
+    p.set_defaults(fn=cmd_shots_render)
+
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)
     p.set_defaults(fn=cmd_ui)
@@ -534,7 +665,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         a.fn(a)
     except (ComfyError, LLMError, PaidAPIBlocked, FileNotFoundError, FileExistsError,
-            ValueError, NotImplementedError) as e:
+            ValueError, NotImplementedError, RuntimeError) as e:
         sys.exit(f"ap: {e}")
 
 

@@ -1,0 +1,412 @@
+"""Site layout -> terrain heightmap + greybox build spec (pure Python, no Blender).
+
+The spec is everything scripts/blender_greybox.py needs to build the .blend: slots (one per
+building, plaza, ring, radial, plus terrain and sea), each with pieces made of a handful of
+primitives. Pieces of the same kit piece type and size share one primitive, so Blender
+links them to one mesh and they become one instanced mesh later.
+
+Primitives (origin at the bottom centre unless noted, sizes in metres):
+    box      w, d, h
+    cylinder r, h, seg
+    dome     r, seg              hemisphere standing on z = 0
+    arc      r_in, r_out, a0, a1, h, seg   ring segment around the piece origin
+                                           (a0 = 0, a1 = 360: closed annulus)
+
+Kit pieces are named "<kit>:<piece>" and snap to the kit's module, so a kit has a small,
+fixed piece list (column base/shaft/capital, entablature, ...); curved pieces exist once
+per supported ring radius. Unique massing (podium, cella, mass, dome...) is "mass"-like
+and named by its role.
+    gable    w, d, h             triangular roof, ridge along Y (pediment faces -Y)
+"""
+import hashlib
+import math
+import random
+
+import numpy as np
+
+from .schema import Kit, Plot, SiteLayout, TerrainSpec
+
+PAVING_LIFT = 0.05   # paving/water sit just above the terrain to avoid z-fighting
+RADIAL_LIFT = 0.08
+ROW_SKIP_M = 4.0     # extra clearance to a radial avenue when spreading ring rows
+
+CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rotunda": "building",
+            "stoa": "structure", "plaza": "terrain", "pool": "structure", "avenue": "terrain",
+            "canal": "terrain", "garden": "terrain", "terrace": "terrain", "radial": "terrain",
+            "terrain": "terrain", "sea": "terrain"}
+DEFAULT_KIT = Kit(id="default")
+
+
+# --- Terrain -------------------------------------------------------------------------------
+
+def _smoothstep(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def _value_noise(n: int, cells: int, rng: np.random.Generator) -> np.ndarray:
+    """Smooth value noise on an n x n grid with `cells` lattice cells per side, in [-1, 1]."""
+    lat = rng.uniform(-1, 1, (cells + 2, cells + 2))
+    t = np.linspace(0, cells, n)
+    i = np.floor(t).astype(int)
+    f = t - i
+    f = f * f * (3 - 2 * f)
+    a = lat[np.ix_(i, i)] * (1 - f)[None, :] + lat[np.ix_(i, i + 1)] * f[None, :]
+    b = lat[np.ix_(i + 1, i)] * (1 - f)[None, :] + lat[np.ix_(i + 1, i + 1)] * f[None, :]
+    return a * (1 - f)[:, None] + b * f[:, None]
+
+
+def grid_coords(t: TerrainSpec) -> tuple[np.ndarray, np.ndarray]:
+    """World x, y of every heightmap sample. Row 0 is the north edge (+Y), like an image."""
+    s = np.linspace(-t.extent_m / 2, t.extent_m / 2, t.resolution)
+    return np.meshgrid(s, s[::-1])
+
+
+def make_terrain(t: TerrainSpec) -> np.ndarray:
+    """Fictional coastal terrain (float32 metres, rows north -> south): sea towards sea_dir,
+    a headland bulging out in front of the city, hills inland, the city a flat plateau."""
+    x, y = grid_coords(t)
+    rng = np.random.default_rng(t.seed)
+    u = np.array([math.cos(math.radians(t.sea_dir)), math.sin(math.radians(t.sea_dir))])
+    along = x * u[0] + y * u[1]                     # towards the sea
+    lateral = -x * u[1] + y * u[0]
+    shore = t.shore_m + t.headland_m * np.exp(-(lateral / t.headland_width_m) ** 2)
+    inland = shore - along                          # > 0 on land
+    n = t.resolution
+    noise = (0.6 * _value_noise(n, 4, rng) + 0.3 * _value_noise(n, 9, rng)
+             + 0.1 * _value_noise(n, 23, rng))
+    land = (8 * (1 - np.exp(-np.maximum(inland, 0) / 30))        # low cliff at the shore
+            + 0.03 * np.maximum(inland, 0)
+            + t.hill_height_m * _smoothstep(150, 900, inland) * (0.55 + 0.45 * noise))
+    sea = np.maximum(-0.08 * (-inland), -40.0)      # shelves down to -40 m
+    h = np.where(inland > 0, land, sea)
+    r = np.hypot(x, y)
+    w = 1 - _smoothstep(t.city_radius_m, t.city_radius_m + 90, r)
+    return (h * (1 - w) + t.city_z * w).astype(np.float32)
+
+
+def to_png16(h: np.ndarray, z_range) -> np.ndarray:
+    lo, hi = z_range
+    return np.round(np.clip((h - lo) / (hi - lo), 0, 1) * 65535).astype(np.uint16)
+
+
+def from_png16(a: np.ndarray, z_range) -> np.ndarray:
+    lo, hi = z_range
+    return (a.astype(np.float32) / 65535 * (hi - lo) + lo).astype(np.float32)
+
+
+class Heights:
+    """Bilinear sampler over a heightmap (rows north -> south)."""
+
+    def __init__(self, h: np.ndarray, extent_m: float):
+        self.h, self.extent = h, extent_m
+
+    def __call__(self, x: float, y: float) -> float:
+        n = self.h.shape[0]
+        fx = (x / self.extent + 0.5) * (n - 1)
+        fy = (0.5 - y / self.extent) * (n - 1)
+        fx, fy = min(max(fx, 0), n - 1), min(max(fy, 0), n - 1)
+        i0, j0 = int(fy), int(fx)
+        i1, j1 = min(i0 + 1, n - 1), min(j0 + 1, n - 1)
+        a, b = fy - i0, fx - j0
+        top = self.h[i0, j0] * (1 - b) + self.h[i0, j1] * b
+        bot = self.h[i1, j0] * (1 - b) + self.h[i1, j1] * b
+        return float(top * (1 - a) + bot * a)
+
+
+# --- Spec building --------------------------------------------------------------------------
+
+def _rot(x: float, y: float, deg: float) -> tuple[float, float]:
+    c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+    return x * c - y * s, x * s + y * c
+
+
+class SlotBuilder:
+    """Collects one slot's pieces in world coordinates, stores them relative to the slot."""
+
+    def __init__(self, id: str, type: str, loc, rot: float = 0.0, kit=None, district=None):
+        self.slot = {"id": id, "type": type, "category": CATEGORY[type], "kit": kit,
+                     "district": district, "loc": [round(v, 4) for v in loc], "rot_z": round(rot, 4),
+                     "pieces": []}
+
+    def add(self, piece: str, prim: dict, loc, rot: float = 0.0) -> None:
+        """loc / rot in world coordinates."""
+        ox, oy, oz = self.slot["loc"]
+        lx, ly = _rot(loc[0] - ox, loc[1] - oy, -self.slot["rot_z"])
+        self.slot["pieces"].append({
+            "name": f"{self.slot['id']}.{piece}.{len(self.slot['pieces']):03d}",
+            "piece": piece, "prim": prim,
+            "loc": [round(lx, 4), round(ly, 4), round(loc[2] - oz, 4)],
+            "rot_z": round((rot - self.slot["rot_z"]) % 360, 4)})
+
+    def add_local(self, piece: str, prim: dict, lx: float, ly: float, lz: float, lrot: float = 0.0) -> None:
+        """loc / rot relative to the slot."""
+        ox, oy, oz = self.slot["loc"]
+        wx, wy = _rot(lx, ly, self.slot["rot_z"])
+        self.add(piece, prim, (ox + wx, oy + wy, oz + lz), self.slot["rot_z"] + lrot)
+
+
+def box(w, d, h):
+    return {"kind": "box", "w": round(w, 3), "d": round(d, 3), "h": round(h, 3)}
+
+
+def cyl(r, h, seg=16):
+    return {"kind": "cylinder", "r": round(r, 3), "h": round(h, 3), "seg": seg}
+
+
+def arc(r_in, r_out, a0, a1, h, seg=None):
+    span = (a1 - a0) % 360 or 360
+    seg = seg or max(2, int(math.ceil(span / 6)))
+    return {"kind": "arc", "r_in": round(r_in, 3), "r_out": round(r_out, 3), "a0": round(a0, 4),
+            "a1": round(a1, 4), "h": round(h, 3), "seg": seg}
+
+
+def _column_parts(kit: Kit, h: float) -> list[tuple[str, dict, float]]:
+    """A column of total height h as kit pieces: (piece, primitive, z offset)."""
+    d = kit.column_d_m
+    base_h, cap_h = 0.35 * d, 0.6 * d
+    return [(f"{kit.id}:column-base", box(1.35 * d, 1.35 * d, base_h), 0.0),
+            (f"{kit.id}:column-shaft-h{round(h, 1):g}", cyl(d / 2, h - base_h - cap_h), base_h),
+            (f"{kit.id}:column-capital", box(1.4 * d, 1.4 * d, cap_h), h - cap_h)]
+
+
+def _column(sb: SlotBuilder, kit: Kit, h: float, lx: float, ly: float, lz: float) -> None:
+    for piece, prim, dz in _column_parts(kit, h):
+        sb.add_local(piece, prim, lx, ly, lz + dz)
+
+
+def _grid(length: float, module: float) -> tuple[list[float], float]:
+    """Positions at exactly `module` spacing, centred, spanning about `length`; and the
+    span actually used (a whole number of modules, so every bay is the same kit piece)."""
+    n = max(1, round(length / module))
+    span = n * module
+    return [-span / 2 + module * i for i in range(n + 1)], span
+
+
+def _colonnade_rect(sb: SlotBuilder, kit: Kit, w: float, d: float, h: float, z: float) -> tuple[float, float]:
+    """Columns around a rectangle of about w x d (snapped to the module) plus one
+    entablature bay between neighbours. Returns the snapped (w, d)."""
+    d_col = kit.column_d_m
+    ent_h = 0.9 * d_col
+    xs, w = _grid(w, kit.module_m)
+    ys, d = _grid(d, kit.module_m)
+    pts = {(x, -d / 2) for x in xs} | {(x, d / 2) for x in xs} | {(-w / 2, y) for y in ys} | {(w / 2, y) for y in ys}
+    for x, y in sorted(pts):
+        _column(sb, kit, h, x, y, z)
+    bay = box(kit.module_m, 1.2 * d_col, ent_h)
+    for coords, fixed, along_x in [(xs, -d / 2, True), (xs, d / 2, True), (ys, -w / 2, False), (ys, w / 2, False)]:
+        for a, b in zip(coords, coords[1:]):
+            if along_x:
+                sb.add_local(f"{kit.id}:entablature", bay, (a + b) / 2, fixed, z + h)
+            else:
+                sb.add_local(f"{kit.id}:entablature", bay, fixed, (a + b) / 2, z + h, 90)
+    return w, d
+
+
+def _temple(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    w, d, h = p.size
+    podium = max(1.2, 0.12 * h)
+    sb.add_local("podium", box(w, d, podium), 0, 0, 0)
+    inset = max(kit.module_m * 0.5, 1.5)
+    col_h = min(kit.storey_m * 1.5, 0.62 * h)
+    cw, cd = _colonnade_rect(sb, kit, w - 2 * inset, d - 2 * inset, col_h, podium)
+    sb.add_local("cella", box(cw - 2 * kit.module_m, cd - 2 * kit.module_m, col_h), 0, 0, podium)
+    roof_z = podium + col_h + 0.9 * kit.column_d_m
+    sb.add_local("roof", {"kind": "gable", "w": round(cw + 1.5, 3), "d": round(cd + 1.5, 3),
+                          "h": round(max(1.0, h - roof_z), 3)}, 0, 0, roof_z)
+
+
+def _block(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """Monumental civic block (Kahn-like mass) with an arcade loggia on the front."""
+    w, d, h = p.size
+    sb.add_local("mass", box(w, d, h), 0, 0, 0)
+    depth = kit.module_m
+    xs, span = _grid(w - kit.module_m, kit.module_m)
+    pier = kit.column_d_m * 1.2
+    for x in xs:
+        sb.add_local(f"{kit.id}:pier", box(pier, pier, kit.storey_m), x, -d / 2 - depth, 0)
+    for a, b in zip(xs, xs[1:]):
+        sb.add_local(f"{kit.id}:arcade-lintel", box(kit.module_m, pier, 0.9 * kit.column_d_m),
+                     (a + b) / 2, -d / 2 - depth, kit.storey_m)
+    sb.add_local("loggia-roof", box(span + pier, depth + pier / 2, 0.5), 0, -d / 2 - depth / 2,
+                 kit.storey_m + 0.9 * kit.column_d_m)
+
+
+def _villa(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """Courtyard villa: four wings, a pool in the court and a peristyle around it."""
+    w, d, h = p.size
+    t = 0.26 * min(w, d)
+    sb.add_local("mass", box(w, t, h), 0, -d / 2 + t / 2, 0)
+    sb.add_local("mass", box(w, t, h), 0, d / 2 - t / 2, 0)
+    sb.add_local("mass", box(t, d - 2 * t, h), -w / 2 + t / 2, 0, 0)
+    sb.add_local("mass", box(t, d - 2 * t, h), w / 2 - t / 2, 0, 0)
+    cw, cd = w - 2 * t, d - 2 * t
+    sb.add_local("court-pool", box(cw * 0.45, cd * 0.6, 0.15), 0, 0, PAVING_LIFT)
+    if p.kit and cw > 2 * kit.module_m and cd > 2 * kit.module_m:
+        _colonnade_rect(sb, kit, cw - kit.module_m, cd - kit.module_m, min(kit.storey_m * 0.6, h * 0.8), 0)
+
+
+def snap_radius(kit: Kit, r: float) -> float:
+    return min(kit.ring_radii, key=lambda x: abs(x - r)) if kit.ring_radii else r
+
+
+def _rotunda(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """Drum + dome with a ring colonnade (peristyle) on curved kit pieces."""
+    diam, _, h = p.size
+    r = diam / 2
+    drum_h = max(h - r, 0.4 * h)
+    sb.add_local("drum", cyl(r, drum_h, 48), 0, 0, 0)
+    sb.add_local("dome", {"kind": "dome", "r": round(r, 3), "seg": 48}, 0, 0, drum_h)
+    big = snap_radius(kit, r + kit.module_m)
+    n = max(8, round(2 * math.pi * big / kit.module_m))
+    col_h = min(kit.storey_m * 1.5, 0.75 * drum_h)
+    span = 360 / n
+    d_col = kit.column_d_m
+    for i in range(n):
+        a = i * span
+        x, y = _rot(big, 0, a)
+        _column(sb, kit, col_h, x, y, 0)
+        sb.add_local(f"{kit.id}:ring-entablature-r{big:g}", arc(big - 0.6 * d_col, big + 0.6 * d_col, 0, span,
+                                                       0.9 * d_col, 4), 0, 0, col_h, a)
+
+
+def _stoa(sb: SlotBuilder, p: Plot, kit: Kit, slot_z: float) -> None:
+    """Curved colonnade along an arc around p.center, open outwards (columns on the arc,
+    back wall `depth` further in). Pieces are placed in world coordinates; the curved
+    pieces' origin is the arc's centre."""
+    R, a0, a1 = p.arc
+    R = snap_radius(kit, R)
+    span = (a1 - a0) % 360 or 360
+    depth = 1.5 * kit.module_m
+    step = math.degrees(kit.module_m / R)     # one bay; fixed per radius, so pieces repeat
+    n = max(1, round(span / step))
+    a0 = a0 + span / 2 - n * step / 2         # centre the whole bays on the requested arc
+    col_h = kit.storey_m
+    d_col = kit.column_d_m
+    cx, cy = p.center
+    for i in range(n + 1):
+        x, y = _rot(R, 0, a0 + i * step)
+        for piece, prim, dz in _column_parts(kit, col_h):
+            sb.add(piece, prim, (cx + x, cy + y, slot_z + dz), a0 + i * step)
+    for i in range(n):
+        a = a0 + i * step
+        tag = f"r{R:g}"
+        sb.add(f"{kit.id}:stoa-entablature-{tag}", arc(R - 0.6 * d_col, R + 0.6 * d_col, 0, step, 0.9 * d_col, 4),
+               (cx, cy, slot_z + col_h), a)
+        sb.add(f"{kit.id}:stoa-backwall-{tag}", arc(R - depth - 0.8, R - depth, 0, step, col_h, 4),
+               (cx, cy, slot_z), a)
+        sb.add(f"{kit.id}:stoa-roof-{tag}", arc(R - depth - 0.8, R + 0.6 * d_col, 0, step, 0.5, 4),
+               (cx, cy, slot_z + col_h + 0.9 * d_col), a)
+
+
+def _seeded(seed: int, key: str) -> random.Random:
+    return random.Random(int(hashlib.sha256(f"{seed}:{key}".encode()).hexdigest()[:12], 16))
+
+
+def _angle_in(a: float, lo: float, hi: float) -> bool:
+    a, lo, hi = a % 360, lo % 360, hi % 360
+    return lo <= a <= hi if lo <= hi else a >= lo or a <= hi
+
+
+def district_at(layout: SiteLayout, x: float, y: float) -> str | None:
+    """First district whose ring band and sector contain the point."""
+    r, a = math.hypot(x, y), math.degrees(math.atan2(y, x)) % 360
+    for d in layout.districts:
+        if d.radius[0] <= r <= d.radius[1] and (d.sector == (0.0, 360.0) or _angle_in(a, *d.sector)):
+            return d.id
+    return None
+
+
+def expand_rows(layout: SiteLayout) -> list[Plot]:
+    """Explicit plots plus the plots of every ring row (skipping radial avenues)."""
+    plots = list(layout.plots)
+    for row in layout.rows:
+        half_w = row.size[0] / 2
+        for i in range(row.count):
+            a = row.angle_offset + 360 * i / row.count
+            blocked = False
+            for rad in layout.radials:
+                if rad.r_from <= row.radius <= rad.r_to:
+                    # angular half-width the plot needs to clear the avenue
+                    need = math.degrees((rad.width / 2 + half_w + ROW_SKIP_M) / row.radius)
+                    if abs((a - rad.angle + 180) % 360 - 180) < need:
+                        blocked = True
+                        break
+            if blocked:
+                continue
+            x, y = _rot(row.radius, 0, a)
+            h = row.size[2]
+            if row.height_jitter:
+                h *= 1 + _seeded(layout.terrain.seed, f"{row.id}-{i}").uniform(-1, 1) * row.height_jitter
+            plots.append(Plot(id=f"{row.id}-{i:02d}", type=row.type, center=(x, y), rot=a - 90,
+                              size=(row.size[0], row.size[1], round(h, 2)), kit=row.kit,
+                              district=row.district))
+    return plots
+
+
+def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
+    """The greybox build spec (JSON-able). `heights` is the terrain (rows north -> south)."""
+    t = layout.terrain
+    hs = Heights(heights, t.extent_m)
+    kits = {k.id: k for k in layout.kits}
+    slots: list[dict] = []
+    ids: set[str] = set()
+
+    def new(id, type, loc, rot=0.0, kit=None, district=None) -> SlotBuilder:
+        if id in ids:
+            raise ValueError(f"duplicate slot id {id!r} in the layout")
+        ids.add(id)
+        sb = SlotBuilder(id, type, loc, rot, kit, district)
+        slots.append(sb.slot)
+        return sb
+
+    for ring in layout.rings:
+        z = hs(ring.radius, 0)
+        sb = new(f"ring-{ring.id}", ring.role, (0, 0, z), district=district_at(layout, ring.radius, 0))
+        sb.add_local(ring.role, arc(ring.radius - ring.width / 2, ring.radius + ring.width / 2, 0, 360, 0.1, 128),
+                     0, 0, PAVING_LIFT)
+    for rad in layout.radials:
+        mid = (rad.r_from + rad.r_to) / 2
+        x, y = _rot(mid, 0, rad.angle)
+        sb = new(f"radial-{rad.id}", "radial", (x, y, hs(x, y)), rad.angle - 90,
+                 district=district_at(layout, x, y))
+        sb.add_local("radial", box(rad.width, rad.r_to - rad.r_from, 0.1), 0, 0, RADIAL_LIFT)
+    for pz in layout.plazas:
+        x, y = pz.center
+        sb = new(f"plaza-{pz.id}", "plaza" if pz.type == "paved" else "pool", (x, y, hs(x, y)),
+                 district=pz.district or district_at(layout, x, y))
+        sb.add_local("paving", cyl(pz.radius, 0.1, 96), 0, 0, PAVING_LIFT + 0.04)
+        if pz.type == "pool":
+            sb.add_local("pool-water", cyl(pz.radius * 0.6, 0.12, 64), 0, 0, PAVING_LIFT + 0.06)
+    for i, p in enumerate(expand_rows(layout)):
+        pid = p.id or f"{p.type}-{i:02d}"
+        kit = kits.get(p.kit) if p.kit else None
+        if p.kit and not kit:
+            raise ValueError(f"plot {pid}: unknown kit {p.kit!r}")
+        kit = kit or DEFAULT_KIT
+        if p.type == "stoa":
+            if not p.arc:
+                raise ValueError(f"stoa {pid} needs arc: [radius, angle_from, angle_to]")
+            R, a0, a1 = p.arc
+            amid = a0 + ((a1 - a0) % 360) / 2
+            x, y = _rot(R, 0, amid)
+            x, y = x + p.center[0], y + p.center[1]
+            z = hs(x, y)
+            sb = new(pid, "stoa", (x, y, z), amid + 90, p.kit, p.district or district_at(layout, x, y))  # opens outwards
+            _stoa(sb, p, kit, z)
+            continue
+        x, y = p.center
+        sb = new(pid, p.type, (x, y, hs(x, y)), p.rot, p.kit, p.district or district_at(layout, x, y))
+        {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda}[p.type](sb, p, kit)
+    return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},
+            "sea_level": layout.sea_level, "slots": slots,
+            "shots": [s.model_dump(mode="json") for s in layout.shots]}
+
+
+def piece_counts(spec: dict) -> dict[str, int]:
+    """How many of each kit piece / massing type the spec contains."""
+    out: dict[str, int] = {}
+    for s in spec["slots"]:
+        for p in s["pieces"]:
+            out[p["piece"]] = out.get(p["piece"], 0) + 1
+    return dict(sorted(out.items()))

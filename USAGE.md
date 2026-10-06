@@ -109,7 +109,7 @@ ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with
 ap ui                 # then open http://127.0.0.1:8700
 ```
 
-1. **New project.** Give it a slug and a brief, e.g. `harbour-town` and "a misty fishing
+1. **New project.** Give it a slug and a brief, e.g. `my-project` and "a misty fishing
    harbour at dawn, painterly, muted blues and rust".
 2. **Explore scenes.** Click *Generate scenes*. Each image is a 1344×768 environment
    concept, at about 45 s per batch of 4. Star the scenes worth keeping (☆ → ★). Starred
@@ -129,15 +129,15 @@ ap ui                 # then open http://127.0.0.1:8700
 ## From the command line
 
 ```bash
-ap new harbour-town --brief "a misty fishing harbour at dawn, painterly"
-ap style explore harbour-town -n 8
-ap style star harbour-town style/explore/batch_001/scene_003.png
-ap style derive harbour-town style/explore/batch_001/scene_003.png \
+ap new my-project --brief "a misty fishing harbour at dawn, painterly"
+ap style explore my-project -n 8
+ap style star my-project style/explore/batch_001/scene_003.png
+ap style derive my-project style/explore/batch_001/scene_003.png \
     --nouns "boat, lantern, crate" --style-text "painterly, muted blues and rust"
-ap style star harbour-town style/derive/batch_001__scene_003/obj_boat_0.png
-ap style anchor harbour-town             # strength 0.06; keeps the derive style text
-ap style show harbour-town               # batches, stars, anchor
-ap gen "a wooden pier post, isolated on white" --project harbour-town --anchor
+ap style star my-project style/derive/batch_001__scene_003/obj_boat_0.png
+ap style anchor my-project             # strength 0.06; keeps the derive style text
+ap style show my-project               # batches, stars, anchor
+ap gen "a wooden pier post, isolated on white" --project my-project --anchor
 ```
 
 Projects live in `/mnt/storage/asset-pipeline/projects/<slug>/`:
@@ -165,8 +165,8 @@ ap vlm up             # start the default model (32B), or the 8B if the 32B can'
 ap vlm up --model 8b  # the 8B explicitly
 ap vlm status         # which model, which GPU, busy or not
 ap vlm down           # stop it now (waits for a request in flight; --force doesn't)
-ap set harbour-town --llm local        # or gemini / claude
-ap set harbour-town --backend references=gemini   # image backend per stage
+ap set my-project --llm local        # or gemini / claude
+ap set my-project --backend references=gemini   # image backend per stage
 ```
 
 | Model | Engine | GPU 0 while loaded | Per scene | Notes |
@@ -214,7 +214,7 @@ blocked unless `AP_ALLOW_PAID_APIS=1` is set.
    - Fix names, sizes, counts and descriptions. Set *Use* to `game` or `cine`.
    - *Kit* groups modular pieces (wall segments, fence sections) that stage 2 draws
      together in one sheet. Leave it empty for everything else.
-   - *Segment as* is the plain noun SAM 3.1 looks for ("market stall", not "alpine
+   - *Segment as* is the plain noun SAM 3.1 looks for ("market stall", not "rustic
      timber stall"). Fix it if a box is wrong, save, then *Refine boxes*.
    - *SAM: N* is how many copies SAM found for that noun (at most 8). Far from the
      count usually means a wrong count or a noun SAM can't see.
@@ -240,13 +240,13 @@ Without ComfyUI the LLM boxes stay; run `ap plan refine` (or *Refine boxes*) lat
 ## From the command line
 
 ```bash
-ap plan analyze alpine-market                     # every starred/imported scene
-ap plan analyze alpine-market style/explore/batch_001/scene_002.png
-ap plan analyze alpine-market --force             # also replace plans edited in the UI
-ap plan refine alpine-market                      # redo boxes with SAM 3.1 (ComfyUI up)
-ap plan import alpine-market ~/Pictures/town.png  # use your own concept image
-ap plan show alpine-market                        # summary table of every plan
-ap plan show alpine-market batch_001__scene_002 --json
+ap plan analyze my-project                     # every starred/imported scene
+ap plan analyze my-project style/explore/batch_001/scene_002.png
+ap plan analyze my-project --force             # also replace plans edited in the UI
+ap plan refine my-project                      # redo boxes with SAM 3.1 (ComfyUI up)
+ap plan import my-project ~/Pictures/town.png  # use your own concept image
+ap plan show my-project                        # summary table of every plan
+ap plan show my-project batch_001__scene_002 --json
 ```
 
 Plans live in `/mnt/storage/asset-pipeline/projects/<slug>/plan/`, one per scene, named
@@ -271,9 +271,9 @@ sheets worth keeping; stage 3 cuts the views out of starred sheets.
 **From the command line:**
 
 ```bash
-ap refs generate alpine-market                      # every asset without sheets, 2 each
-ap refs generate alpine-market --unit wooden-barrel -n 4   # 4 more for one asset
-ap refs show alpine-market                          # units, sheet counts, stars
+ap refs generate my-project                      # every asset without sheets, 2 each
+ap refs generate my-project --unit crate -n 4   # 4 more for one asset
+ap refs show my-project                          # units, sheet counts, stars
 ```
 
 Sheets land in `/mnt/storage/asset-pipeline/projects/<slug>/refs/<plan>/<unit>/sheet_NNN.png`
@@ -306,12 +306,12 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
 **From the command line:**
 
 ```bash
-ap views cut alpine-market                          # every starred sheet without views
-ap review show alpine-market                        # assets: tag, views, choice, 3D results
-ap review choose alpine-market batch_001__scene_002 wooden-barrel \
-    views/batch_001__scene_002/wooden-barrel/sheet_000_v1.png
-ap review tag alpine-market batch_001__scene_002 wooden-barrel hero
-ap 3d alpine-market batch_001__scene_002 wooden-barrel --mode 512
+ap views cut my-project                          # every starred sheet without views
+ap review show my-project                        # assets: tag, views, choice, 3D results
+ap review choose my-project batch_001__scene_002 crate \
+    views/batch_001__scene_002/crate/sheet_000_v1.png
+ap review tag my-project batch_001__scene_002 crate hero
+ap 3d my-project batch_001__scene_002 crate --mode 512
 ```
 
 Files: `views/<plan>/<unit>/sheet_NNN_vK.png` (+ `meta.json`), `3d/<plan>/<asset>/*.glb`
@@ -338,8 +338,8 @@ cleaned GLB, in headless Blender on the CPU (so it never waits for or slows the 
 About 3 s for cine/hero, 15–20 s for game assets. Stop works like everywhere else.
 
 ```bash
-ap cleanup alpine-market batch_001__scene_000 timber-market-stall
-ap cleanup alpine-market batch_001__scene_000 timber-market-stall --budget 20000 --fit geomean
+ap cleanup my-project batch_001__scene_000 market-stall
+ap cleanup my-project batch_001__scene_000 market-stall --budget 20000 --fit geomean
 ```
 
 Output: `cleanup/<plan>/<asset>/<source>_<usage>.glb` plus a JSON report (sizes before and
@@ -374,7 +374,7 @@ exists, hero assets go through TRELLIS like the others. The first step can be tr
 the command line:
 
 ```bash
-ap hero orbit alpine-market batch_001__scene_000 timber-market-stall   # ~3 min, GPU 1
+ap hero orbit my-project batch_001__scene_000 market-stall   # ~3 min, GPU 1
 ```
 
 It animates the asset's chosen view as a turntable with Wan 2.2 and writes the frames, a
@@ -385,7 +385,7 @@ Then look at `contact.png`, pick the frames that show the asset's front, left, b
 right yourself, and build a shape from them with Hunyuan3D-2mv (~40 s, GPU 1, untextured):
 
 ```bash
-ap hero mesh alpine-market batch_001__scene_000 timber-market-stall orbit_s2 \
+ap hero mesh my-project batch_001__scene_000 market-stall orbit_s2 \
     --front 0 --left 20 --back 40 --right 60
 ```
 

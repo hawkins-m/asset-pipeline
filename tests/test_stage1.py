@@ -15,7 +15,7 @@ from asset_pipeline.project import ProjectStore
 from asset_pipeline.stages import s1_plan
 
 ANALYSIS = {
-    "summary": "An alpine market square.",
+    "summary": "A market square.",
     "scale_notes": "door ~2 m",
     "assets": [
         {"name": "Market Stall", "noun": "market stall", "category": "structure", "description": "timber stall, red awning",
@@ -54,7 +54,7 @@ class ScriptedLLM:
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
     monkeypatch.delenv("AP_ALLOW_PAID_APIS", raising=False)
-    s = ProjectStore.create("demo", brief="alpine market")
+    s = ProjectStore.create("demo", brief="market square")
     for batch in ("batch_001", "batch_002"):
         p = s.root / "style/explore" / batch / "scene_000.png"
         p.parent.mkdir(parents=True)
@@ -69,7 +69,7 @@ SCENE = "style/explore/batch_001/scene_000.png"
 def test_analyze_builds_plan(store):
     llm = ScriptedLLM(json.dumps(ANALYSIS))
     plan = s1_plan.analyze(store, SCENE, llm=llm)
-    assert "alpine market" in llm.calls[0]["prompt"]
+    assert "market square" in llm.calls[0]["prompt"]
     assert llm.calls[0]["images"] == [store.root / SCENE]
     assert [a.id for a in plan.assets] == ["market-stall", "market-stall-2", "barrel", "stone-wall"]
     assert plan.assets[0].bbox == [0.1, 0.2, 0.4, 0.7]

@@ -42,3 +42,44 @@ runs/
 .vscode/
 .idea/
 .DS_Store
+
+# --- Privacy safety net: this repo is public, projects are private -------------------
+# Project content (briefs, layouts, shot lists, greyboxes, generated media) lives in
+# $AP_ROOT/projects/<slug>/ (its own private git repo), never here. The pre-commit hook in
+# scripts/git-hooks/ also refuses project slugs and private terms in staged changes.
+projects/
+*brief*.md
+*brief*.txt
+layout.json
+shots.json
+greybox.json
+review.json
+runs.jsonl
+project.json
+site/
+shots/
+frames/
+moodboard/
+# images, video and other media (an intentional generic asset needs `git add -f`)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.bmp
+*.tif
+*.tiff
+*.exr
+*.hdr
+*.psd
+*.pur
+*.mp4
+*.mov
+*.webm
+*.npz
+*.npy
+*.usd
+*.usda
+*.usdc
+*.uasset
+*.umap

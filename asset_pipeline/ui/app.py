@@ -15,7 +15,7 @@ from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from ..schema import AssetPlan
-from ..stages import s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup
+from ..stages import s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -83,6 +83,14 @@ class CleanupReq(BaseModel):
     asset: str
     glb: str | None = None        # None: the asset's newest 3D result
     fit: Literal["height", "geomean"] = "height"
+
+
+class SiteReq(BaseModel):
+    force: bool = False
+
+
+class ShotsReq(BaseModel):
+    shots: list[str] | None = None    # None: every shot
 
 
 class AnchorReq(BaseModel):
@@ -355,6 +363,63 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         return jobs.submit("cleanup", slug, lambda: s6_cleanup.run(store, req.plan, req.asset,
                                                                    glb=req.glb, fit=req.fit),
                            lane="cpu", tag={"plan": req.plan, "asset": req.asset}).public()
+
+    # --- world mode: site greybox and shots ----------------------------------------------
+
+    @app.get("/api/projects/{slug}/site")
+    def site(slug: str):
+        store = _store(slug)
+        has_layout = (sw_site.site_dir(store) / "layout.json").is_file()
+        has_greybox = (sw_site.site_dir(store) / "greybox.json").is_file()
+        out = {"layout": has_layout, "summary": None, "shots": [], "previews": [],
+               "blend": str(sw_site.blend_path(store))}
+        if has_greybox:
+            summ = sw_site.summary(store)
+            summ.pop("pieces")
+            out["summary"] = summ
+            out["previews"] = _images(store, f"{sw_site.SITE}/preview")
+            for r in sw_shots.status(store):
+                d = sw_shots.shot_dir(store, r["id"])
+                r["passes"] = {p: f"{sw_shots.SHOTS}/{r['id']}/{p}.png"
+                               for p in ("preview", "depth", "canny", "ids") if (d / f"{p}.png").is_file()}
+                out["shots"].append(r)
+        return out
+
+    @app.post("/api/projects/{slug}/site/init")
+    def site_init(slug: str, req: SiteReq):
+        store = _store(slug)
+        try:
+            layout = sw_site.init(store, force=req.force)
+        except FileExistsError as e:
+            raise HTTPException(409, str(e))
+        return {"plots": len(layout.plots), "shots": len(layout.shots)}
+
+    @app.post("/api/projects/{slug}/site/build")
+    def site_build(slug: str, req: SiteReq):
+        store = _store(slug)
+        if not (sw_site.site_dir(store) / "layout.json").is_file():
+            raise HTTPException(400, "no site/layout.json: initialise the site first")
+        if sw_site.edited(store) and not req.force:  # checked here too so the UI can confirm
+            raise HTTPException(409, "greybox.blend was edited in Blender; rebuilding replaces those edits")
+        return jobs.submit("site.build", slug, lambda: len(sw_site.build(store, force=req.force)["slots"]),
+                           lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/site/extract")
+    def site_extract(slug: str):
+        store = _store(slug)
+        return jobs.submit("site.extract", slug, lambda: len(sw_site.extract(store)["slots"]), lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/site/preview")
+    def site_preview(slug: str):
+        store = _store(slug)
+        return jobs.submit("site.preview", slug, lambda: len(sw_shots.preview_site(store)), lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/shots/render")
+    def shots_render(slug: str, req: ShotsReq):
+        store = _store(slug)
+        tag = {"shot": req.shots[0]} if req.shots and len(req.shots) == 1 else {"all": True}
+        return jobs.submit("shots.render", slug, lambda: len(sw_shots.render(store, req.shots)),
+                           lane="cpu", tag=tag).public()
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

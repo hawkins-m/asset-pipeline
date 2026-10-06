@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Refuse commits that would put private project content into this (public) repo.
+#
+# Blocks staged changes that
+#   - add media / data files (images, video, meshes, .blend, arrays), or project-shaped
+#     files (briefs, layout/shot/greybox/review JSON);
+#   - mention a project slug (every dir with a project.json under $AP_ROOT/projects) or a
+#     term listed in $AP_ROOT/private-terms.txt (one per line, # comments; kept outside
+#     the repo so the terms themselves never get committed).
+# Install once: git config core.hooksPath scripts/git-hooks
+# Bypass for a deliberate exception: git commit --no-verify
+set -euo pipefail
+AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+fail=0
+
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+bad_files=$(printf '%s\n' "$files" | grep -iE '\.(png|jpe?g|webp|gif|bmp|tiff?|exr|hdr|psd|pur|mp4|mov|webm|npz|npy|blend1?|glb|gltf|fbx|obj|ply|usd[ac]?|uasset|umap)$|(^|/)[^/]*brief[^/]*\.(md|txt)$|(^|/)(layout|shots|greybox|review|project)\.json$|(^|/)runs\.jsonl$|(^|/)projects/' || true)
+if [ -n "$bad_files" ]; then
+  echo "pre-commit: media or project files staged (projects are private, this repo is public):" >&2
+  printf '  %s\n' $bad_files >&2
+  fail=1
+fi
+
+terms=()
+if [ -d "$AP_ROOT/projects" ]; then
+  for d in "$AP_ROOT"/projects/*/; do
+    [ -f "$d/project.json" ] && terms+=("$(basename "$d")")
+  done
+fi
+if [ -f "$AP_ROOT/private-terms.txt" ]; then
+  while IFS= read -r t; do
+    t="${t%%#*}"; t="$(echo "$t" | xargs)"
+    [ -n "$t" ] && terms+=("$t")
+  done < "$AP_ROOT/private-terms.txt"
+fi
+
+added=$(git diff --cached -U0 --no-color --diff-filter=ACMR | grep -E '^\+' | grep -vE '^\+\+\+ ' || true)
+for t in "${terms[@]}"; do
+  hits=$( { printf '%s\n' "$added"; printf '%s\n' "$files"; } | grep -ainwF -- "$t" | head -3 || true)
+  if [ -n "$hits" ]; then
+    echo "pre-commit: staged changes mention private term/project '$t':" >&2
+    printf '%s\n' "$hits" | cut -c1-160 | sed 's/^/  /' >&2
+    fail=1
+  fi
+done
+
+[ $fail -eq 0 ] || { echo "pre-commit: commit refused (git commit --no-verify to override deliberately)" >&2; exit 1; }

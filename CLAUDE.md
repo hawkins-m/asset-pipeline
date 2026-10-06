@@ -106,9 +106,9 @@ reflects what was actually verified.
 - **VLM and TRELLIS never share a GPU.** `scripts/trellis` writes
   `logs/trellis-gpu<N>-<pid>.lock`, then `ap vlm down --gpu N` (waits for a request in
   flight); `vlm.up()` refuses a GPU with a live lock. Verified live 2026-10-05.
-- Verified 2026-10-05: structured scene analysis on alpine-market validates first try,
+- Verified 2026-10-05: structured scene analysis on a test project validates first try,
   ~25 s warm (1.4k tokens in, ~560 out, ~23 tok/s).
-- Stage 1 plans (verified 2026-10-05, alpine-market): both scenes validated first try,
+- Stage 1 plans (verified 2026-10-05 on a test project): both scenes validated first try,
   45–70 s warm. Without the explicit "parts are not assets" and "kit only when ≥2 pieces
   share it" rules, Qwen split stalls into poles/awnings/shingles (23 assets, 173 s) and
   gave every asset its own kit. Its `bbox_2d` boxes are rough (some tight, many offset or
@@ -121,7 +121,7 @@ reflects what was actually verified.
   - 30B-A3B Q6_K: 27.4 GB, ~130 tok/s, but loops at greedy decoding (repeats assets
     until max_tokens) and still duplicates heavily with Qwen's recommended sampling.
   - 8B Q8_0 on llama.cpp: 65 tok/s (3x transformers) but worse plans than 8B bf16.
-  - A/B on 4 alpine-market scenes, blind-judged against a reference written first
+  - A/B on 4 test scenes, blind-judged against a reference written first
     (`$AP_ROOT/outputs/vlm_ab/`, `scripts/diag/vlm_ab*.py`): 32B Q5 greedy 18/20,
     8B bf16 13/20, 8B Q8 9.5/20, 30B-A3B <=8.5/20. LLM box hits SAM object (IoU>=0.3):
     32B 79%, 8B bf16 36%.
@@ -172,7 +172,7 @@ reflects what was actually verified.
   (the Kontext/Qwen-Image edit nodes there are paid API nodes).
 
 ## Views and review (stages 3-4) findings
-- SAM 3.1 finds the three views on a sheet reliably (31/32 alpine-market sheets, 2026-10-05)
+- SAM 3.1 finds the three views on a sheet reliably (31/32 test sheets, 2026-10-05)
   but its masks drop white or thin parts (snow on a shrub, the flowers in a planter). Views
   are therefore cut as full-height bands between neighbouring views, trimmed and kept on
   white; TRELLIS removes the background itself (BiRefNet).

@@ -34,6 +34,7 @@ class Project(BaseModel):
     backends: dict[str, str] = Field(default_factory=dict)  # stage -> image backend
     llm: str = "local"            # vision LLM: local | gemini | claude
     anchor: StyleAnchor | None = None
+    mode: Literal["scenes", "world"] = "scenes"  # world: one site, greybox, shots (PLAN.md)
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------
@@ -87,3 +88,163 @@ class AssetPlan(BaseModel):
     dropped: list[str] = Field(default_factory=list)  # LLM "assets" dropped as backdrop (> 200 m)
     created: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     edited: datetime | None = None  # last save from the editor; re-analysis then needs force
+
+
+# --- World mode: site layout, greybox slots, shots (PLAN.md "World mode") ---------------
+# Coordinates are metres, Z up, Blender's right-handed frame; angles are degrees counter-
+# clockwise from +X. A building's front faces its local -Y (as in stage 6).
+
+Vec2 = tuple[float, float]
+Vec3 = tuple[float, float, float]
+BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa"]
+
+
+class District(BaseModel):
+    """A part of the city with its own material notes (fed to the concept-frame prompt)."""
+    id: str
+    name: str = ""
+    notes: str = ""                       # materials, palette, character
+    radius: Vec2 = (0.0, 1e9)             # ring band from the centre
+    sector: Vec2 = (0.0, 360.0)           # angle range (may wrap: (300, 60))
+
+
+class Kit(BaseModel):
+    """A classical modular kit: pieces sit on a grid of `module_m` bays."""
+    id: str
+    module_m: float = Field(default=4.0, gt=0)       # bay width (column spacing)
+    storey_m: float = Field(default=6.0, gt=0)       # column / pier height
+    column_d_m: float = Field(default=0.9, gt=0)     # column diameter
+    ring_radii: list[float] = Field(default_factory=list)  # radii curved pieces are made for
+
+
+class Ring(BaseModel):
+    id: str
+    radius: float = Field(gt=0)           # centre line
+    width: float = Field(gt=0)
+    role: Literal["avenue", "canal", "garden", "terrace"] = "avenue"
+
+
+class Radial(BaseModel):
+    id: str
+    angle: float
+    width: float = Field(gt=0)
+    r_from: float = 0.0
+    r_to: float = Field(gt=0)
+
+
+class Plaza(BaseModel):
+    id: str
+    center: Vec2 = (0.0, 0.0)
+    radius: float = Field(gt=0)
+    type: Literal["paved", "pool"] = "paved"
+    district: str | None = None
+
+
+class Plot(BaseModel):
+    """One building. Straight types use center/rot/size; a stoa follows an arc."""
+    id: str = ""
+    type: BuildingType
+    center: Vec2 = (0.0, 0.0)
+    rot: float = 0.0                      # degrees; the front (-Y) faces rot - 90
+    size: Vec3 = (20.0, 20.0, 12.0)       # width, depth, height (rotunda: drum diameter, -, total)
+    arc: tuple[float, float, float] | None = None  # stoa: (radius, angle_from, angle_to)
+    kit: str | None = None
+    district: str | None = None
+
+
+class RingRow(BaseModel):
+    """`count` plots spread evenly around a circle, facing the centre, skipping radials."""
+    id: str
+    radius: float = Field(gt=0)
+    count: int = Field(ge=1)
+    type: BuildingType
+    size: Vec3
+    height_jitter: float = 0.0            # +- fraction of the height, seeded per plot
+    angle_offset: float = 0.0
+    kit: str | None = None
+    district: str | None = None
+
+
+class VegZone(BaseModel):
+    """Where vegetation is scattered (phase 3+); `ring` names a garden ring."""
+    id: str
+    ring: str | None = None
+    polygon: list[Vec2] = Field(default_factory=list)
+    species: dict[str, float] = Field(default_factory=dict)   # name -> share
+    density_per_100m2: float = 1.0
+
+
+class TerrainSpec(BaseModel):
+    """Fictional coastal terrain (generated), or a 16-bit heightmap PNG in the project."""
+    extent_m: float = Field(default=2400.0, gt=0)  # square, centred on the origin
+    resolution: int = Field(default=1009, ge=65)   # samples per side (UE-legal: 505, 1009, 2017)
+    seed: int = 7
+    sea_dir: float = -90.0                # direction from the city towards the sea
+    shore_m: float = 520.0                # centre -> shoreline along sea_dir
+    headland_m: float = 80.0              # the shore bulges out by this much in front of the city
+    headland_width_m: float = 500.0
+    hill_height_m: float = 90.0
+    city_radius_m: float = 470.0          # flattened plateau
+    city_z: float = 18.0
+    heightmap: str | None = None          # project-relative PNG instead of generating
+    z_range: Vec2 = (-40.0, 160.0)        # PNG 0..65535 <-> metres
+
+
+class ShotSpec(BaseModel):
+    """A camera as authored in the layout; the .blend's cameras are the truth after build."""
+    id: str
+    tier: Literal["wide", "medium", "tight"] = "medium"
+    pos: Vec3
+    look_at: Vec3
+    lens_mm: float = 35.0
+    sensor_mm: float = 36.0
+    resolution: tuple[int, int] = (1344, 768)
+    district: str | None = None
+    notes: str = ""
+
+
+class SiteLayout(BaseModel):
+    name: str = ""
+    sea_level: float = 0.0
+    terrain: TerrainSpec = Field(default_factory=TerrainSpec)
+    districts: list[District] = Field(default_factory=list)
+    kits: list[Kit] = Field(default_factory=list)
+    rings: list[Ring] = Field(default_factory=list)
+    radials: list[Radial] = Field(default_factory=list)
+    plazas: list[Plaza] = Field(default_factory=list)
+    plots: list[Plot] = Field(default_factory=list)
+    rows: list[RingRow] = Field(default_factory=list)
+    veg_zones: list[VegZone] = Field(default_factory=list)
+    shots: list[ShotSpec] = Field(default_factory=list)
+
+
+class Piece(BaseModel):
+    """One mesh of a slot: a kit piece (shared mesh, instanced) or unique massing."""
+    name: str
+    piece: str                            # kit piece type ("column-shaft") or "mass"
+    mesh: str                             # mesh datablock; identical pieces share one
+    matrix_local: list[list[float]]       # 4x4 relative to the slot
+
+
+class Slot(BaseModel):
+    """A tagged greybox object (building, plaza, ring, terrain...) read from the .blend."""
+    id: str
+    type: str
+    category: Category
+    kit: str | None = None
+    district: str | None = None
+    matrix: list[list[float]]             # 4x4 world
+    bbox: list[list[float]]               # [[x, y, z] min, [x, y, z] max], world
+    pieces: list[Piece] = Field(default_factory=list)
+
+
+class Shot(BaseModel):
+    """A shot camera read from the .blend."""
+    id: str
+    tier: Literal["wide", "medium", "tight"] = "medium"
+    matrix: list[list[float]]             # 4x4 world (Blender camera: looks down local -Z)
+    lens_mm: float
+    sensor_mm: float
+    resolution: tuple[int, int]
+    district: str | None = None
+    notes: str = ""
