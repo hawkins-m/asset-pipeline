@@ -13,6 +13,12 @@ stage is tuned by editing the graph in ComfyUI, not code:
                    "passthrough": "model",                 #   None -> node removed and its
                    "fields": {"file": "lora_name",         #   consumers rewired to its
                               "strength": "strength_model"}},  # "model" input
+        "depth":  {"node": "32", "optional": true,         # optional node with two outputs:
+                   "passthrough": {"0": "positive",        #   each output index is rewired
+                                   "1": "negative"},       #   to its own input
+                   "also_remove": ["31"],                  #   feeder nodes removed with it
+                   "fields": {"strength": "strength",      #   fields on the node itself, or
+                              "image": {"node": "31", "input": "image"}}},  # on another node
         "anchor": {"repeat": {"nodes": ["22", "23", "24"],  # a block cloned once per list
                               "chain_in": {"node": "24", "input": "conditioning"},  # item and
                               "out": "24"},                 # chained: item i's chain_in reads
@@ -60,26 +66,44 @@ def validate(graph: dict, manifest: dict, name: str = "workflow") -> None:
                         f"{name}: binding {key!r} -> node {r['node']} has no input {r['input']!r}")
             continue
         for s in spec if isinstance(spec, list) else [spec]:
-            node = graph.get(s["node"])
-            if node is None:
+            if s["node"] not in graph:
                 raise WorkflowError(f"{name}: binding {key!r} -> missing node {s['node']!r}")
-            inputs = [s["input"]] if "input" in s else list(s.get("fields", {}).values())
-            if s.get("passthrough"):
-                inputs.append(s["passthrough"])
-            for inp in inputs:
-                if inp not in node["inputs"]:
+            refs = [(s["node"], s["input"])] if "input" in s else \
+                [_field_ref(s, f) for f in s.get("fields", {})]
+            pt = s.get("passthrough")
+            refs += [(s["node"], i) for i in ([pt] if isinstance(pt, str) else (pt or {}).values())]
+            for nid in s.get("also_remove", []):
+                if nid not in graph:
+                    raise WorkflowError(f"{name}: binding {key!r} -> also_remove missing node {nid!r}")
+            for nid, inp in refs:
+                if nid not in graph:
+                    raise WorkflowError(f"{name}: binding {key!r} -> missing node {nid!r}")
+                if inp not in graph[nid]["inputs"]:
                     raise WorkflowError(
-                        f"{name}: binding {key!r} -> node {s['node']} has no input {inp!r}")
+                        f"{name}: binding {key!r} -> node {nid} has no input {inp!r}")
 
 
-def _remove_node(graph: dict, node_id: str, passthrough: str) -> None:
-    """Delete a node and point everything that consumed it at its passthrough input."""
-    source = graph[node_id]["inputs"][passthrough]
+def _field_ref(spec: dict, field: str) -> tuple[str, str]:
+    """(node, input) a field of an optional binding writes to."""
+    target = spec["fields"][field]
+    return (target["node"], target["input"]) if isinstance(target, dict) else (spec["node"], target)
+
+
+def _remove_node(graph: dict, node_id: str, passthrough: str | dict) -> None:
+    """Delete a node and point everything that consumed it at its passthrough input
+    (a dict maps each output index to the input that replaces it)."""
+    if isinstance(passthrough, str):
+        sources = {None: graph[node_id]["inputs"][passthrough]}
+    else:
+        sources = {int(o): graph[node_id]["inputs"][i] for o, i in passthrough.items()}
     del graph[node_id]
     for node in graph.values():
         for k, v in node["inputs"].items():
             if isinstance(v, list) and len(v) == 2 and v[0] == node_id:
-                node["inputs"][k] = list(source)
+                src = sources.get(None, sources.get(v[1]))
+                if src is None:
+                    raise WorkflowError(f"node {node_id} output {v[1]} has no passthrough")
+                node["inputs"][k] = list(src)
 
 
 def _rewire(graph: dict, old: list, new: list) -> None:
@@ -129,11 +153,14 @@ def fill(graph: dict, manifest: dict, values: dict) -> dict:
             if s.get("optional"):
                 if value is None:
                     _remove_node(g, s["node"], s["passthrough"])
+                    for nid in s.get("also_remove", []):
+                        g.pop(nid, None)
                     continue
-                for field, inp in s["fields"].items():
+                for field in s["fields"]:
                     if field not in value:
                         raise WorkflowError(f"binding {key!r} needs field {field!r}")
-                    g[s["node"]]["inputs"][inp] = value[field]
+                    nid, inp = _field_ref(s, field)
+                    g[nid]["inputs"][inp] = value[field]
             else:
                 g[s["node"]]["inputs"][s["input"]] = value
     return g

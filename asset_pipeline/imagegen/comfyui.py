@@ -27,13 +27,34 @@ class ComfyUIBackend:
         return [{"image": self.client.upload_image(Path(p)), "strength": per_image}
                 for p in images]
 
+    def _control_values(self, req: GenRequest) -> dict:
+        """Upload control images; one binding per kind (None removes that control)."""
+        kinds = [c.kind for c in req.control]
+        if len(set(kinds)) != len(kinds):
+            raise BackendCapabilityError(f"one control image per kind, got {kinds}")
+        if req.control_model == "depth_lora" and kinds != ["depth"]:
+            raise BackendCapabilityError("the depth LoRA takes exactly one depth image (no canny)")
+        out = {} if req.control_model == "depth_lora" else {"depth": None, "canny": None}
+        for c in req.control:
+            if not Path(c.image).is_file():
+                raise FileNotFoundError(f"control image missing: {c.image}")
+            v = {"image": self.client.upload_image(Path(c.image)), "strength": c.strength}
+            if req.control_model == "union":
+                v |= {"start": c.start, "end": c.end}
+            out[c.kind] = v
+        return out
+
     def generate(self, req: GenRequest, out_dir: Path, prefix: str = "img") -> list[GenResult]:
         if req.refs:
             raise BackendCapabilityError("reference images (refs) aren't supported by the "
                                          "ComfyUI backend yet")
         lora = req.lora or (req.anchor.lora if req.anchor else None)
         anchor = self._anchor_values(req)
-        name = self.workflows["t2i_anchor"] if (anchor or lora) else self.workflows["t2i"]
+        control = self._control_values(req) if req.control else {}
+        if control:
+            name = self.workflows["control_union" if req.control_model == "union" else "depth_lora"]
+        else:
+            name = self.workflows["t2i_anchor"] if (anchor or lora) else self.workflows["t2i"]
         graph, manifest = workflow.load_template(name)
         seed = req.seed if req.seed is not None else random.randrange(2**32)
         prompt = effective_prompt(req)
@@ -41,9 +62,12 @@ class ComfyUIBackend:
                   "height": req.height, "n": req.n, "seed": seed}
         if req.steps is not None:
             values["steps"] = req.steps
-        if name == self.workflows["t2i_anchor"]:
+        if name != self.workflows["t2i"]:
             values["anchor"] = anchor
             values["lora"] = lora.model_dump() if lora else None
+        values |= control
+        # the depth LoRA's latent takes its size from the control image
+        values = {k: v for k, v in values.items() if k in manifest["bindings"] or k not in ("width", "height")}
         images = self.client.run(workflow.fill(graph, manifest, values), manifest["outputs"])
 
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -59,5 +83,6 @@ class ComfyUIBackend:
                                            "anchor_images": [str(p) for p in req.anchor.images]
                                            if req.anchor else [],
                                            "lora": lora.model_dump() if lora else None,
+                                           "control": [c.model_dump(mode="json") for c in req.control],
                                            "ignored": []}))
         return results

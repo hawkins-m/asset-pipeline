@@ -12,13 +12,19 @@ Layout under the project:
     style/derive/<scene name>/cut_<noun>_<i>.png, obj_<noun>_<i>.png + meta.json
         (scene name: see scene_name(); dirs from before it may be named by the bare stem)
     style/anchor/*.png  (copies of the starred derived objects)
+    style/moodboard/<group>/*  imported reference images (e.g. a PureRef export, one folder
+        per group) + meta.json; derive() works on them like on scenes, and
+        draft_style_text() has the vision LLM describe their shared style
 """
+import random
 import re
 import shutil
 import time
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
+from pydantic import BaseModel, Field
 
 from .. import config, review, segment
 from ..comfy.client import ComfyClient
@@ -31,6 +37,8 @@ EXPLORE = "style/explore"
 DERIVE = "style/derive"
 ANCHOR = "style/anchor"
 SCENES = "scenes"                 # scene images imported from outside stage 0
+MOODBOARD = "style/moodboard"
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 
 SCENE_SUFFIX = "environment concept art, wide establishing view, cohesive art direction"
 OBJECT_PROMPT = ("a single {noun}, complete and fully visible, centered, isolated on a plain "
@@ -201,6 +209,117 @@ def _derive_style_text(store: ProjectStore, keys: list[str]) -> str:
         if meta.get("style_text"):
             return meta["style_text"]
     return ""
+
+
+# --- moodboard -----------------------------------------------------------------------------
+
+def import_moodboard(store: ProjectStore, group: str, sources: list[Path]) -> list[str]:
+    """Copy images (files, or every image in the given folders) into style/moodboard/<group>/.
+    PureRef's .pur format is proprietary: export the board's images to a folder first."""
+    g = _slug(group)
+    files = []
+    for src in map(Path, sources):
+        if src.is_dir():
+            files += sorted(p for p in src.rglob("*") if p.suffix.lower() in IMAGE_EXT)
+        elif src.suffix.lower() == ".pur":
+            raise ValueError(f"{src}: PureRef files can't be read; export the images to a folder")
+        elif src.suffix.lower() in IMAGE_EXT:
+            files.append(src)
+        else:
+            raise ValueError(f"{src}: expected an image or a folder of images")
+    out = store.root / MOODBOARD / g
+    out.mkdir(parents=True, exist_ok=True)
+    meta = read_json(out / "meta.json", default=None) or {"group": group, "images": []}
+    keys = []
+    for f in files:
+        try:
+            Image.open(f).verify()
+        except Exception as e:
+            raise ValueError(f"{f}: not a readable image ({e})") from e
+        name = re.sub(r"[^\w.-]+", "_", f.name).lstrip(".") or "image.png"
+        dst, i = out / name, 1
+        while dst.exists():
+            dst = out / f"{Path(name).stem}_{i}{Path(name).suffix}"
+            i += 1
+        shutil.copyfile(f, dst)
+        meta["images"].append({"file": dst.name, "source": f.name})
+        keys.append(dst.relative_to(store.root).as_posix())
+    write_json(out / "meta.json", meta)
+    store.log_run({"stage": "style.moodboard", "group": g, "n": len(keys)})
+    return keys
+
+
+def moodboard(store: ProjectStore) -> dict[str, list[str]]:
+    """Group -> project-relative image keys."""
+    root = store.root / MOODBOARD
+    return {d.name: sorted(p.relative_to(store.root).as_posix() for p in d.iterdir()
+                           if p.suffix.lower() in IMAGE_EXT)
+            for d in sorted(root.iterdir()) if d.is_dir()} if root.is_dir() else {}
+
+
+def contact_sheet(paths: list[Path], out: Path, tile: int = 512, cols: int = 3) -> Path:
+    """Images letterboxed into one grid image (one image costs the vision LLM far fewer
+    tokens than nine: Qwen3-VL spends ~2.4k tokens on a 1568 px image)."""
+    rows = (len(paths) + cols - 1) // cols
+    sheet = Image.new("RGB", (tile * cols, tile * rows), "white")
+    for i, p in enumerate(paths):
+        im = Image.open(p).convert("RGB")
+        im.thumbnail((tile, tile), Image.LANCZOS)
+        sheet.paste(im, ((i % cols) * tile + (tile - im.width) // 2, (i // cols) * tile + (tile - im.height) // 2))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out)
+    return out
+
+
+class StyleDraft(BaseModel):
+    style_text: str = Field(description="one line, comma-separated: architecture and forms, materials, "
+                                        "palette, light, vegetation, rendering style; at most 60 words")
+    palette: str = Field(description="the dominant colours, a few words")
+    avoid: str = Field(description="what these references avoid, a few words")
+
+
+STYLE_PROMPT = """These are moodboard references for one project{brief}.
+Describe the style they share, as a prompt suffix for an image model that will draw new
+places and objects in this style. Describe the look (architecture and forms, materials,
+palette, light, vegetation, rendering style), not the subjects of these particular
+pictures: no named buildings, people or places."""
+
+
+def draft_style_text(store: ProjectStore, groups: list[str] | None = None, max_images: int = 9,
+                     seed: int = 0, llm=None) -> StyleDraft:
+    """Ask the project's vision LLM for a style text from (a sample of) the moodboard.
+    Doesn't save it: `ap moodboard style --save` or the anchor form does."""
+    from ..llm.base import structured
+    from ..llm.registry import llm_for
+    board = moodboard(store)
+    keys = [k for g, ks in board.items() if not groups or g in groups for k in ks]
+    if not keys:
+        raise ValueError("no moodboard images (ap moodboard import first)")
+    rng = random.Random(seed)
+    if len(keys) > max_images:  # round-robin over the groups, random order within each
+        pools = [rng.sample(ks, len(ks)) for g, ks in board.items() if not groups or g in groups]
+        pick = []
+        while len(pick) < max_images:
+            for pool in pools:
+                if pool and len(pick) < max_images:
+                    pick.append(pool.pop())
+        keys = pick
+    sheet = contact_sheet([store.root / k for k in keys], store.root / MOODBOARD / "_sheet.png")
+    project = store.load()
+    brief = f" (brief: {project.brief.strip()})" if project.brief.strip() else ""
+    llm = llm or llm_for(project)
+    draft = structured(llm, STYLE_PROMPT.format(brief=brief), [sheet], StyleDraft,
+                       system="You are an art director writing style guides for image generation.")
+    store.log_run({"stage": "style.draft_text", "images": keys, "llm": llm.name})
+    return draft
+
+
+def set_style_text(store: ProjectStore, text: str) -> StyleAnchor:
+    """Set the project's style text, keeping its anchor images (or none yet)."""
+    project = store.load()
+    project.anchor = (project.anchor or StyleAnchor(strength=ANCHOR_STRENGTH)).model_copy(update={"style_text": text})
+    store.save(project)
+    return project.anchor
 
 
 def save_anchor(store: ProjectStore, strength: float = ANCHOR_STRENGTH, style_text: str | None = None) -> StyleAnchor:

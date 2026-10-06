@@ -1,0 +1,240 @@
+"""World mode phase 2: control images in the image adapter, depth/canny workflows."""
+from types import SimpleNamespace
+
+import pytest
+from PIL import Image
+
+from asset_pipeline import config
+from asset_pipeline.comfy import workflow
+from asset_pipeline.imagegen.base import BackendCapabilityError, ControlImage, GenRequest
+from asset_pipeline.imagegen.comfyui import ComfyUIBackend
+from asset_pipeline.schema import StyleAnchor
+
+
+class Client:
+    """Records the graph a backend submits; returns one fake image per batch item."""
+
+    def __init__(self):
+        self.graphs, self.uploads = [], []
+
+    def upload_image(self, p):
+        self.uploads.append(p.name)
+        return p.name
+
+    def run(self, graph, outputs):
+        self.graphs.append(graph)
+        return [SimpleNamespace(data=b"png")]
+
+
+def backend(client):
+    return ComfyUIBackend(client, config.backends()["comfyui"]["workflows"])
+
+
+@pytest.fixture
+def images(tmp_path):
+    out = {}
+    for name in ("depth", "canny", "anchor"):
+        out[name] = tmp_path / f"{name}.png"
+        Image.new("RGB", (64, 32)).save(out[name])
+    return out
+
+
+def by_type(graph, cls):
+    return {k: v for k, v in graph.items() if v["class_type"] == cls}
+
+
+def test_union_with_depth_and_canny_chains_both_after_redux(tmp_path, images):
+    c = Client()
+    req = GenRequest(prompt="a forum", width=64, height=32, seed=3,
+                     anchor=StyleAnchor(images=[images["anchor"]], strength=0.06, style_text="pale stone"),
+                     control=[ControlImage(kind="depth", image=images["depth"], strength=0.7, end=0.5),
+                              ControlImage(kind="canny", image=images["canny"], strength=0.3, start=0.1, end=0.4)])
+    res = backend(c).generate(req, tmp_path / "out")
+    g = c.graphs[0]
+    cns = by_type(g, "ControlNetApplyAdvanced")
+    assert len(cns) == 2 and g["32"]["inputs"]["strength"] == 0.7 and g["32"]["inputs"]["end_percent"] == 0.5
+    assert g["34"]["inputs"]["start_percent"] == 0.1
+    assert g["31"]["inputs"]["image"] == "depth.png" and g["33"]["inputs"]["image"] == "canny.png"
+    # Redux clone feeds the depth control; canny follows depth; the sampler reads canny's outputs
+    assert g["32"]["inputs"]["positive"] == ["24_0", 0] and g["34"]["inputs"]["positive"] == ["32", 0]
+    assert g["3"]["inputs"]["positive"] == ["34", 0] and g["3"]["inputs"]["negative"] == ["34", 1]
+    assert g["5"]["inputs"]["width"] == 64 and "pale stone" in g["6"]["inputs"]["text"]
+    assert res[0].meta["control"][0]["kind"] == "depth"
+
+
+def test_union_with_depth_only_removes_the_canny_block(tmp_path, images):
+    c = Client()
+    req = GenRequest(prompt="x", control=[ControlImage(kind="depth", image=images["depth"])])
+    backend(c).generate(req, tmp_path / "out")
+    g = c.graphs[0]
+    assert "33" not in g and "34" not in g
+    assert g["3"]["inputs"]["positive"] == ["32", 0] and g["3"]["inputs"]["negative"] == ["32", 1]
+    assert g["32"]["inputs"]["positive"] == ["11", 0]          # no anchor: straight from guidance
+    workflow.validate(g, {"outputs": ["9"], "bindings": {}})
+
+
+def test_depth_lora_takes_its_size_from_the_control_image(tmp_path, images):
+    c = Client()
+    req = GenRequest(prompt="x", n=3, width=999, height=999, control_model="depth_lora",
+                     control=[ControlImage(kind="depth", image=images["depth"], strength=0.8)])
+    backend(c).generate(req, tmp_path / "out")
+    g = c.graphs[0]
+    assert not by_type(g, "EmptySD3LatentImage") and g["42"]["inputs"]["amount"] == 3
+    assert g["40"]["inputs"]["strength_model"] == 0.8 and g["3"]["inputs"]["latent_image"] == ["42", 0]
+    with pytest.raises(BackendCapabilityError):
+        backend(Client()).generate(GenRequest(prompt="x", control_model="depth_lora", control=[
+            ControlImage(kind="depth", image=images["depth"]), ControlImage(kind="canny", image=images["canny"])]),
+            tmp_path / "out")
+
+
+def test_two_controls_of_one_kind_and_missing_images_are_refused(tmp_path, images):
+    with pytest.raises(BackendCapabilityError):
+        backend(Client()).generate(GenRequest(prompt="x", control=[
+            ControlImage(kind="depth", image=images["depth"]), ControlImage(kind="depth", image=images["depth"])]),
+            tmp_path / "out")
+    with pytest.raises(FileNotFoundError):
+        backend(Client()).generate(GenRequest(prompt="x", control=[
+            ControlImage(kind="depth", image=tmp_path / "nope.png")]), tmp_path / "out")
+
+
+# --- s0_frames: prompts, generation, edge match (no Blender, fake backend) -----------------
+
+import json  # noqa: E402
+
+import numpy as np  # noqa: E402
+
+from asset_pipeline import review  # noqa: E402
+from asset_pipeline.imagegen.base import GenResult  # noqa: E402
+from asset_pipeline.project import ProjectStore, write_json  # noqa: E402
+from asset_pipeline.schema import District, FrameSettings, ShotSpec, SiteLayout  # noqa: E402
+from asset_pipeline.stages import s0_frames, s0_style, sw_shots, sw_site  # noqa: E402
+
+EYE = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+
+
+class FakeBackend:
+    name = "fake"
+
+    def __init__(self, canny=None):
+        self.requests, self.canny = [], canny
+
+    def generate(self, req, out_dir, prefix="img"):
+        self.requests.append(req)
+        p = out_dir / f"{prefix}_000.png"
+        # a frame that draws exactly the greybox's edges (dark lines on light) if given
+        img = Image.open(self.canny).convert("L").point(lambda v: 255 - v) if self.canny else \
+            Image.new("L", (req.width, req.height), 200)
+        img.save(p)
+        return [GenResult(path=p, seed=req.seed, backend=self.name)]
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    store = ProjectStore.create("w")
+    layout = SiteLayout(districts=[District(id="core", notes="white marble, bronze"),
+                                   District(id="edge", notes="brick and concrete")],
+                        shots=[ShotSpec(id="a", pos=(0, 0, 0), look_at=(0, 1, 0))])
+    sw_site.save_layout(store, layout)
+    slot = lambda id, type, d: {"id": id, "type": type, "category": "building", "kit": None, "district": d,  # noqa: E731
+                                "matrix": EYE, "bbox": [[0, 0, 0], [1, 1, 1]], "pieces": []}
+    shot = {"id": "a", "tier": "medium", "matrix": EYE, "lens_mm": 35, "sensor_mm": 36, "resolution": [64, 32],
+            "district": "edge", "notes": "looking down the avenue"}
+    write_json(store.root / "site/greybox.json", {
+        "slots": [slot("rot", "rotunda", "core"), slot("v1", "villa", "edge"), slot("t", "terrain", None)],
+        "shots": [shot], "untagged": [], "fixed": [], "blend_sha256": "sha1"})
+    d = sw_shots.shot_dir(store, "a")
+    d.mkdir(parents=True)
+    write_json(d / "meta.json", {"shot": shot, "greybox_sha256": "sha1"})
+    write_json(d / "ids.json", {"shot": "a", "size": [64, 32], "sky_frac": 0.1, "slots": {
+        "rot": {"frac": 0.5}, "v1": {"frac": 0.2}, "t": {"frac": 0.2}}})
+    Image.new("L", (64, 32), 128).save(d / "depth.png")
+    canny = np.zeros((32, 64), np.uint8)
+    canny[16, 8:56] = 255
+    canny[4:28, 32] = 255
+    Image.fromarray(canny).save(d / "canny.png")
+    return store
+
+
+def test_prompt_names_what_the_camera_sees_and_the_focus_district_first(world):
+    p = s0_frames.prompt_for(world, "a")
+    assert p.startswith("eye-level view, looking down the avenue, showing a domed rotunda")
+    assert p.index("domed rotunda") < p.index("courtyard villas") and "the landscape" not in p
+    assert p.index("brick and concrete") < p.index("white marble")   # shot's district first
+
+
+def test_generate_uses_the_shot_passes_settings_and_refs(world, monkeypatch):
+    fake = FakeBackend(canny=sw_shots.shot_dir(world, "a") / "canny.png")
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    s0_style.set_style_text(world, "pale stone, soft light")
+    out = s0_frames.generate(world, "a", n=2, seed=5, fs=FrameSettings(depth_strength=0.7, canny_strength=0.3))
+    meta = json.loads((out / "meta.json").read_text())
+    assert [f["file"] for f in meta["frames"]] == ["frame_000.png", "frame_001.png"]
+    r = fake.requests[0]
+    assert (r.width, r.height, r.seed, fake.requests[1].seed) == (64, 32, 5, 6)
+    assert [c.kind for c in r.control] == ["depth", "canny"] and r.control[0].strength == 0.7
+    assert r.anchor.style_text == "pale stone, soft light"
+    assert meta["frames"][0]["edge_match"] == 1.0              # the fake draws the greybox's edges
+    # an approved frame as a reference for another batch: added to the Redux images
+    key = review.set_star(world, out / "frame_000.png")
+    assert s0_frames.approved(world, "a") == [key]
+    s0_frames.generate(world, "a", n=1, refs=[key], ref_strength=0.1, fs=FrameSettings(model="depth_lora"))
+    r = fake.requests[-1]
+    assert r.anchor.images[-1].name == "frame_000.png" and r.anchor.strength == pytest.approx(0.16)
+    assert [c.kind for c in r.control] == ["depth"] and r.control_model == "depth_lora"
+    assert len(s0_frames.batches(world, "a")) == 2
+
+
+def test_stale_passes_are_refused(world):
+    gb = json.loads((world.root / "site/greybox.json").read_text())
+    gb["blend_sha256"] = "changed"
+    write_json(world.root / "site/greybox.json", gb)
+    with pytest.raises(ValueError, match="stale"):
+        s0_frames.generate(world, "a", n=1)
+
+
+def test_edge_match_drops_when_the_layout_is_lost(world, tmp_path):
+    flat = tmp_path / "flat.png"
+    Image.new("L", (64, 32), 200).save(flat)
+    canny = sw_shots.shot_dir(world, "a") / "canny.png"
+    big = np.zeros((360, 640), np.uint8)                      # frame-sized: a few long edges
+    big[180, 40:600] = big[30:330, 320] = big[60:300, 100] = 255
+    big_canny = tmp_path / "big_canny.png"
+    Image.fromarray(big).save(big_canny)
+    noise = tmp_path / "noise.png"
+    Image.fromarray(np.random.default_rng(0).integers(0, 255, (360, 640), dtype=np.uint8)).save(noise)
+    assert s0_frames.edge_match(noise, big_canny) < 0.2       # busy, but not the layout
+    assert s0_frames.edge_match(flat, canny) == 0.0
+    shifted = tmp_path / "shifted.png"                        # the layout 12 px off
+    Image.open(canny).convert("L").point(lambda v: 255 - v).transform(
+        (64, 32), Image.AFFINE, (1, 0, 12, 0, 1, 0), fillcolor=255).save(shifted)
+    assert s0_frames.edge_match(shifted, canny) < 0.6
+
+
+def test_moodboard_import_and_style_draft(world, tmp_path):
+    src = tmp_path / "export"
+    src.mkdir()
+    for i in range(12):
+        Image.new("RGB", (40 + i, 30), (i * 20, 100, 50)).save(src / f"ref {i}.jpg")
+    (src / "notes.txt").write_text("ignored")
+    keys = s0_style.import_moodboard(world, "Real Examples", [src])
+    assert len(keys) == 12 and keys[0].startswith("style/moodboard/real-examples/ref_")
+    s0_style.import_moodboard(world, "paintings", [src / "ref 0.jpg"])
+    with pytest.raises(ValueError, match="PureRef"):
+        s0_style.import_moodboard(world, "x", [tmp_path / "board.pur"])
+
+    class LLM:
+        name = "scripted"
+        calls = []
+
+        def json_text(self, system, prompt, images, schema):
+            self.calls.append(images)
+            return json.dumps({"style_text": "honed stone, bronze, deep shade", "palette": "cream", "avoid": "kitsch"})
+    llm = LLM()
+    d = s0_style.draft_style_text(world, llm=llm)
+    assert d.style_text == "honed stone, bronze, deep shade"
+    assert len(llm.calls[0]) == 1                                  # one contact sheet, not 9 images
+    assert Image.open(llm.calls[0][0]).size == (1536, 1536)        # 9 images in a 3x3 grid
+    assert world.load().anchor is None                             # a draft isn't saved
+    s0_style.set_style_text(world, d.style_text)
+    assert world.load().anchor.style_text == d.style_text and world.load().anchor.images == []

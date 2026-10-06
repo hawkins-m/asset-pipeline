@@ -393,6 +393,97 @@ def cmd_shots_render(a) -> None:
             print(f"    warning: {w}")
 
 
+def cmd_moodboard_import(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    keys = s0_style.import_moodboard(store, a.group, [Path(p) for p in a.paths])
+    print(f"{len(keys)} image(s) -> {store.root / s0_style.MOODBOARD}/")
+
+
+def cmd_moodboard_show(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    board = s0_style.moodboard(store)
+    for g, keys in board.items():
+        print(f"{g}: {len(keys)} image(s)")
+    if not board:
+        print("no moodboard yet (ap moodboard import PROJECT GROUP FOLDER)")
+    a_ = store.load().anchor
+    print(f"style text: {a_.style_text if a_ and a_.style_text else '(none)'}")
+
+
+def cmd_moodboard_style(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    d = s0_style.draft_style_text(store, a.group or None, max_images=a.max_images, seed=a.seed)
+    print(d.style_text)
+    print(f"palette: {d.palette}\navoid: {d.avoid}", file=sys.stderr)
+    if a.save:
+        s0_style.set_style_text(store, d.style_text)
+        print("saved as the project's style text", file=sys.stderr)
+
+
+def cmd_style_text(a) -> None:
+    from .stages import s0_style
+    store = ProjectStore.open(a.project)
+    if a.text is None:
+        anchor = store.load().anchor
+        print(anchor.style_text if anchor else "")
+    else:
+        s0_style.set_style_text(store, a.text)
+        print("style text saved")
+
+
+def _frame_settings(a, store):
+    from .stages import s0_frames
+    fs = s0_frames.settings(store)
+    upd = {k: v for k, v in {"model": a.model, "depth_strength": a.depth, "depth_end": a.depth_end,
+                             "canny_strength": a.canny, "canny_end": a.canny_end, "steps": a.steps}.items()
+           if v is not None}
+    return fs.model_copy(update=upd) if upd else fs
+
+
+def cmd_frames_generate(a) -> None:
+    from .stages import s0_frames, sw_site
+    store = ProjectStore.open(a.project)
+    fs = _frame_settings(a, store)
+    shots = a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]
+    for shot in shots:
+        out = s0_frames.generate(store, shot, n=a.n, seed=a.seed, fs=fs, refs=a.ref, ref_strength=a.ref_strength)
+        meta = json.loads((out / "meta.json").read_text())
+        print(f"{out}: {len(meta['frames'])} frame(s), edge match "
+              + ", ".join(f"{f['edge_match']:.2f}" for f in meta["frames"]))
+
+
+def cmd_frames_settings(a) -> None:
+    store = ProjectStore.open(a.project)
+    fs = _frame_settings(a, store)
+    if any(v is not None for v in (a.model, a.depth, a.depth_end, a.canny, a.canny_end, a.steps)):
+        p = store.load()
+        p.frames = fs
+        store.save(p)
+        print("saved:", end=" ")
+    print(fs.model_dump_json())
+
+
+def cmd_frames_show(a) -> None:
+    from .stages import s0_frames, sw_site
+    store = ProjectStore.open(a.project)
+    stars = set(s0_frames.approved(store))
+    for shot in a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]:
+        bs = s0_frames.batches(store, shot)
+        n = sum(len(b["frames"]) for b in bs)
+        print(f"{shot}: {n} frame(s), {sum(1 for b in bs for f in b['frames'] if f['key'] in stars)} approved")
+        if a.prompt:
+            try:
+                print(f"    prompt: {s0_frames.prompt_for(store, shot)}")
+            except FileNotFoundError as e:
+                print(f"    ({e})")
+        for b in bs:
+            for f in b["frames"]:
+                print(f"    {'*' if f['key'] in stars else ' '} {f['key']}  match {f['edge_match']:.2f}")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -486,6 +577,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--strength", type=float, default=0.06)
     p.add_argument("--style-text", help="keeps the current style text if omitted")
     p.set_defaults(fn=cmd_style_anchor)
+    p = ssub.add_parser("text", help="print the project's style text, or set it")
+    p.add_argument("project")
+    p.add_argument("text", nargs="?")
+    p.set_defaults(fn=cmd_style_text)
     p = ssub.add_parser("show", help="list batches, stars and the anchor")
     p.add_argument("project")
     p.set_defaults(fn=cmd_style_show)
@@ -638,6 +733,49 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="default: every shot")
     p.set_defaults(fn=cmd_shots_render)
+
+    mb = sub.add_parser("moodboard", help="moodboard images for the style anchor (e.g. a PureRef export)")
+    mbsub = mb.add_subparsers(dest="action", required=True)
+    p = mbsub.add_parser("import", help="copy images or folders of images into style/moodboard/GROUP/")
+    p.add_argument("project")
+    p.add_argument("group")
+    p.add_argument("paths", nargs="+")
+    p.set_defaults(fn=cmd_moodboard_import)
+    p = mbsub.add_parser("show", help="groups, image counts and the style text")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_moodboard_show)
+    p = mbsub.add_parser("style", help="draft a style text from the moodboard (vision LLM, GPU 0)")
+    p.add_argument("project")
+    p.add_argument("--group", action="append", help="only these groups (repeatable)")
+    p.add_argument("--max-images", type=int, default=9)
+    p.add_argument("--seed", type=int, default=0, help="which images are sampled")
+    p.add_argument("--save", action="store_true", help="save it as the project's style text")
+    p.set_defaults(fn=cmd_moodboard_style)
+
+    fr = sub.add_parser("frames", help="world mode stage 0: concept frames per shot, guided by the greybox")
+    frsub = fr.add_subparsers(dest="action", required=True)
+    for name, fn, helptext in (("generate", cmd_frames_generate, "concept frames per shot (ComfyUI, GPU 1, ~40 s each)"),
+                               ("settings", cmd_frames_settings, "show the project's frame settings, or save new ones")):
+        p = frsub.add_parser(name, help=helptext)
+        p.add_argument("project")
+        if name == "generate":
+            p.add_argument("shots", nargs="*", help="default: every shot")
+            p.add_argument("-n", type=int, default=4)
+            p.add_argument("--seed", type=int)
+            p.add_argument("--ref", action="append", help="approved frame (project-relative) to add as a Redux reference")
+            p.add_argument("--ref-strength", type=float, default=0.08)
+        p.add_argument("--model", choices=["union", "depth_lora"])
+        p.add_argument("--depth", type=float, help="depth control strength")
+        p.add_argument("--depth-end", type=float, help="depth control stops at this fraction of the steps")
+        p.add_argument("--canny", type=float, help="canny control strength (union; 0 = off)")
+        p.add_argument("--canny-end", type=float)
+        p.add_argument("--steps", type=int)
+        p.set_defaults(fn=fn)
+    p = frsub.add_parser("show", help="frames per shot with approval and edge match")
+    p.add_argument("project")
+    p.add_argument("shots", nargs="*")
+    p.add_argument("--prompt", action="store_true", help="also print each shot's prompt")
+    p.set_defaults(fn=cmd_frames_show)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

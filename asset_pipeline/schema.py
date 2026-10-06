@@ -26,6 +26,17 @@ class StyleAnchor(BaseModel):
     lora: LoraRef | None = None
 
 
+class FrameSettings(BaseModel):
+    """World mode concept frames: which structure control and how hard it holds.
+    Defaults from the A/B in CLAUDE.md "Concept frames"."""
+    model: Literal["union", "depth_lora"] = "union"
+    depth_strength: float = Field(default=0.6, ge=0, le=2)
+    depth_end: float = Field(default=0.6, ge=0, le=1)
+    canny_strength: float = Field(default=0.35, ge=0, le=2)   # union only; 0 = depth alone
+    canny_end: float = Field(default=0.5, ge=0, le=1)
+    steps: int = Field(default=28, ge=1, le=100)
+
+
 class Project(BaseModel):
     slug: str
     name: str = ""
@@ -35,6 +46,7 @@ class Project(BaseModel):
     llm: str = "local"            # vision LLM: local | gemini | claude
     anchor: StyleAnchor | None = None
     mode: Literal["scenes", "world"] = "scenes"  # world: one site, greybox, shots (PLAN.md)
+    frames: "FrameSettings | None" = None        # world mode concept frames; None = defaults
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------

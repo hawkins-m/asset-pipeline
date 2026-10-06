@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 from ..paid import require_paid_allowed
-from .base import GenRequest, GenResult, effective_prompt
+from .base import BackendCapabilityError, GenRequest, GenResult, effective_prompt
 
 DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
 ASPECTS = {"1:1": 1.0, "3:2": 1.5, "2:3": 2 / 3, "4:3": 4 / 3, "3:4": 0.75, "16:9": 16 / 9,
@@ -60,6 +60,8 @@ class GeminiImageBackend:
 
     def generate(self, req: GenRequest, out_dir: Path, prefix: str = "img") -> list[GenResult]:
         from google.genai import types
+        if req.control:
+            raise BackendCapabilityError("control images (depth/canny) need the ComfyUI backend")
         ignored = [f for f, v in [("lora", req.lora or (req.anchor.lora if req.anchor else None)),
                                   ("steps", req.steps)] if v]
         aspect = nearest_aspect(req.width, req.height)

@@ -26,6 +26,7 @@
 
   <nav role="tablist">
     <button role="tab" data-tab="site">Site · Shots</button>
+    <button role="tab" data-tab="frames">Frames</button>
     <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
     <button role="tab" data-tab="plan">1 · Plan</button>
     <button role="tab" data-tab="refs">2 · References</button>
@@ -54,6 +55,25 @@
       <div id="site-previews" class="grid"></div>
     </section>
     <div id="shots-list"></div>
+  </main>
+
+  <main id="frames-tab" data-tab="frames" hidden>
+    <section>
+      <h2>Concept frames per shot (world mode)</h2>
+      <p class="hint">Each shot's frames are drawn onto its greybox passes (depth + edges),
+        with the project's style anchor and a prompt built from what the camera sees and the
+        districts' notes. Star the frames that set the look; starred frames can be added to
+        other shots as references, to carry materials across. About 40 s per frame
+        (ComfyUI, GPU 1). <em>Match</em> is how much of the greybox's layout a frame keeps
+        (1 = all of its edges, 0 = no better than chance).</p>
+      <div class="row">
+        <button id="frames-missing" type="button">Generate for shots without frames</button>
+        <button type="button" id="frames-missing-stop" class="stop" hidden>Stop</button>
+        <label>Frames per shot <input id="frames-n" type="number" min="1" max="12" value="4"></label>
+        <span id="frames-settings" class="hint"></span>
+      </div>
+    </section>
+    <div id="frames-list"></div>
   </main>
 
   <main id="style-tab" data-tab="style">
@@ -87,6 +107,22 @@
       <div id="derived"></div>
     </section>
 
+    <section id="moodboard">
+      <h2>Moodboard</h2>
+      <p class="hint">Reference images for the style (e.g. a PureRef board: export its images to
+        a folder, then upload them here, one group at a time). Moodboard images can be used in
+        <em>Derive objects</em> like scenes, and the vision LLM can draft the style text from
+        them (GPU 0).</p>
+      <form id="moodboard-form" class="row">
+        <input name="group" placeholder="group (e.g. references)" required>
+        <input name="files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
+        <button>Upload</button>
+        <button type="button" id="style-draft" class="secondary">Draft style text from moodboard</button>
+        <button type="button" id="style-draft-stop" class="stop" hidden>Stop</button>
+      </form>
+      <div id="moodboard-groups"></div>
+    </section>
+
     <section id="anchor">
       <h2>3 · Style anchor</h2>
       <p class="hint">The starred derived objects plus this style text condition every later
@@ -99,7 +135,8 @@
         <p class="hint">Start low (0.06). If new images pick up parts of the anchor objects
           (awnings, produce…), lower it or star more varied objects; if the style is too
           weak, raise it a little or strengthen the style text.</p>
-        <button>Save anchor</button>
+        <div class="row"><button>Save anchor</button>
+          <button type="button" id="anchor-text-only" class="secondary">Save style text only</button></div>
       </form>
       <div id="anchor-current"></div>
     </section>
@@ -190,5 +227,6 @@
   <script src="/static/refs.js"></script>
   <script src="/static/plan.js"></script>
   <script src="/static/site.js"></script>
+  <script src="/static/frames.js"></script>
 </body>
 </html>

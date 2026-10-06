@@ -5,7 +5,7 @@ All state is on disk (project.json, review.json); the server holds only job stat
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -15,7 +15,7 @@ from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from ..schema import AssetPlan
-from ..stages import s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_shots, sw_site
+from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -93,6 +93,21 @@ class ShotsReq(BaseModel):
     shots: list[str] | None = None    # None: every shot
 
 
+class FramesReq(BaseModel):
+    shot: str | None = None       # None: every shot without frames
+    n: int = 4
+    refs: list[str] = []          # approved frames added as Redux references
+    ref_strength: float = 0.08
+
+
+class DraftReq(BaseModel):
+    groups: list[str] | None = None
+
+
+class TextReq(BaseModel):
+    text: str
+
+
 class AnchorReq(BaseModel):
     strength: float = s0_style.ANCHOR_STRENGTH
     style_text: str | None = None   # None keeps the project's current style text
@@ -160,7 +175,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                             "images": _images(store, f"{s0_style.DERIVE}/{d.name}")})
         return {"project": store.load().model_dump(mode="json"),
                 "stars": review.load(store)["stars"],
-                "explore": batches, "derived": derived,
+                "explore": batches, "derived": derived, "moodboard": s0_style.moodboard(store),
                 "jobs": [j.public() for j in jobs.list(slug)]}
 
     @app.post("/api/projects/{slug}/star")
@@ -200,6 +215,33 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e))
         return a.model_dump(mode="json")
+
+    @app.post("/api/projects/{slug}/moodboard")
+    async def upload_moodboard(slug: str, files: list[UploadFile], group: str = Form("moodboard")):
+        store = _store(slug)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for f in files:
+                p = Path(tmp) / Path(f.filename or "image.png").name
+                p.write_bytes(await f.read())
+                paths.append(p)
+            try:
+                return {"keys": s0_style.import_moodboard(store, group, paths)}
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+
+    @app.post("/api/projects/{slug}/style/draft")
+    def style_draft(slug: str, req: DraftReq):
+        store = _store(slug)
+        if not s0_style.moodboard(store):
+            raise HTTPException(400, "no moodboard images yet")
+        return jobs.submit("style.draft", slug, lambda: s0_style.draft_style_text(store, req.groups).style_text,
+                           lane="gpu0").public()
+
+    @app.post("/api/projects/{slug}/style/text")
+    def style_text(slug: str, req: TextReq):
+        return s0_style.set_style_text(_store(slug), req.text).model_dump(mode="json")
 
     @app.get("/api/projects/{slug}/plans")
     def plans(slug: str):
@@ -420,6 +462,42 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         tag = {"shot": req.shots[0]} if req.shots and len(req.shots) == 1 else {"all": True}
         return jobs.submit("shots.render", slug, lambda: len(sw_shots.render(store, req.shots)),
                            lane="cpu", tag=tag).public()
+
+    @app.get("/api/projects/{slug}/frames")
+    def frames(slug: str):
+        store = _store(slug)
+        if not (sw_site.site_dir(store) / "greybox.json").is_file():
+            return {"shots": [], "settings": s0_frames.settings(store).model_dump()}
+        out = []
+        for r in sw_shots.status(store):
+            d = f"{sw_shots.SHOTS}/{r['id']}"
+            try:
+                prompt = s0_frames.prompt_for(store, r["id"])
+            except FileNotFoundError:
+                prompt = None
+            out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
+                            "prompt": prompt, "batches": s0_frames.batches(store, r["id"])})
+        return {"shots": out, "settings": s0_frames.settings(store).model_dump()}
+
+    @app.post("/api/projects/{slug}/frames/generate")
+    def frames_generate(slug: str, req: FramesReq):
+        store = _store(slug)
+        rows = {r["id"]: r for r in sw_shots.status(store)} if (sw_site.site_dir(store) / "greybox.json").is_file() else {}
+        if req.shot:
+            if req.shot not in rows:
+                raise HTTPException(404, f"no shot {req.shot}")
+            todo = [req.shot]
+        else:
+            todo = [s for s in rows if not s0_frames.batches(store, s)]
+        bad = [s for s in todo if not rows[s]["rendered"] or rows[s]["stale"]]
+        if bad:
+            raise HTTPException(400, f"render the passes first (missing or stale): {', '.join(bad)}")
+        if not todo:
+            raise HTTPException(400, "every shot has frames already")
+        fn = lambda: [str(s0_frames.generate(store, s, n=req.n, refs=req.refs, ref_strength=req.ref_strength)  # noqa: E731
+                          .relative_to(store.root)) for s in todo]
+        tag = {"shot": req.shot} if req.shot else {"missing": True}
+        return jobs.submit("frames.generate", slug, fn, lane="comfy", tag=tag).public()
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

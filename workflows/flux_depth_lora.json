@@ -1,0 +1,242 @@
+{
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Load Flux dev fp8"
+    },
+    "inputs": {
+      "ckpt_name": "flux1-dev-fp8.safetensors"
+    }
+  },
+  "12": {
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Style LoRA (optional; removed when unset)"
+    },
+    "inputs": {
+      "model": [
+        "4",
+        0
+      ],
+      "lora_name": "",
+      "strength_model": 1.0
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Prompt"
+    },
+    "inputs": {
+      "text": "",
+      "clip": [
+        "4",
+        1
+      ]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Negative (unused at cfg 1)"
+    },
+    "inputs": {
+      "text": "",
+      "clip": [
+        "4",
+        1
+      ]
+    }
+  },
+  "11": {
+    "class_type": "FluxGuidance",
+    "_meta": {
+      "title": "Guidance"
+    },
+    "inputs": {
+      "conditioning": [
+        "6",
+        0
+      ],
+      "guidance": 10.0
+    }
+  },
+  "20": {
+    "class_type": "CLIPVisionLoader",
+    "_meta": {
+      "title": "SigCLIP vision"
+    },
+    "inputs": {
+      "clip_name": "sigclip_vision_patch14_384.safetensors"
+    }
+  },
+  "21": {
+    "class_type": "StyleModelLoader",
+    "_meta": {
+      "title": "Flux Redux"
+    },
+    "inputs": {
+      "style_model_name": "flux1-redux-dev.safetensors"
+    }
+  },
+  "22": {
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Anchor image (repeated per image)"
+    },
+    "inputs": {
+      "image": ""
+    }
+  },
+  "23": {
+    "class_type": "CLIPVisionEncode",
+    "_meta": {
+      "title": "Encode anchor (repeated)"
+    },
+    "inputs": {
+      "clip_vision": [
+        "20",
+        0
+      ],
+      "image": [
+        "22",
+        0
+      ],
+      "crop": "center"
+    }
+  },
+  "24": {
+    "class_type": "StyleModelApply",
+    "_meta": {
+      "title": "Apply anchor style (repeated, chained)"
+    },
+    "inputs": {
+      "conditioning": [
+        "11",
+        0
+      ],
+      "style_model": [
+        "21",
+        0
+      ],
+      "clip_vision_output": [
+        "23",
+        0
+      ],
+      "strength": 0.5,
+      "strength_type": "attn_bias"
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "Sampler"
+    },
+    "inputs": {
+      "model": [
+        "40",
+        0
+      ],
+      "seed": 0,
+      "steps": 28,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "positive": [
+        "41",
+        0
+      ],
+      "negative": [
+        "41",
+        1
+      ],
+      "latent_image": [
+        "42",
+        0
+      ],
+      "denoise": 1.0
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Decode"
+    },
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ]
+    }
+  },
+  "9": {
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Result (temp, not saved in ComfyUI output)"
+    },
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "12",
+        0
+      ],
+      "lora_name": "flux1-depth-dev-lora.safetensors",
+      "strength_model": 0.85
+    },
+    "_meta": {
+      "title": "depth LoRA"
+    }
+  },
+  "31": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": ""
+    },
+    "_meta": {
+      "title": "depth control image"
+    }
+  },
+  "41": {
+    "class_type": "InstructPixToPixConditioning",
+    "inputs": {
+      "positive": [
+        "24",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "4",
+        2
+      ],
+      "pixels": [
+        "31",
+        0
+      ]
+    }
+  },
+  "42": {
+    "class_type": "RepeatLatentBatch",
+    "inputs": {
+      "samples": [
+        "41",
+        2
+      ],
+      "amount": 1
+    }
+  }
+}

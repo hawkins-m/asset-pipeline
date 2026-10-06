@@ -11,6 +11,8 @@ timeout_s = 900
 t2i = "flux_t2i"
 t2i_anchor = "flux_t2i_anchor"   # + Flux Redux style anchor and optional style LoRA
 segment = "sam3_detect"          # SAM 3.1 text-prompted masks (one image per object)
+control_union = "flux_control_union"  # + depth/canny ControlNet Union Pro 2.0 (world mode frames)
+depth_lora = "flux_depth_lora"        # + BFL FLUX.1-Depth-dev LoRA (A/B against the union)
 
 # Paid backends (Gemini, Claude) refuse to run unless AP_ALLOW_PAID_APIS=1 is set for
 # the run. Model ids confirmed 2026-10-05.
@@ -45,6 +47,7 @@ url = "http://127.0.0.1:8710"
 [defaults.backends]
 style = "comfyui"
 references = "comfyui"
+frames = "comfyui"
 
 [defaults]
 llm = "local"      # local | gemini | claude
