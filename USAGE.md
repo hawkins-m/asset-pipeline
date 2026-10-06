@@ -284,3 +284,58 @@ proportions (wide strips for barrels and walls, taller cells for houses and tree
 What to expect from Flux.1-dev: the three copies match each other well (shape, colours,
 trim), but they're usually three similar three-quarter views rather than a true front,
 side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
+
+# Stages 3–4: views, review and 3D
+
+**In the browser:** the **3–4 · Review** tab.
+
+1. Star the good sheets in **References**, then click **Cut views** here. Each starred sheet
+   is cut into its separate views (SAM 3.1 finds them; each view is cropped on white so
+   thin or white parts like flowers and snow stay). About 2 s per sheet.
+   - Object sheets give views 1–3. Each records the view it was *asked* for (front, side,
+     back); Flux often draws three-quarter views instead.
+   - Kit sheets are split into their pieces, left to right in the order asked.
+   - Ground textures aren't cut.
+2. For each asset, click the view to build it from (✓ marks it; click again to clear) and
+   tag it **game**, **cine** or **hero**. The tag is stored on the plan asset.
+3. **Make 3D** runs TRELLIS.2 on GPU 0 (mode picker at the top; ~2.5 min for
+   `1024_cascade`, ~1.5 min for `512`). The result shows with a 3D preview, its stats, the
+   GLB and the image TRELLIS actually saw. Hero assets use TRELLIS too until the
+   multi-view path exists (PLAN.md).
+
+**From the command line:**
+
+```bash
+ap views cut alpine-market                          # every starred sheet without views
+ap review show alpine-market                        # assets: tag, views, choice, 3D results
+ap review choose alpine-market batch_001__scene_002 wooden-barrel \
+    views/batch_001__scene_002/wooden-barrel/sheet_000_v1.png
+ap review tag alpine-market batch_001__scene_002 wooden-barrel hero
+ap 3d alpine-market batch_001__scene_002 wooden-barrel --mode 512
+```
+
+Files: `views/<plan>/<unit>/sheet_NNN_vK.png` (+ `meta.json`), `3d/<plan>/<asset>/*.glb`
+with the stats JSON, the TRELLIS input image and `trellis.log`. The chosen views are in
+`review.json`.
+
+# Stopping a running action
+
+Every long action in the UI has a **Stop** button next to it while it runs or waits:
+scene generation, derive, reference sheets (*Generate missing* and each *+ N more*), cutting
+views, box refinement and 3D. The header also lists running jobs, each with its own Stop.
+Stop affects only that action:
+
+- A job still waiting in the UI's queue is dropped.
+- Its ComfyUI prompt is removed if it's still waiting in ComfyUI's queue, or interrupted if
+  it's the one running. Other clients' prompts (another browser tab, the CLI) aren't touched.
+- A TRELLIS job's process is stopped (SIGTERM, SIGKILL after 15 s) and its GPU claim
+  released, so the VLM can use GPU 0 again.
+- What already finished is kept: a scene run stopped after its first batch keeps those 4
+  scenes (`meta.json` says `"complete": false`); a stopped derive keeps the objects
+  already cut.
+
+Scene analysis has no Stop: it runs inside the VLM server and can't be interrupted
+mid-request.
+
+The UI runs ComfyUI work (GPU 1) and GPU 0 work (analysis, 3D) in two separate queues, so a
+3D build doesn't wait behind sheet generation.

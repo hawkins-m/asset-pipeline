@@ -296,3 +296,15 @@ def save(store: ProjectStore, name: str, plan: AssetPlan, edited: bool = False) 
         plan.edited = datetime.now(timezone.utc)
     write_json(plan_file(store, name), plan.model_dump(mode="json"))
     return plan
+
+
+def set_usage(store: ProjectStore, name: str, asset_id: str, usage: str) -> AssetPlan:
+    """Tag an asset game / cine / hero (from the review). Counts as a hand edit."""
+    plan = load(store, name)
+    if not plan:
+        raise FileNotFoundError(f"no plan {name}")
+    for a in plan.assets:
+        if a.id == asset_id:
+            a.usage = usage  # validated on save
+            return save(store, name, AssetPlan.model_validate(plan.model_dump()), edited=True)
+    raise ValueError(f"no asset {asset_id!r} in plan {name}")

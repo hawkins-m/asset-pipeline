@@ -85,20 +85,22 @@ def explore(store: ProjectStore, brief: str | None = None, n: int = 8, seed: int
     out = _next_batch(store.root / EXPLORE)
     prompt = f"{brief.rstrip(' ,.')}, {SCENE_SUFFIX}"
     t, results, i = time.time(), [], 0
-    while i < n:  # batches keep VRAM bounded; each batch gets its own seed
-        k = min(batch_size, n - i)
-        s = None if seed is None else seed + i
-        req = GenRequest(prompt=prompt, width=width, height=height, n=k, seed=s)
-        for r in backend.generate(req, out, prefix=f"tmp{i:03d}"):
-            final = out / f"scene_{len(results):03d}.png"
-            r.path.rename(final)
-            results.append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index")})
-        i += k
-    meta = {"brief": brief, "prompt": prompt, "backend": backend.name, "size": [width, height],
-            "images": results}
-    write_json(out / "meta.json", meta)
-    store.log_run({"stage": "style.explore", "backend": backend.name, "dir": str(out),
-                   "n": len(results), "seconds": round(time.time() - t, 1)})
+    try:
+        while i < n:  # batches keep VRAM bounded; each batch gets its own seed
+            k = min(batch_size, n - i)
+            s = None if seed is None else seed + i
+            req = GenRequest(prompt=prompt, width=width, height=height, n=k, seed=s)
+            for r in backend.generate(req, out, prefix=f"tmp{i:03d}"):
+                final = out / f"scene_{len(results):03d}.png"
+                r.path.rename(final)
+                results.append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index")})
+            i += k
+    finally:  # a canceled run keeps the batches that finished
+        meta = {"brief": brief, "prompt": prompt, "backend": backend.name, "size": [width, height],
+                "images": results, "complete": len(results) == n}
+        write_json(out / "meta.json", meta)
+        store.log_run({"stage": "style.explore", "backend": backend.name, "dir": str(out),
+                       "n": len(results), "seconds": round(time.time() - t, 1)})
     return out
 
 
@@ -122,47 +124,50 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
     meta = read_json(out / "meta.json", default=None) or {"scene": key, "items": []}
     t, items = time.time(), []
     stars = review.load(store)["stars"]
-    for noun in [n.strip() for n in nouns if n.strip()]:
-        # Re-deriving a noun replaces its unstarred items; starred ones are kept (and still
-        # block duplicates). New items take free filenames, so stars never move.
-        slug = _slug(noun)
-        old = [m for m in meta["items"] if _slug(m["noun"]) == slug
-               and not _is_starred(store, out, m, stars)]
-        _remove_items(store, out, old)
-        meta["items"] = [m for m in meta["items"] if m not in old]
-        # The same object must not come out twice: not for two nouns (SAM 3 returned a
-        # barrel for "flower pot"), not as a part of an object already taken (a barrel's
-        # lid), and not across separate derive runs on this scene (masks are stored).
-        taken = [_load_mask(out, m) for m in meta["items"] + items]
-        taken = [m for m in taken if m is not None]
-        kept = 0
-        for det in segment.detect(c, scene_path, noun):
-            if kept >= per_noun:
-                break
-            if det.touches_border or any(segment.overlap(det.mask, m) > 0.6 for m in taken):
-                continue
-            taken.append(det.mask)
-            name = _free_name(out, slug)
-            kept += 1
-            cut = out / f"cut_{name}.png"
-            segment.cutout(scene_path, det)[1].save(cut)
-            np.savez_compressed(out / f"mask_{name}.npz", mask=det.mask)
-            item = {"noun": noun, "cut": cut.name, "mask": f"mask_{name}.npz",
-                    "area_frac": round(det.area_frac, 4)}
-            if backend:
-                req = GenRequest(prompt=OBJECT_PROMPT.format(noun=noun), seed=seed + len(items),
-                                 anchor=StyleAnchor(images=[cut], strength=DERIVE_STRENGTH,
-                                                    style_text=style_text))
-                res = backend.generate(req, out, prefix=f"tmp_{name}")[0]
-                obj = out / f"obj_{name}.png"
-                res.path.rename(obj)
-                item["obj"] = obj.name
-            items.append(item)
-    meta["items"] += items
-    meta["style_text"] = style_text
-    write_json(out / "meta.json", meta)
-    store.log_run({"stage": "style.derive", "scene": key, "nouns": nouns, "n": len(items),
-                   "seconds": round(time.time() - t, 1)})
+    try:
+        for noun in [n.strip() for n in nouns if n.strip()]:
+            # Re-deriving a noun replaces its unstarred items; starred ones are kept (and still
+            # block duplicates). New items take free filenames, so stars never move.
+            slug = _slug(noun)
+            old = [m for m in meta["items"] if _slug(m["noun"]) == slug
+                   and not _is_starred(store, out, m, stars)]
+            _remove_items(store, out, old)
+            meta["items"] = [m for m in meta["items"] if m not in old]
+            # The same object must not come out twice: not for two nouns (SAM 3 returned a
+            # barrel for "flower pot"), not as a part of an object already taken (a barrel's
+            # lid), and not across separate derive runs on this scene (masks are stored).
+            taken = [_load_mask(out, m) for m in meta["items"] + items]
+            taken = [m for m in taken if m is not None]
+            kept = 0
+            for det in segment.detect(c, scene_path, noun):
+                if kept >= per_noun:
+                    break
+                if det.touches_border or any(segment.overlap(det.mask, m) > 0.6 for m in taken):
+                    continue
+                taken.append(det.mask)
+                name = _free_name(out, slug)
+                kept += 1
+                cut = out / f"cut_{name}.png"
+                segment.cutout(scene_path, det)[1].save(cut)
+                np.savez_compressed(out / f"mask_{name}.npz", mask=det.mask)
+                item = {"noun": noun, "cut": cut.name, "mask": f"mask_{name}.npz",
+                        "area_frac": round(det.area_frac, 4)}
+                item_seed = seed + len(items)
+                items.append(item)  # before the redraw, so a canceled redraw keeps the cutout
+                if backend:
+                    req = GenRequest(prompt=OBJECT_PROMPT.format(noun=noun), seed=item_seed,
+                                     anchor=StyleAnchor(images=[cut], strength=DERIVE_STRENGTH,
+                                                        style_text=style_text))
+                    res = backend.generate(req, out, prefix=f"tmp_{name}")[0]
+                    obj = out / f"obj_{name}.png"
+                    res.path.rename(obj)
+                    item["obj"] = obj.name
+    finally:  # a canceled run keeps the items already cut (their files exist)
+        meta["items"] += items
+        meta["style_text"] = style_text
+        write_json(out / "meta.json", meta)
+        store.log_run({"stage": "style.derive", "scene": key, "nouns": nouns, "n": len(items),
+                       "seconds": round(time.time() - t, 1)})
     return out
 
 

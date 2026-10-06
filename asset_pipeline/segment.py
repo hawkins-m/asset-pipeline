@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from . import config
 from .comfy import workflow
@@ -85,6 +85,40 @@ def _no_detections(e: ComfyError) -> bool:
     err = e.execution_error()
     return (err.get("exception_type") == "IndexError"
             and "with size 0" in err.get("exception_message", ""))
+
+
+def white_components(image: Path, n_max: int = 8, white: int = 235, min_gap: int = 8,
+                     min_area_frac: float = 0.002) -> list[Detection]:
+    """Fallback for sheets on white when SAM misses: background = near-white pixels
+    connected to the border (so white details inside an object stay opaque); objects =
+    foreground split at runs of >= min_gap empty columns. Largest first."""
+    im = Image.open(image).convert("RGB")
+    fg = np.asarray(im).min(axis=2) < white
+    # Flood the background from the border on a padded binary image.
+    # .copy(): an image from fromarray shares the array read-only, and floodfill then
+    # silently changes nothing (Pillow 12).
+    pad = Image.fromarray(np.pad(~fg, 1, constant_values=True).astype(np.uint8) * 255).copy()
+    ImageDraw.floodfill(pad, (0, 0), 128)
+    obj = np.asarray(pad)[1:-1, 1:-1] != 128
+    cols = obj.any(axis=0)
+    runs, start, gap = [], None, 0
+    for x, on in enumerate(list(cols) + [False] * min_gap):
+        if on:
+            start, gap = (x if start is None else start), 0
+        elif start is not None:
+            gap += 1
+            if gap >= min_gap:
+                runs.append((start, x - gap + 1))
+                start, gap = None, 0
+    dets = []
+    for x0, x1 in runs:
+        m = np.zeros_like(obj)
+        m[:, x0:x1] = obj[:, x0:x1]
+        frac = float(m.mean())
+        if frac >= min_area_frac:
+            edge = bool(m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any())
+            dets.append(Detection(mask=m, bbox=_bbox(m), area_frac=frac, touches_border=edge))
+    return sorted(dets, key=lambda d: -d.area_frac)[:n_max]
 
 
 def cutout(image: Path | Image.Image, det: Detection, pad_frac: float = 0.08,

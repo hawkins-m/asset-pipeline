@@ -100,12 +100,38 @@ Done and verified:
   sheet, terrain as a top-down swatch. Flux.1-dev keeps the three copies consistent but
   rarely gives true side/back views (see CLAUDE.md).
 
+- **Stages 3-4 (views, review, 3D):** starred sheets are cut into views (SAM 3.1 finds
+  them, full-height band crops keep thin/white parts); the Review tab chooses a view per
+  asset, tags it game / cine / hero, and runs TRELLIS.2 on GPU 0 with a 3D preview.
+- **UI jobs:** two lanes (ComfyUI on GPU 1, VLM/TRELLIS on GPU 0) and a Stop button per
+  action that removes or interrupts only that action's ComfyUI prompts and kills TRELLIS
+  cleanly (GPU claim released).
+
+## Hero tier (multi-view path)
+Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a
+second path that gives the 3D model real side and back information:
+
+1. **Orbit video.** Wan 2.2 I2V 14B (fp8, in ComfyUI on GPU 1, lightx2v 4-step LoRAs)
+   animates the chosen view on white as a slow turntable orbit (81 frames, ~5 s).
+2. **Consistent frames.** Find where the orbit closes (the frame after the midpoint most
+   like frame 0) to estimate the angle per frame, take frames at 0/90/180/270 degrees,
+   and reject the orbit if the object drifts (silhouette scale or centre changes, it
+   leaves the frame, the background stops being white) or if it never comes back round.
+   BiRefNet / white-band crop per frame.
+3. **Multi-view 3D backend.** Candidates, to evaluate once the orbit works:
+   - Hunyuan3D-2mv (front/left/back/right in, shape out). ComfyUI has the node built in,
+     but the weights would have to go into ComfyUI's model folders, which are off-limits
+     without the user's OK; otherwise its own env on GPU 0.
+   - TRELLIS.2 conditioned on several images, if its pipeline supports it (TRELLIS v1
+     had a multi-image mode); keeps the texturing we already trust.
+   Texture from the front view (TRELLIS) or Hunyuan3D 2.1 paint.
+4. **Fallback:** an orbit that fails the checks leaves the asset on single-image TRELLIS.
+
 Next, in order:
-1. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
-2. **Multi-view decision:** true front/side/back needs another model (none installed
-   locally); options in the stage 2 report.
-3. **Stage 3:** SAM 3.1 segmentation with view labels and view-sets in `review.json`.
-4. **Stage 4:** review grid (star, game/cine tag) and the send-to-trellis job queue.
+1. **Hero orbit prototype** (step 1-2 above) on a few alpine-market views.
+2. **Multi-view 3D backend** for hero assets (step 3; needs a decision on where weights go).
+3. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
+4. **Stage 6:** Blender cleanup (scale to plan dimensions, pivots; retopo for game).
 5. **Docs pass:** this file's Stages and Architecture sections need several updates:
    - stage 0;
    - the adapter;

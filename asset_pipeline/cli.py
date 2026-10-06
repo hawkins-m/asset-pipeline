@@ -210,6 +210,52 @@ def cmd_refs_show(a) -> None:
               f"{sum(1 for k in sh if stars.get(k))} starred  [{', '.join(x.id for x in u.assets)}]")
 
 
+def cmd_views_cut(a) -> None:
+    from .stages import s3_views
+    store = ProjectStore.open(a.project)
+    if a.sheets:
+        for sheet in a.sheets:
+            for v in s3_views.cut(store, sheet):
+                print(f"{v['file']}  asset={v['asset']} asked={v['asked']} ({v['method']})")
+    else:
+        print(f"{s3_views.cut_starred(store)} view(s) cut")
+
+
+def cmd_review_show(a) -> None:
+    from . import review
+    from .stages import s1_plan, s3_views, s5_3d
+    store = ProjectStore.open(a.project)
+    for name in [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]:
+        plan = s1_plan.load(store, name)
+        for x in (plan.assets if plan else []):
+            if not x.include or x.category == "terrain":
+                continue
+            views = s3_views.views(store, name, x.id)
+            chosen = review.chosen(store, name, x.id)
+            print(f"{name}/{x.id:<30} {x.usage:<5} {len(views)} view(s)  chosen={chosen or '-'}  "
+                  f"3d={len(s5_3d.results(store, name, x.id))}")
+
+
+def cmd_review_choose(a) -> None:
+    from . import review
+    store = ProjectStore.open(a.project)
+    print(review.choose(store, a.plan, a.asset, a.view))
+
+
+def cmd_review_tag(a) -> None:
+    from .stages import s1_plan
+    store = ProjectStore.open(a.project)
+    s1_plan.set_usage(store, a.plan, a.asset, a.usage)
+    print(f"{a.plan}/{a.asset}: {a.usage}")
+
+
+def cmd_3d(a) -> None:
+    from .stages import s5_3d
+    store = ProjectStore.open(a.project)
+    rec = s5_3d.run(store, a.plan, a.asset, view=a.view, mode=a.mode, seed=a.seed)
+    print(store.root / rec["glb"])
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -343,6 +389,40 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--plan")
     p.set_defaults(fn=cmd_refs_show)
+
+    p = sub.add_parser("views", help="stage 3: cut views out of starred reference sheets")
+    vsub = p.add_subparsers(dest="views_cmd", required=True)
+    p = vsub.add_parser("cut", help="cut starred sheets without views (or the given sheets)")
+    p.add_argument("project")
+    p.add_argument("sheets", nargs="*", help="sheet paths (project-relative), re-cut even if done")
+    p.set_defaults(fn=cmd_views_cut)
+
+    rv = sub.add_parser("review", help="stage 4: choose views, tag game / cine / hero")
+    rvsub = rv.add_subparsers(dest="review_cmd", required=True)
+    p = rvsub.add_parser("show", help="assets with their views, choice, tag and 3D results")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_review_show)
+    p = rvsub.add_parser("choose", help="the view an asset goes to 3D with")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("view", nargs="?", help="view path (omit to clear)")
+    p.set_defaults(fn=cmd_review_choose)
+    p = rvsub.add_parser("tag", help="usage: game | cine | hero")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("usage", choices=["game", "cine", "hero"])
+    p.set_defaults(fn=cmd_review_tag)
+
+    p = sub.add_parser("3d", help="stage 5: TRELLIS.2 on an asset's chosen view (GPU 0)")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("--view", help="override the chosen view")
+    p.add_argument("--mode", default="1024_cascade", help="1024_cascade (default) | 512 | 1024")
+    p.add_argument("--seed", type=int, default=42)
+    p.set_defaults(fn=cmd_3d)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

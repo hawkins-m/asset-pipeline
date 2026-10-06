@@ -1,7 +1,7 @@
 // Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
 // from it. Stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
-let slug = null, data = null, plans = [], refs = [], selectedScene = null, polling = null;
+let slug = null, data = null, plans = [], refs = [], reviewData = null, selectedScene = null, polling = null;
 
 async function api(path, body, method = "POST") {
   const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
@@ -31,6 +31,63 @@ function card(key, {label, onSelect, selected} = {}) {
   };
   if (onSelect) { $("img", el).parentElement.onclick = e => { e.preventDefault(); onSelect(key); }; }
   return el;
+}
+
+// --- jobs and Stop buttons -------------------------------------------------------------
+// Every long action is a server job with a kind and a tag (scene, unit, asset...). A Stop
+// button cancels only the active jobs of its own action: the server drops queued ones,
+// removes or interrupts their ComfyUI prompts, and kills TRELLIS cleanly.
+const isActive = j => j.status === "queued" || j.status === "running";
+const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive", "plan.analyze": "scene analysis",
+  "plan.refine": "box refinement", "refs.generate": "reference sheets", "views.cut": "cutting views",
+  "3d.trellis": "3D (TRELLIS)"};
+// Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
+const STOPPABLE = kind => kind !== "plan.analyze";
+
+function activeJobs(kind, match = {}) {
+  return (data ? data.jobs : []).filter(j => j.kind === kind && isActive(j) &&
+    Object.entries(match).every(([k, v]) => j.tag[k] === v));
+}
+
+async function cancelJobs(jobs, button) {
+  if (button) { button.disabled = true; button.textContent = "Stopping…"; }
+  try { await Promise.all(jobs.map(j => api(`/api/jobs/${j.id}/cancel`, {}))); }
+  catch (err) { alert(err.message); }
+  await load();
+}
+
+function setStop(sel, jobs) {
+  const b = $(sel);
+  b.hidden = !jobs.length; b.disabled = false; b.textContent = "Stop";
+  b.onclick = () => cancelJobs(jobs, b);
+}
+
+function stopButton(jobs) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "stop"; b.textContent = "Stop"; b.hidden = !jobs.length;
+  b.onclick = () => cancelJobs(jobs, b);
+  return b;
+}
+
+function renderJobs() {
+  const el = $("#jobs"); el.replaceChildren();
+  const active = data.jobs.filter(isActive);
+  for (const j of active) {
+    const chip = document.createElement("span"); chip.className = "job";
+    chip.textContent = `${JOB_LABELS[j.kind] || j.kind}${j.tag.unit ? ` · ${j.tag.unit}` : j.tag.asset ? ` · ${j.tag.asset}` : ""}` +
+      (j.status === "queued" ? " (queued)" : "…");
+    if (STOPPABLE(j.kind)) chip.append(stopButton([j]));
+    el.append(chip);
+  }
+  if (!active.length) {
+    const last = data.jobs.filter(j => j.status === "error" || j.status === "canceled").sort((a, b) => b.finished - a.finished)[0];
+    if (last && Date.now() / 1000 - last.finished < 120) {
+      el.innerHTML = last.status === "error" ? `<span class="error">${esc(JOB_LABELS[last.kind] || last.kind)} failed: ${esc(last.error)}</span>`
+        : `<span>${esc(JOB_LABELS[last.kind] || last.kind)} canceled.</span>`;
+    }
+  }
+  if (active.length && !polling) polling = setInterval(load, 2000);
+  if (!active.length && polling) { clearInterval(polling); polling = null; }
 }
 
 function render() {
@@ -90,19 +147,17 @@ function render() {
 
   renderPlan();
   renderRefs();
+  renderReview();
 
-  const active = data.jobs.filter(j => j.status === "queued" || j.status === "running");
-  const failed = data.jobs.filter(j => j.status === "error").slice(-1);
-  $("#jobs").innerHTML = active.length ? `${active.length} job(s) running: ${active.map(j => j.kind).join(", ")}…` :
-    failed.length ? `<span class="error">Last job failed: ${esc(failed[0].error)}</span>` : "";
-  if (active.length && !polling) polling = setInterval(load, 2000);
-  if (!active.length && polling) { clearInterval(polling); polling = null; }
+  renderJobs();
+  setStop("#explore-stop", activeJobs("style.explore"));
+  setStop("#derive-stop", activeJobs("style.derive"));
 }
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; return; }
-  [data, plans, refs] = await Promise.all([api(`/api/projects/${slug}`), api(`/api/projects/${slug}/plans`),
-                                           api(`/api/projects/${slug}/refs`)]);
+  [data, plans, refs, reviewData] = await Promise.all([api(`/api/projects/${slug}`),
+    api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`)]);
   render();
 }
 
@@ -122,7 +177,7 @@ function showTab(tab) {
   localStorage.setItem("ap.tab", tab);
 }
 document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
-showTab(["plan", "refs"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
+showTab(["plan", "refs", "review"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
 
 $("#project").onchange = e => {
   if (!confirmDiscard()) { e.target.value = slug; return; }

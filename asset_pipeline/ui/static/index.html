@@ -28,7 +28,7 @@
     <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
     <button role="tab" data-tab="plan">1 · Plan</button>
     <button role="tab" data-tab="refs">2 · References</button>
-    <button role="tab" data-tab="review" disabled title="build steps 6-7">3–4 · Review</button>
+    <button role="tab" data-tab="review">3–4 · Review</button>
   </nav>
 
   <p id="empty" hidden>Create or pick a project to start.</p>
@@ -44,6 +44,7 @@
         <label>Images <input name="n" type="number" min="1" max="32" value="8"></label>
         <label>Seed <input name="seed" type="number" placeholder="random"></label>
         <button>Generate scenes</button>
+        <button type="button" id="explore-stop" class="stop" hidden>Stop</button>
       </form>
       <div id="batches"></div>
     </section>
@@ -58,6 +59,7 @@
         <input name="nouns" placeholder="objects, comma-separated: boat, house, lantern" required>
         <label>Per object <input name="per_noun" type="number" min="1" max="6" value="2"></label>
         <button>Derive objects</button>
+        <button type="button" id="derive-stop" class="stop" hidden>Stop</button>
       </form>
       <div id="derived"></div>
     </section>
@@ -134,6 +136,7 @@
         starred sheets. About 55 s per sheet (ComfyUI, GPU 1).</p>
       <div class="row">
         <button id="refs-missing" type="button">Generate missing</button>
+        <button type="button" id="refs-missing-stop" class="stop" hidden>Stop</button>
         <label>Sheets per asset <input id="refs-n" type="number" min="1" max="8" value="2"></label>
         <span id="refs-summary" class="hint"></span>
       </div>
@@ -141,7 +144,26 @@
     <div id="refs-list"></div>
   </main>
 
+  <main id="review-tab" data-tab="review" hidden>
+    <section>
+      <h2>Views and 3D</h2>
+      <p class="hint">Starred reference sheets are cut into separate views (SAM 3.1). For each
+        asset, click the view to build it from, tag it (game, cine or hero), then
+        <em>Make 3D</em>: TRELLIS.2 on GPU 0, about 2.5 min. Hero assets will get a multi-view
+        path later; for now they go through TRELLIS too.</p>
+      <div class="row">
+        <button id="cut-views" type="button">Cut views</button>
+        <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
+        <label>3D mode <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
+        <span id="review-summary" class="hint"></span>
+      </div>
+    </section>
+    <div id="review-list"></div>
+  </main>
+
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4/dist/model-viewer.min.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/review.js"></script>
   <script src="/static/refs.js"></script>
   <script src="/static/plan.js"></script>
 </body>

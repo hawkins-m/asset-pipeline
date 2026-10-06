@@ -171,6 +171,20 @@ reflects what was actually verified.
 - ~55 s per 1.2 MP sheet on GPU 1. No local multi-view model is installed in ComfyUI
   (the Kontext/Qwen-Image edit nodes there are paid API nodes).
 
+## Views and review (stages 3-4) findings
+- SAM 3.1 finds the three views on a sheet reliably (31/32 alpine-market sheets, 2026-10-05)
+  but its masks drop white or thin parts (snow on a shrub, the flowers in a planter). Views
+  are therefore cut as full-height bands between neighbouring views, trimmed and kept on
+  white; TRELLIS removes the background itself (BiRefNet).
+- Pillow 12: an image made with `Image.fromarray` shares the array read-only and
+  `ImageDraw.floodfill` silently does nothing on it. `.copy()` first.
+- UI jobs: lanes "comfy" (GPU 1) and "gpu0"; Stop = `JobQueue.cancel` -> per-job
+  cancellers (ComfyUI: `POST /queue {"delete"}` if pending, `POST /interrupt {"prompt_id"}`
+  if running; TRELLIS: killpg + remove `logs/trellis-gpu<N>-<pid>.lock`). Verified live:
+  another client's prompt was untouched; GPU 0 back to baseline 2 s after stopping TRELLIS.
+- A scratch AP_ROOT for UI tests needs symlinks to `envs`, `models`, `tools`, `hf`, `src`,
+  since `scripts/trellis` finds its env through AP_ROOT.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

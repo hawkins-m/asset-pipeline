@@ -3,10 +3,11 @@ const fmtDims = d => `${d.width}×${d.depth}×${d.height} m`;
 
 function renderRefs() {
   const list = $("#refs-list"); list.replaceChildren();
-  const busy = data.jobs.some(j => j.kind === "refs.generate" && (j.status === "queued" || j.status === "running"));
+  const missingJobs = activeJobs("refs.generate", {missing: true});
   const missing = refs.filter(u => !u.sheets.length).length;
-  $("#refs-missing").disabled = busy || !missing;
-  $("#refs-missing").textContent = busy ? "Generating…" : `Generate missing (${missing})`;
+  $("#refs-missing").disabled = !!missingJobs.length || !missing;
+  $("#refs-missing").textContent = missingJobs.length ? "Generating…" : `Generate missing (${missing})`;
+  setStop("#refs-missing-stop", missingJobs);
   const starred = refs.reduce((k, u) => k + u.sheets.filter(s => data.stars[s]).length, 0);
   $("#refs-summary").textContent = refs.length ?
     `${refs.length} assets, ${refs.length - missing} with sheets, ${starred} sheet(s) starred.` :
@@ -23,8 +24,14 @@ function renderRefs() {
       el.innerHTML = `<div class="unit-head">
           <span class="title">${esc(u.title)}</span><span class="chip">${u.kind}</span>
           <span class="hint">${what}</span>
-          <button type="button" class="secondary more" ${busy ? "disabled" : ""}>+ ${+$("#refs-n").value || 2} more</button>
+          <button type="button" class="secondary more">+ ${+$("#refs-n").value || 2} more</button>
         </div>`;
+      const unitJobs = activeJobs("refs.generate", {plan: u.plan, unit: u.key});
+      if (unitJobs.length) {
+        const more = $(".more", el);
+        more.disabled = true; more.textContent = unitJobs[0].status === "queued" ? "Queued…" : "Generating…";
+        more.after(stopButton(unitJobs));
+      }
       const g = document.createElement("div"); g.className = "grid sheets";
       if (!u.sheets.length) g.innerHTML = `<span class="empty">No sheets yet.</span>`;
       u.sheets.forEach(k => g.append(card(k)));

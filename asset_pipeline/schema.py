@@ -65,7 +65,9 @@ class PlanAsset(BaseModel):
     bbox_llm: list[float] | None = None  # the LLM's own box, kept when SAM replaces bbox
     sam_found: int | None = None  # how many SAM 3.1 found for the name (vs count); None = not run
     mask: str | None = None       # project-relative SAM mask (.npz) of the chosen copy
-    usage: Literal["game", "cine"] = "game"
+    # game: retopo for engines; cine: Blender-only, topology doesn't matter; hero: the
+    # multi-view path (orbit video -> multi-view 3D, PLAN.md) once it exists.
+    usage: Literal["game", "cine", "hero"] = "game"
     include: bool = True          # unticked assets stay in the plan but aren't generated
 
 

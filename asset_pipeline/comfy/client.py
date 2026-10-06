@@ -6,6 +6,8 @@ from pathlib import Path
 
 import httpx
 
+from .. import jobs
+
 
 class ComfyError(RuntimeError):
     def __init__(self, msg: str, messages: list | None = None):
@@ -55,6 +57,7 @@ class ComfyClient:
         return f"{d['subfolder']}/{d['name']}" if d.get("subfolder") else d["name"]
 
     def queue(self, graph: dict) -> str:
+        jobs.check_canceled()
         r = self.http.post("/prompt", json={"prompt": graph, "client_id": self.client_id})
         if r.status_code != 200:
             try:
@@ -62,11 +65,27 @@ class ComfyClient:
             except ValueError:
                 detail = r.text
             raise ComfyError(f"ComfyUI rejected the workflow: {detail}")
-        return r.json()["prompt_id"]
+        prompt_id = r.json()["prompt_id"]
+        if (job := jobs.current_job()):  # Stop in the UI removes or interrupts this prompt
+            job.on_cancel(lambda: self.cancel_prompt(prompt_id))
+        return prompt_id
+
+    def cancel_prompt(self, prompt_id: str) -> str:
+        """Delete `prompt_id` if it's waiting in ComfyUI's queue, interrupt it if it's the
+        one running; other clients' prompts are never touched. Returns what was done."""
+        q = self.http.get("/queue").json()
+        if any(item[1] == prompt_id for item in q.get("queue_pending", [])):
+            self.http.post("/queue", json={"delete": [prompt_id]}).raise_for_status()
+            return "deleted"
+        if any(item[1] == prompt_id for item in q.get("queue_running", [])):
+            self.http.post("/interrupt", json={"prompt_id": prompt_id}).raise_for_status()
+            return "interrupted"
+        return "finished"
 
     def wait(self, prompt_id: str, poll_s: float = 1.0) -> dict:
         deadline = time.monotonic() + self.timeout_s
         while time.monotonic() < deadline:
+            jobs.check_canceled()
             r = self.http.get(f"/history/{prompt_id}")
             r.raise_for_status()
             entry = r.json().get(prompt_id)
