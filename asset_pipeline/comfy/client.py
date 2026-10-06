@@ -8,7 +8,13 @@ import httpx
 
 
 class ComfyError(RuntimeError):
-    pass
+    def __init__(self, msg: str, messages: list | None = None):
+        super().__init__(msg)
+        self.messages = messages or []  # ComfyUI's status messages, when execution failed
+
+    def execution_error(self) -> dict:
+        """The 'execution_error' payload (node_type, exception_type, ...), or {}."""
+        return next((m[1] for m in self.messages if m and m[0] == "execution_error"), {})
 
 
 class ComfyUnavailable(ComfyError):
@@ -67,7 +73,8 @@ class ComfyClient:
             if entry:
                 status = entry.get("status", {})
                 if status.get("status_str") == "error":
-                    raise ComfyError(f"ComfyUI execution failed: {status.get('messages')}")
+                    raise ComfyError(f"ComfyUI execution failed: {status.get('messages')}",
+                                     messages=status.get("messages"))
                 if status.get("completed", True):
                     return entry
             time.sleep(poll_s)

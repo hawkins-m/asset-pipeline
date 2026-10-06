@@ -13,7 +13,7 @@ from PIL import Image
 
 from . import config
 from .comfy import workflow
-from .comfy.client import ComfyClient
+from .comfy.client import ComfyClient, ComfyError
 
 
 @dataclass
@@ -61,8 +61,14 @@ def detect(client: ComfyClient, image: Path, noun: str, max_dets: int = 8,
                                             "text": sam3_prompt(noun, max_dets),
                                             "threshold": threshold})
     size = Image.open(image).size
+    try:
+        outputs = client.run(graph, manifest["outputs"])
+    except ComfyError as e:
+        if _no_detections(e):
+            return []
+        raise
     dets = []
-    for out in client.run(graph, manifest["outputs"]):
+    for out in outputs:
         m = np.asarray(Image.open(io.BytesIO(out.data)).convert("L")) > 127
         if m.shape[::-1] != size:  # SAM returns source resolution; resize defensively
             m = np.asarray(Image.fromarray(m).resize(size, Image.NEAREST))
@@ -71,6 +77,14 @@ def detect(client: ComfyClient, image: Path, noun: str, max_dets: int = 8,
             edge = bool(m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any())
             dets.append(Detection(mask=m, bbox=_bbox(m), area_frac=frac, touches_border=edge))
     return sorted(dets, key=lambda d: -d.area_frac)
+
+
+def _no_detections(e: ComfyError) -> bool:
+    """SAM 3 finding nothing makes the graph fail: the empty mask batch crashes the image
+    output node ("index 0 is out of bounds for dimension 0 with size 0")."""
+    err = e.execution_error()
+    return (err.get("exception_type") == "IndexError"
+            and "with size 0" in err.get("exception_message", ""))
 
 
 def cutout(image: Path | Image.Image, det: Detection, pad_frac: float = 0.08,

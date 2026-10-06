@@ -239,3 +239,28 @@ def test_refine_keeps_edited_flag_and_drops_stale_masks(store, monkeypatch):
     out = s1_plan.refine_boxes(store, name, client=object())
     assert out.edited is not None
     assert sorted(p.stem for p in (store.root / "plan/masks" / name).glob("*.npz")) == ["market-stall"]
+
+
+def test_detect_returns_nothing_when_sam_finds_nothing(tmp_path):
+    """SAM 3 with no hits crashes ComfyUI's image output node on the empty batch."""
+    from asset_pipeline.comfy.client import ComfyError
+    img = tmp_path / "s.png"
+    Image.new("RGB", (8, 8)).save(img)
+
+    class Client:
+        def __init__(self, exc):
+            self.exc = exc
+
+        def upload_image(self, p):
+            return "s.png"
+
+        def run(self, graph, outputs):
+            raise self.exc
+    empty = ComfyError("failed", messages=[["execution_start", {}], ["execution_error", {
+        "node_type": "PreviewImage", "exception_type": "IndexError",
+        "exception_message": "index 0 is out of bounds for dimension 0 with size 0\n"}]])
+    assert segment.detect(Client(empty), img, "signpost") == []
+    other = ComfyError("failed", messages=[["execution_error", {"exception_type": "OutOfMemoryError",
+                                                                "exception_message": "HIP OOM"}]])
+    with pytest.raises(ComfyError):
+        segment.detect(Client(other), img, "signpost")

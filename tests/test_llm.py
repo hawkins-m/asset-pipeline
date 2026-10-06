@@ -184,3 +184,33 @@ def test_registry():
     assert make_llm("claude").name == "claude"
     with pytest.raises(ValueError):
         make_llm("gpt")
+
+
+# --- llama.cpp ----------------------------------------------------------------
+
+def test_llamacpp_sends_openai_chat_with_json_schema(img):
+    from asset_pipeline.llm.llamacpp import LlamaCppVision
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+            "content": '{"objects": ["well"], "count": 1}'}}], "usage": {"completion_tokens": 9}})
+
+    llm = LlamaCppVision("http://llama", transport=httpx.MockTransport(handler))
+    out = structured(llm, "list", [img], Scene, system="sys")
+    assert out.objects == ["well"] and llm.last_usage["completion_tokens"] == 9
+    assert seen["response_format"]["json_schema"]["schema"] == Scene.model_json_schema()
+    assert seen["temperature"] == 0
+    sys_msg, user = seen["messages"]
+    assert sys_msg["content"].startswith("sys") and "JSON Schema" in sys_msg["content"]
+    assert user["content"][0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert user["content"][-1] == {"type": "text", "text": "list"}
+
+
+def test_llamacpp_truncation_is_an_error(img):
+    from asset_pipeline.llm.llamacpp import LlamaCppVision
+    llm = LlamaCppVision("http://llama", transport=httpx.MockTransport(lambda r: httpx.Response(
+        200, json={"choices": [{"finish_reason": "length", "message": {"content": '{"obj'}}]})))
+    with pytest.raises(LLMError, match="max_tokens"):
+        llm.json_text("", "x", [img], {})
