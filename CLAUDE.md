@@ -221,6 +221,21 @@ reflects what was actually verified.
   GPU 0 to be free (VLM down, no trellis locks); TRELLIS for scratch work via the real
   `scripts/trellis` with `--out-dir` in scratch, so its GPU claim is visible to the UI.
 
+## Cleanup (stage 6) findings (2026-10-05)
+- **Snap Blender does nothing when its stdout is a regular file** (exit 0, no output, the
+  script's files never written). Pipe its output (`subprocess.PIPE`) and copy it to the log.
+  `tests/test_stage6.py::test_module_launches_real_blender` guards this.
+- glTF splits vertices along UV seams, so an imported TRELLIS mesh is many islands;
+  decimating unwelded islands shrinks them and opens cracks (bake speckles). Weld
+  (`remove_doubles`, 1e-5 of the size) before decimating.
+- Budgets measured in Cycles (Workbench previews ignore normal maps and mislead): a stall
+  warped at 15k and was close to the original at 30k; a house was fine at 30k.
+- QuadriFlow rejects TRELLIS meshes as non-manifold even after a voxel remesh plus
+  non-manifold repair; it works headless on clean meshes. Kept behind `--quad`.
+- TRELLIS output faces glTF +Z (Blender -Y) and is ~1 unit tall; it can come out as a flat
+  card (a barrel 4 mm deep) and with proportions far from the plan (house 2.3x deeper):
+  the cleanup report warns about both.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

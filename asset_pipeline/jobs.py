@@ -1,7 +1,8 @@
 """Background job queue for the UI: one worker per GPU lane, cancellable jobs.
 
-Lanes: "comfy" (ComfyUI, GPU 1: scenes, derive, sheets, SAM) and "gpu0" (the local VLM
-and TRELLIS, GPU 0). Each lane runs one job at a time; the two run side by side.
+Lanes: "comfy" (ComfyUI, GPU 1: scenes, derive, sheets, SAM), "gpu0" (the local VLM and
+TRELLIS, GPU 0) and "cpu" (Blender cleanup). Each lane runs one job at a time; the lanes
+run side by side.
 
 Cancelling a queued job just drops it. Cancelling a running one sets its event and runs
 the cancellers the job registered while running (ComfyClient registers one per prompt it
@@ -77,7 +78,7 @@ def check_canceled() -> None:
 
 
 class JobQueue:
-    LANES = ("comfy", "gpu0")
+    LANES = ("comfy", "gpu0", "cpu")
 
     def __init__(self, lanes: tuple[str, ...] = LANES):
         self._ids = itertools.count(1)

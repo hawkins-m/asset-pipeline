@@ -40,7 +40,7 @@ function card(key, {label, onSelect, selected} = {}) {
 const isActive = j => j.status === "queued" || j.status === "running";
 const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive", "plan.analyze": "scene analysis",
   "plan.refine": "box refinement", "refs.generate": "reference sheets", "views.cut": "cutting views",
-  "3d.trellis": "3D (TRELLIS)"};
+  "3d.trellis": "3D (TRELLIS)", "cleanup": "cleanup (Blender)"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
 

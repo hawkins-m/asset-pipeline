@@ -32,7 +32,8 @@ function assetReview(a) {
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
-      <span class="actions"><button type="button" class="make3d">Make 3D</button></span>
+      <span class="actions"><button type="button" class="make3d">Make 3D</button>
+        <button type="button" class="secondary cleanup" title="Scale to the plan size, pivot at the base${x.usage === "game" ? ", decimate and bake (game)" : ""}">Clean up</button></span>
     </div>`;
   el.querySelectorAll(".usage button").forEach(b => b.onclick = async () => {
     try { await api(`/api/projects/${slug}/review/usage`, {plan: a.plan, asset: x.id, usage: b.dataset.u}); await load(); }
@@ -69,6 +70,19 @@ function assetReview(a) {
     catch (err) { alert(err.message); }
   };
 
+  const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
+  const clean = $(".cleanup", el);
+  clean.disabled = !a.results.length || !!cleanJobs.length;
+  if (!a.results.length) clean.title = "Make 3D first";
+  if (cleanJobs.length) {
+    clean.textContent = cleanJobs[0].status === "queued" ? "Queued…" : "Cleaning…";
+    clean.after(stopButton(cleanJobs));
+  }
+  clean.onclick = async () => {
+    try { await api(`/api/projects/${slug}/cleanup`, {plan: a.plan, asset: x.id}); await load(); }
+    catch (err) { alert(err.message); }
+  };
+
   if (a.results.length) {
     const r = document.createElement("div"); r.className = "results";
     for (const res of a.results) {
@@ -79,6 +93,21 @@ function assetReview(a) {
         <span class="hint">${res.faces ? `${(res.faces / 1000).toFixed(0)}k faces` : ""}${res.raw_ratio ? ` · raw F/V ${res.raw_ratio}` : ""}${res.peak_vram_gb ? ` · ${res.peak_vram_gb} GB` : ""}</span>
         <span><a href="${fileUrl(res.glb)}" download>GLB</a> · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a></span>`;
       r.append(c);
+    }
+    el.append(r);
+  }
+  if (a.cleanups.length) {
+    const r = document.createElement("div"); r.className = "results";
+    for (const c of a.cleanups) {
+      const d = c.output_dims_m.map(v => v.toFixed(2)).join(" × ");
+      const box = document.createElement("div"); box.className = "result";
+      box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls shadow-intensity="0.6"
+          alt="Cleaned model of ${esc(x.name)}" loading="lazy"></model-viewer>
+        <span>Cleaned (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})</span>
+        <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
+        ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}
+        <span><a href="${fileUrl(c.glb)}" download>GLB</a></span>`;
+      r.append(box);
     }
     el.append(r);
   }

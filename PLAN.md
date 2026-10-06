@@ -107,6 +107,11 @@ Done and verified:
   action that removes or interrupts only that action's ComfyUI prompts and kills TRELLIS
   cleanly (GPU claim released).
 
+- **Stage 6 (cleanup):** headless Blender on the CPU. Every asset is scaled to the plan's
+  size (height fit), pivoted at its base centre; game assets are decimated to a category
+  budget with colour/roughness/normal maps baked from the original. Warnings for flat
+  results and proportions far from the plan. `ap cleanup` and *Clean up* in the Review tab.
+
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a
 second path that gives the 3D model real side and back information:
@@ -143,7 +148,8 @@ general video model), or texture the Hunyuan shape from the front view.
 Next, in order:
 1. **Hero path (experimental):** decide whether to pursue it (options above).
 2. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
-3. **Stage 6:** Blender cleanup (scale to plan dimensions, pivots; retopo for game).
+3. **Stage 6 follow-ups:** quad retopology (QuadriFlow rejects TRELLIS meshes; try
+   Instant Meshes, or repair harder), LODs, collision meshes for game assets.
 4. **Docs pass:** this file's Stages and Architecture sections need several updates:
    - stage 0;
    - the adapter;

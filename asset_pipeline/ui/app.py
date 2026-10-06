@@ -15,7 +15,7 @@ from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from ..schema import AssetPlan
-from ..stages import s0_style, s1_plan, s2_refs, s3_views, s5_3d
+from ..stages import s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -76,6 +76,13 @@ class ThreeDReq(BaseModel):
     asset: str
     mode: str = "1024_cascade"
     seed: int = 42
+
+
+class CleanupReq(BaseModel):
+    plan: str
+    asset: str
+    glb: str | None = None        # None: the asset's newest 3D result
+    fit: Literal["height", "geomean"] = "height"
 
 
 class AnchorReq(BaseModel):
@@ -288,7 +295,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                     "id", "name", "category", "count", "dimensions", "kit", "usage"}),
                     "views": s3_views.views(store, name, a.id),
                     "chosen": review.chosen(store, name, a.id),
-                    "results": s5_3d.results(store, name, a.id)})
+                    "results": s5_3d.results(store, name, a.id),
+                    "cleanups": s6_cleanup.results(store, name, a.id)})
         return {"pending_sheets": pending, "assets": assets,
                 "starred_sheets": sum(1 for k, v in stars.items() if v and k.startswith(s2_refs.REFS + "/"))}
 
@@ -338,6 +346,15 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     @app.get("/api/vlm")
     def vlm_status():
         return vlm.status()
+
+    @app.post("/api/projects/{slug}/cleanup")
+    def cleanup(slug: str, req: CleanupReq):
+        store = _store(slug)
+        if not req.glb and not s5_3d.results(store, req.plan, req.asset):
+            raise HTTPException(400, "make 3D first")
+        return jobs.submit("cleanup", slug, lambda: s6_cleanup.run(store, req.plan, req.asset,
+                                                                   glb=req.glb, fit=req.fit),
+                           lane="cpu", tag={"plan": req.plan, "asset": req.asset}).public()
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

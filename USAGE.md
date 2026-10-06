@@ -318,11 +318,38 @@ Files: `views/<plan>/<unit>/sheet_NNN_vK.png` (+ `meta.json`), `3d/<plan>/<asset
 with the stats JSON, the TRELLIS input image and `trellis.log`. The chosen views are in
 `review.json`.
 
+# Stage 6: cleanup (Blender)
+
+**Clean up** in the Review tab (or `ap cleanup`) turns an asset's newest 3D result into a
+cleaned GLB, in headless Blender on the CPU (so it never waits for or slows the GPUs):
+
+- **Every asset:** scaled uniformly to the plan's real-world size and given a pivot at the
+  bottom centre of its base, at the origin. By default the height is fitted exactly
+  (`--fit geomean` spreads the error over all three sizes instead); the model's own
+  proportions are kept, and the width/depth mismatch is shown.
+- **game** assets are also cut down to a triangle budget for their category (props 10k,
+  structures and buildings 30k, vegetation 15k, rocks 8k, vehicles 25k) with colour,
+  roughness and normal maps baked from the original. **cine** and **hero** assets keep the
+  full mesh and textures.
+- **Warnings** flag a flat result (TRELLIS sometimes makes a card instead of an object) and
+  proportions far from the plan (e.g. "depth is 2.34x the plan"). Look at those before
+  using the asset; the plan size or the model may be off.
+
+About 3 s for cine/hero, 15–20 s for game assets. Stop works like everywhere else.
+
+```bash
+ap cleanup alpine-market batch_001__scene_000 timber-market-stall
+ap cleanup alpine-market batch_001__scene_000 timber-market-stall --budget 20000 --fit geomean
+```
+
+Output: `cleanup/<plan>/<asset>/<source>_<usage>.glb` plus a JSON report (sizes before and
+after, scale, faces, warnings) and `blender.log`.
+
 # Stopping a running action
 
 Every long action in the UI has a **Stop** button next to it while it runs or waits:
 scene generation, derive, reference sheets (*Generate missing* and each *+ N more*), cutting
-views, box refinement and 3D. The header also lists running jobs, each with its own Stop.
+views, box refinement, 3D and cleanup. The header also lists running jobs, each with its own Stop.
 Stop affects only that action:
 
 - A job still waiting in the UI's queue is dropped.

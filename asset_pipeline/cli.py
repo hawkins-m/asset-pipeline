@@ -294,6 +294,17 @@ def cmd_hero_mesh(a) -> None:
     print(out)
 
 
+def cmd_cleanup(a) -> None:
+    from .stages import s6_cleanup
+    store = ProjectStore.open(a.project)
+    rep = s6_cleanup.run(store, a.plan, a.asset, glb=a.glb, fit=a.fit, budget=a.budget)
+    print(store.root / rep["glb"])
+    print(f"{rep['usage']}: {rep['output_faces']} faces, {rep['output_dims_m']} m "
+          f"(vs plan {rep['dims_vs_plan']}), {rep['seconds']} s")
+    for w in rep["warnings"]:
+        print(f"warning: {w}")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -487,6 +498,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--right", type=int)
     p.add_argument("--seed", type=int, default=1)
     p.set_defaults(fn=cmd_hero_mesh)
+
+    p = sub.add_parser("cleanup", help="stage 6: scale to plan size, base pivot, game retopo (Blender, CPU)")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("--glb", help="project-relative GLB (default: the newest 3D result)")
+    p.add_argument("--fit", default="height", choices=["height", "geomean"])
+    p.add_argument("--budget", type=int, help="game triangle budget (default by category)")
+    p.set_defaults(fn=cmd_cleanup)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)
