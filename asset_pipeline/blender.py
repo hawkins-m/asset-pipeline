@@ -23,12 +23,18 @@ def run(script: Path, args: list[str], log_path: Path, what: str, blend: Path | 
     log's tail) on a non-zero exit."""
     cmd = [str(exe or BLENDER), "-b"] + ([str(blend)] if blend else []) + \
           ["--factory-startup", "--python", str(script), "--", *map(str, args)]
+    run_logged(cmd, log_path, what)
+
+
+def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = None) -> None:
+    """Run any command with its output piped into log_path (appended), cancellable from a
+    job's Stop (the whole process group is killed)."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("a")
     log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
     log.flush()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            start_new_session=True)
+                            start_new_session=True, cwd=cwd, errors="replace")
     pump = threading.Thread(target=lambda: [log.write(line) or log.flush() for line in proc.stdout],
                             daemon=True)
     pump.start()
@@ -48,7 +54,7 @@ def run(script: Path, args: list[str], log_path: Path, what: str, blend: Path | 
         raise Canceled(f"{what} canceled")
     if proc.returncode != 0:
         tail = log_path.read_text().splitlines()[-15:]
-        raise RuntimeError(f"blender exited with code {proc.returncode}:\n" + "\n".join(tail))
+        raise RuntimeError(f"{Path(cmd[0]).name} exited with code {proc.returncode}:\n" + "\n".join(tail))
 
 
 def stop(proc: subprocess.Popen) -> None:

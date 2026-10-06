@@ -301,6 +301,37 @@ reflects what was actually verified.
   shell's own command line (a wait loop never ends; pkill kills itself). Match on
   something the caller doesn't contain, or use PIDs.
 
+## Unreal Engine 5.8.3 (world mode delivery) findings (2026-10-06)
+- Editor: `/mnt/storage/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor(-Cmd)`
+  (config `[unreal] editor_cmd`). Python 3.11.8 inside. UE projects live in
+  `$AP_ROOT/unreal/<slug>/`, outside the repo.
+- Headless runs: `UnrealEditor-Cmd <uproject> -run=pythonscript -script="<file> <args.json>"
+  -unattended -nullrhi`. No GPU is used, and an import takes about 1 min fresh and 10 s
+  unchanged.
+  - The commandlet exits 1 whenever anything logged an error, so judge by the script's
+    JSON report.
+  - `EditorAssetLibrary.load_asset` can't load engine content in the commandlet (the
+    asset registry isn't scanned); `unreal.load_asset` can.
+- **Axes, verified live:** Interchange imports a Blender glTF as Blender +X → UE +X,
+  +Y → −Y, +Z → +Z, metres → cm. So every placement converts by C·M·C, C = diag(1,−1,1),
+  with translation ×100 (`asset_pipeline/ue_coords.py`).
+  - `unreal.Rotator(roll, pitch, yaw)` is positional.
+  - The import self-check recomputes 155 instance world positions from the greybox
+    independently: all within 1 cm.
+- Interchange puts a mesh at `<dest>/<file>/StaticMeshes/<file>`, so the importer moves
+  it to `/Game/AP/Library/<id>/SM_<id>`. A changed GLB replaces the mesh with
+  `consolidate_assets`, which keeps references.
+- InstancedStaticMeshComponents added through `SubobjectDataSubsystem.add_new_subobject`
+  persist across save and reload, with label, tags, outliner folder and instances.
+- **No Python API creates a Landscape from a heightmap.** Only
+  `landscape_import_heightmap_from_render_target` exists, into an existing landscape's
+  components. Terrain is therefore a Nanite mesh; the manifest carries the values for a
+  manual Landscape-mode import.
+- Shot renders need the full editor: `UnrealEditor -RenderOffscreen -graphicsadapter=0`
+  (Vulkan adapter 0 = GPU 0) with a Slate tick callback. Screenshots taken while
+  ShaderCompileWorkers still run show grey default materials, so wait for them to go
+  idle.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

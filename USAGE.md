@@ -179,6 +179,37 @@ Moodboard images can also be picked in the Style tab's *Derive objects*, to cut 
 out of them as anchor images, like scenes. The UI has the same steps in the Style tab
 (Moodboard) and the Frames tab.
 
+## Unreal Engine 5.8 (export and import)
+
+```
+ap export my-project            # export/: one GLB per greybox mesh (stand-ins) + manifest.json
+ap ue import my-project         # headless, no GPU: ~1 min the first time, ~10 s when unchanged
+ap ue render my-project         # PNGs through each shot camera (full editor offscreen, GPU 0)
+ap ue pull-layout my-project    # UE level -> site/ue_layout.json (after layout edits in UE)
+```
+
+The UE project is `$AP_ROOT/unreal/my-project/<Name>.uproject` (map `/Game/AP/Maps/<Name>`,
+sequence `/Game/AP/Cinematics/LS_<Name>`).
+
+**After the import, the UE level is the source of truth for the layout.** Edit it by hand
+or through an Unreal MCP server.
+- **Actor names and tags are stable:**
+  - Buildings, plazas and rings: `AP_<district>_<slot>`, tags `ap:id=<slot>`,
+    `ap:type=…`, `ap:kit=…`, `ap:district=…`, `ap:source=pipeline`. Outliner folder
+    `AP/<district>/<category>`.
+  - Cameras: `AP_Shot_<shot>`, tag `ap:shot=<shot>`, folder `AP/Shots`.
+  - Lighting: `AP_Env_*` (created once).
+  - Each slot actor has one `ISM_<asset>` component per kit piece or mesh.
+- **What a re-import changes:**
+  - It never moves an actor you moved (`--reset-layout` puts everything back).
+  - It keeps your own tags.
+  - It rewrites the pipeline's parts: meshes, the instances inside a slot, materials,
+    lenses and camera cuts.
+  - Pipeline actors that left the manifest are reported (`--prune` deletes them).
+- **Terrain** comes in as a Nanite mesh. For a real Landscape, use Landscape mode →
+  Import from File with `export/terrain/heightmap.png` and the `landscape` values in
+  `export/manifest.json`.
+
 # Stage 0: exploring scenes and setting a style anchor
 
 ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with

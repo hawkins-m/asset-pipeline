@@ -484,6 +484,50 @@ def cmd_frames_show(a) -> None:
                 print(f"    {'*' if f['key'] in stars else ' '} {f['key']}  match {f['edge_match']:.2f}")
 
 
+def cmd_export(a) -> None:
+    from .stages import s7_export
+    store = ProjectStore.open(a.project)
+    c = s7_export.export(store, standins=not a.assets)
+    print(f"{s7_export.export_dir(store) / 'manifest.json'}: {c['assets']} assets, {c['slots']} slots, "
+          f"{c['instances']} instances, {c['shots']} shots")
+
+
+def _print_ue_report(rep) -> None:
+    c = rep["checks"]
+    print(f"{'OK' if rep['ok'] else 'PROBLEMS'}: {len(rep['assets']['imported'])} assets imported, "
+          f"{len(rep['assets']['skipped'])} unchanged; {len(rep['actors']['created'])} actors created, "
+          f"{len(rep['actors']['kept_transform'])} kept their UE transform, {len(rep['actors']['reset'])} reset; "
+          f"{c['instances_total']} instances, {c['cameras']} cameras; sequence {rep['sequence']['path']} "
+          f"({rep['sequence']['sections']} shots) in {rep['seconds']} s")
+    if rep.get("moved_in_ue"):
+        print(f"moved in UE (kept): {', '.join(rep['moved_in_ue'])}")
+    for k in ("nanite_off", "missing_mi", "instance_mismatch"):
+        for x in c[k]:
+            print(f"problem: {k}: {x}")
+    for x in rep["sample_errors"] + rep["warnings"] + rep.get("log_errors", []):
+        print(f"warning: {x}")
+
+
+def cmd_ue(a) -> None:
+    from . import ue
+    store = ProjectStore.open(a.project)
+    if a.action == "init":
+        print(ue.init(store))
+    elif a.action == "import":
+        _print_ue_report(ue.import_(store, reset_layout=a.reset_layout, prune=a.prune))
+    elif a.action == "render":
+        rep = ue.render_shots(store, a.shots or None)
+        for s in rep["shots"]:
+            print(s["file"])
+        for s in rep["failed"]:
+            print(f"failed: {s}")
+        if rep.get("error"):
+            print(f"error: {rep['error']}")
+    elif a.action == "pull-layout":
+        rep = ue.pull_layout(store)
+        print(f"{len(rep['actors'])} actors -> {store.root / 'site/ue_layout.json'}")
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -776,6 +820,20 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("shots", nargs="*")
     p.add_argument("--prompt", action="store_true", help="also print each shot's prompt")
     p.set_defaults(fn=cmd_frames_show)
+
+    p = sub.add_parser("export", help="world mode phase 4: greybox -> export/ (GLBs + UE manifest)")
+    p.add_argument("project")
+    p.add_argument("--assets", action="store_true", help="real library assets (phase 3; not built yet)")
+    p.set_defaults(fn=cmd_export)
+
+    p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
+    p.add_argument("action", choices=["init", "import", "render", "pull-layout"])
+    p.add_argument("project")
+    p.add_argument("shots", nargs="*", help="render: only these shots")
+    p.add_argument("--reset-layout", action="store_true",
+                   help="import: move every actor back to the manifest (discards layout edits made in UE)")
+    p.add_argument("--prune", action="store_true", help="import: delete pipeline actors not in the manifest")
+    p.set_defaults(fn=cmd_ue)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

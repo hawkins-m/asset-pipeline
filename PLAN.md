@@ -148,6 +148,15 @@ Status (2026-10-06):
   CLAUDE.md "Concept frames"; the default is Union depth alone, 0.6 strength to 60% of
   the steps.
 - Next: the frames need human review before step 4. Starring them is the approval.
+- Steps 5–6 have been proven early with the greybox as stand-in assets (2026-10-06, UE
+  5.8.3): `ap export` (stand-in GLBs + manifest) and `ap ue import|render|pull-layout`.
+  What it produces:
+  - Nanite meshes, per-slot ISM actors, material instances, CineCameras and a Level
+    Sequence;
+  - layout edits made in UE survive a re-import.
+
+  Real assets replace the stand-ins by asset id once step 4 exists. Terrain is a Nanite
+  mesh: UE's Python can't create a Landscape (manual import values are in the manifest).
 
 Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.

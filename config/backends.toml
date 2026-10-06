@@ -51,3 +51,8 @@ frames = "comfyui"
 
 [defaults]
 llm = "local"      # local | gemini | claude
+
+# Unreal Engine (world mode delivery). Editor Python runs headless through this binary's
+# pythonscript commandlet (-nullrhi: no GPU). Override with AP_UE_EDITOR_CMD.
+[unreal]
+editor_cmd = "/mnt/storage/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor-Cmd"
