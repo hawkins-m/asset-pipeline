@@ -21,9 +21,11 @@ JSON_INSTRUCTION = ("Answer with only a single JSON object, no prose and no code
 class LlamaCppVision:
     name = "llamacpp"
 
-    def __init__(self, url: str = "", timeout_s: float = 1800, max_tokens: int = 4096, transport=None):
+    def __init__(self, url: str = "", timeout_s: float = 1800, max_tokens: int = 4096,
+                 sampling: dict | None = None, transport=None):
         self.url = (url or DEFAULT_URL).rstrip("/")
         self.max_tokens = max_tokens
+        self.sampling = sampling or {"temperature": 0}  # greedy unless told otherwise
         self.http = httpx.Client(base_url=self.url, timeout=timeout_s, transport=transport)
         self.last_usage: dict = {}
 
@@ -44,7 +46,7 @@ class LlamaCppVision:
         content.append({"type": "text", "text": prompt})
         body = {"messages": [{"role": "system", "content": sys_text},
                              {"role": "user", "content": content}],
-                "temperature": 0, "max_tokens": self.max_tokens,
+                **self.sampling, "max_tokens": self.max_tokens,
                 "response_format": {"type": "json_schema",
                                     "json_schema": {"name": "answer", "schema": schema}}}
         try:

@@ -109,6 +109,22 @@ reflects what was actually verified.
   share it" rules, Qwen split stalls into poles/awnings/shingles (23 assets, 173 s) and
   gave every asset its own kit. Its `bbox_2d` boxes are rough (some tight, many offset or
   oversized); refine with SAM 3.1 before relying on them.
+- Larger local VLMs (verified 2026-10-05): llama.cpp's prebuilt **Vulkan** build (RADV,
+  `scripts/install_llamacpp_vlm.sh`, b11433) runs Qwen3-VL GGUFs on gfx1201; Vulkan0 =
+  GPU 0. Serve with `scripts/llamacpp_vlm_server.sh`, backend `llm/llamacpp.py`.
+  - 32B dense fits one card only at ~5 bit: Q5_K_M peaks 26.8 GB on GPU 0 at 8k ctx
+    (Q8_0 34.8 GB and FP8 35.5 GB don't fit). 24 tok/s, ~110 s per scene.
+  - 30B-A3B Q6_K: 27.4 GB, ~130 tok/s, but loops at greedy decoding (repeats assets
+    until max_tokens) and still duplicates heavily with Qwen's recommended sampling.
+  - 8B Q8_0 on llama.cpp: 65 tok/s (3x transformers) but worse plans than 8B bf16.
+  - A/B on 4 alpine-market scenes, blind-judged against a reference written first
+    (`$AP_ROOT/outputs/vlm_ab/`, `scripts/diag/vlm_ab*.py`): 32B Q5 greedy 18/20,
+    8B bf16 13/20, 8B Q8 9.5/20, 30B-A3B <=8.5/20. LLM box hits SAM object (IoU>=0.3):
+    32B 79%, 8B bf16 36%.
+  - The 32B lists a dominant mountain (1500x2000x3000 m) despite the rules; the 1000 m
+    size cap rejects it and a retry usually drops it.
+- SAM 3.1 finding nothing for a noun fails the ComfyUI graph (empty batch -> IndexError
+  in the image output node). `segment.detect` treats that as no detections.
 - Paid backends (Gemini, Claude, Gemini images) raise `PaidAPIBlocked` unless
   `AP_ALLOW_PAID_APIS=1` is set for that run. Never set it yourself without the user's OK.
   Their tests use mocked SDKs only.

@@ -91,12 +91,13 @@ Done and verified:
   per scene (`plan/<batch>__<scene>.json`) with the local Qwen3-VL. Live-verified on both
   alpine-market scenes (45–70 s each). The editor edits, includes/excludes, adds and deletes
   assets and relations, and protects hand edits from re-analysis. Outside images can be
-  imported as scenes.
+  imported as scenes. SAM 3.1 redraws each box from an LLM-given noun (~12/16 correct vs
+  3-4/16 for the 8B's own boxes).
 
 Next, in order:
-1. **Stage 1 follow-ups:** tighten the LLM's rough boxes with SAM 3.1 (text = asset
-   name, pick the detection that best overlaps the LLM box); "break this asset into
-   components" (recursion, `parent` field).
+1. **Stage 1 follow-ups:** decide whether Qwen3-VL-32B Q5 (llama.cpp) replaces the 8B
+   as the default local VLM (A/B: clearly better plans and boxes, ~1.7x slower, 27 GB on
+   GPU 0); "break this asset into components" (recursion, `parent` field).
 2. **Stage 2:** reference sheets (front | side | back grid, kit groups in one sheet).
 3. **Stage 3:** SAM 3.1 segmentation with view labels and view-sets in `review.json`.
 4. **Stage 4:** review grid (star, game/cine tag) and the send-to-trellis job queue.

@@ -24,6 +24,10 @@ from asset_pipeline.project import ProjectStore  # noqa: E402
 from asset_pipeline.stages import s1_plan  # noqa: E402
 
 
+# Qwen3-VL Instruct model card: temperature 0.7, top_p 0.8, top_k 20, presence_penalty 1.5.
+QWEN_SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5, "seed": 0}
+
+
 class Counting:
     """Wraps a backend to count attempts (structured() retries on invalid JSON)."""
     def __init__(self, llm):
@@ -43,10 +47,13 @@ def main():
     ap.add_argument("--url", default="")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--no-sam", action="store_true")
+    ap.add_argument("--sampling", choices=["greedy", "qwen"], default="greedy",
+                    help="qwen: Qwen3-VL Instruct's recommended settings (llamacpp only)")
     a = ap.parse_args()
 
     store = ProjectStore.open(a.project)
-    llm = LocalVision(a.url) if a.backend == "local" else LlamaCppVision(a.url)
+    sampling = QWEN_SAMPLING if a.sampling == "qwen" else None
+    llm = LocalVision(a.url) if a.backend == "local" else LlamaCppVision(a.url, sampling=sampling)
     comfy = None if a.no_sam else ComfyClient(config.backends()["comfyui"]["url"])
     brief = store.load().brief.strip()
     prompt = s1_plan.PROMPT.format(brief=f"\nThe artist's brief for this scene: {brief}" if brief else "",

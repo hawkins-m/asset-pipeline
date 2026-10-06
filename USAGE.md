@@ -185,7 +185,8 @@ AP_ALLOW_PAID_APIS=1 ap ...
 
 The vision LLM reads a scene and drafts an **asset plan**: the things to model, each with
 a category, a count, a real-world size in metres, a description for drawing it alone, where
-it sits, and a rough box on the scene. You then fix it in the editor. Stage 2 will generate
+it sits, and a box on the scene. If ComfyUI is running, SAM 3.1 then redraws each box (see
+*Boxes* below). You then fix it in the editor. Stage 2 will generate
 references from the included assets.
 
 Start the local LLM first (`ap vlm up`). The project's provider is used (`ap set`); paid
@@ -198,11 +199,16 @@ ones stay blocked unless `AP_ALLOW_PAID_APIS=1` is set.
 1. **Scenes** lists the starred stage-0 scenes plus any you upload. Pick one and click
    *Analyse scene*. It runs as a background job; the plan appears when it's done.
 2. **Asset plan**: the scene with each asset's box, and a card per asset. Hovering a card
-   highlights its box; clicking a box jumps to its card.
+   highlights its box; clicking a box jumps to its card. Solid boxes come from SAM 3.1,
+   dashed ones are the LLM's own.
    - Untick *Include* to keep an asset in the plan but not generate it.
    - Fix names, sizes, counts and descriptions. Set *Use* to `game` or `cine`.
    - *Kit* groups modular pieces (wall segments, fence sections) that stage 2 draws
      together in one sheet. Leave it empty for everything else.
+   - *Segment as* is the plain noun SAM 3.1 looks for ("market stall", not "alpine
+     timber stall"). Fix it if a box is wrong, save, then *Refine boxes*.
+   - *SAM: N* is how many copies SAM found for that noun (at most 8). Far from the
+     count usually means a wrong count or a noun SAM can't see.
    - × deletes an asset (and its relations); *Add asset* adds one.
    - *Save plan* writes it. *Discard changes* goes back to the saved copy.
 3. Re-analysing a plan you've edited asks first. The previous plan is kept as
@@ -213,12 +219,22 @@ It still lists some parts (doors, windows, chimneys) or backdrop (a distant moun
 despite being told not to, and sizes can be off (a 1.5 m barrel). The boxes are rough:
 some are tight, others are offset or far too large. Treat the plan as a draft to edit.
 
+## Boxes
+
+The LLM's boxes are rough (3–4 of 16 usable on alpine-market). After each analysis, if
+ComfyUI is up, SAM 3.1 segments every asset's noun and the box becomes the copy that
+overlaps the LLM's box most (else the largest copy not cut off by the frame); about 12 of
+16 then sit on a correct whole object. It takes ~1.6 s per asset on GPU 1. The LLM's box
+is kept (`bbox_llm`), and the mask is saved in `plan/masks/<plan>/<asset id>.npz`.
+Without ComfyUI the LLM boxes stay; run `ap plan refine` (or *Refine boxes*) later.
+
 ## From the command line
 
 ```bash
 ap plan analyze alpine-market                     # every starred/imported scene
 ap plan analyze alpine-market style/explore/batch_001/scene_002.png
 ap plan analyze alpine-market --force             # also replace plans edited in the UI
+ap plan refine alpine-market                      # redo boxes with SAM 3.1 (ComfyUI up)
 ap plan import alpine-market ~/Pictures/town.png  # use your own concept image
 ap plan show alpine-market                        # summary table of every plan
 ap plan show alpine-market batch_001__scene_002 --json
