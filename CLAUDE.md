@@ -199,6 +199,28 @@ reflects what was actually verified.
 - Wan's background is off-white (~250) with VAE specks on the frame edge: measure the
   background from the border and ignore a 4 px frame (`s5_hero._silhouette`).
 
+## Hero: render matching and Hunyuan3D-2mv findings (2026-10-05, experimental)
+- Render matching (`s5_hero.match_angles`, `scripts/blender_turntable.py`) is correct on
+  consistent data (synthetic box: eased full turn recovered within 10 deg, front/back
+  told apart) but FAILS on real Wan orbits (stall, house): the track stays within
+  ~25-50 deg of the start. Two reasons: Wan's "turn" barely changes the silhouette (house
+  width/height 1.08-1.24 over the orbit vs 1.15-1.40 for the mesh's real rotation), and
+  the mesh's unseen sides (TRELLIS) and the orbit's (Wan) are independent inventions, so
+  only the front is shared.
+- Hunyuan3D-2mv turbo: `ComfyUI-app/models/checkpoints/hunyuan3d-dit-v2-mv-turbo.safetensors`
+  (model file only, user's OK 2026-10-05; contains conditioner + model + vae), workflow
+  `workflows/hunyuan3d_mv.json`. ~30-40 s per shape on GPU 1, untextured.
+  - On the stall with frames picked by eye (front 0, left 20, back 40, right 60), the
+    4-view shape was cleaner from the sides than front-only; swapping left/right gave a
+    visible conflict blob, so a wrong side assignment shows. All Hunyuan shapes had a
+    ground slab (floor shading in the frames) and thin stray spikes; single-image TRELLIS
+    stayed more detailed (and textured).
+  - License: Tencent Hunyuan Community License: not licensed in the EU, UK or South
+    Korea; >1M MAU needs a separate licence.
+- Running GPU experiments while the user works: wait for an idle ComfyUI queue and for
+  GPU 0 to be free (VLM down, no trellis locks); TRELLIS for scratch work via the real
+  `scripts/trellis` with `--out-dir` in scratch, so its GPU claim is visible to the UI.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

@@ -130,18 +130,21 @@ second path that gives the 3D model real side and back information:
 Prototype status (`ap hero orbit`, `stages/s5_hero.py`): step 1 works (consistent full
 turns with the "quick complete turn" prompt, ~2.5-3 min per orbit). Step 2's angle picking
 does not: frames labelled 90/180/270 are really ~45/90/135 (non-constant speed, possible
-swing-back, front/back-similar objects). Angle sources to try next:
-- a pose estimator on the orbit frames (VGGT / MASt3R-style feed-forward reconstruction
-  gives a camera per frame; new install, own env);
-- matching frames to textured renders of the asset's single-image TRELLIS mesh at known
-  yaw angles (no new model; hero assets have that mesh anyway).
+swing-back, front/back-similar objects). Render matching (frames vs renders of the asset's TRELLIS mesh, smoothed over time) was
+tried and fails on real orbits: Wan barely changes the silhouette while "turning", and the
+mesh's and the orbit's unseen sides are different inventions (details in CLAUDE.md). The
+tracker itself is verified on synthetic data. Hunyuan3D-2mv turbo now runs in ComfyUI:
+with hand-picked frames a 4-view shape beats front-only from the sides but is untextured
+and less detailed than TRELLIS. The hero path stays experimental (`ap hero orbit|angles|
+mesh`). Options if it's pursued: a pose estimator on the frames (VGGT / MASt3R, own env),
+an orbit model that keeps geometry (a dedicated multi-view diffusion model instead of a
+general video model), or texture the Hunyuan shape from the front view.
 
 Next, in order:
-1. **Hero frame angles** (step 2): pick a pose source (above), then re-test.
-2. **Multi-view 3D backend** for hero assets (step 3; needs a decision on where weights go).
-3. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
-4. **Stage 6:** Blender cleanup (scale to plan dimensions, pivots; retopo for game).
-5. **Docs pass:** this file's Stages and Architecture sections need several updates:
+1. **Hero path (experimental):** decide whether to pursue it (options above).
+2. **Stage 1 follow-up:** "break this asset into components" (recursion, `parent` field).
+3. **Stage 6:** Blender cleanup (scale to plan dimensions, pivots; retopo for game).
+4. **Docs pass:** this file's Stages and Architecture sections need several updates:
    - stage 0;
    - the adapter;
    - SAM 3.1 replacing GDINO+SAM2;

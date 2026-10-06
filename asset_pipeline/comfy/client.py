@@ -112,5 +112,25 @@ class ComfyClient:
             raise ComfyError(f"workflow finished but produced no images on nodes {output_nodes}")
         return images
 
+    def fetch_files(self, entry: dict, output_nodes: list[str]) -> list[OutputImage]:
+        """Every file an output node reported, whatever its kind ("images", "3d", ...)."""
+        files = []
+        for node in output_nodes:
+            for kind, items in entry.get("outputs", {}).get(node, {}).items():
+                for f in items if isinstance(items, list) else []:
+                    if isinstance(f, dict) and f.get("filename"):
+                        r = self.http.get("/view", params={"filename": f["filename"],
+                                                           "subfolder": f.get("subfolder", ""),
+                                                           "type": f.get("type", "output")})
+                        r.raise_for_status()
+                        files.append(OutputImage(node, f["filename"], r.content))
+        if not files:
+            raise ComfyError(f"workflow finished but produced no files on nodes {output_nodes}: "
+                             f"{entry.get('outputs')}")
+        return files
+
+    def run_files(self, graph: dict, output_nodes: list[str]) -> list[OutputImage]:
+        return self.fetch_files(self.wait(self.queue(graph)), output_nodes)
+
     def run(self, graph: dict, output_nodes: list[str]) -> list[OutputImage]:
         return self.fetch_images(self.wait(self.queue(graph)), output_nodes)

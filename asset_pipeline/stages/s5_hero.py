@@ -165,3 +165,168 @@ def _contact(orbit_dir: Path, ims: list[Image.Image], picks: dict, step: int = 5
         near = [deg for f, deg in chosen.items() if abs(f - i) < step / 2 + 0.5]
         d.text((x + 3, y + 1), f"{i}" + (f"  {near[0]}deg" if near else ""), fill="yellow" if near else "white")
     sheet.save(orbit_dir / "contact.png")
+
+
+# --- Frame angles by render matching ---------------------------------------------------
+# A hero asset also has a single-image TRELLIS mesh built from the same chosen view the
+# orbit starts from. Rendered at known azimuths (scripts/blender_turntable.py: azimuth 0 =
+# front, +90 = the asset's own left), it gives every orbit frame an angle: compare each
+# frame with each render, then take the best SMOOTH path through the frames (Viterbi),
+# because single frames can't tell a front from a look-alike back but the orbit can't
+# jump 180 degrees between neighbouring frames.
+
+SIDES = {"front": 0, "left": 90, "back": 180, "right": 270}
+
+
+def _descriptor(im: Image.Image, h: int = 64, w: int = 192):
+    """(mask, chroma) of the object scaled to a fixed HEIGHT on a wide canvas. A turntable
+    keeps the height and changes the width (front vs side), so width must survive.
+    Chroma (r, g over r+g+b) ignores brightness: Wan's painted shading and Blender's flat
+    renders differ in light far more than in colour."""
+    if im.mode == "RGBA":  # renders: transparent background -> white
+        bg = Image.new("RGBA", im.size, "white")
+        bg.alpha_composite(im)
+        im = bg
+    im = im.convert("RGB")
+    m = _silhouette(im)
+    box = _box(m)
+    if not box:
+        return None
+    bw, bh = box[2] - box[0], box[3] - box[1]
+    scale = (h * 0.9) / bh
+    tw, th = min(w, max(1, round(bw * scale))), max(1, round(bh * scale))
+    mask = np.asarray(Image.fromarray(m[box[1]:box[3], box[0]:box[2]].astype(np.uint8) * 255)
+                      .resize((tw, th))) > 127
+    rgb = np.asarray(im.crop(box).resize((tw, th)), float) + 1
+    chroma = rgb[..., :2] / rgb.sum(axis=2, keepdims=True)
+    M, C = np.zeros((h, w), bool), np.zeros((h, w, 2))
+    x0, y0 = (w - tw) // 2, (h - th) // 2
+    M[y0:y0 + th, x0:x0 + tw] = mask
+    C[y0:y0 + th, x0:x0 + tw] = chroma
+    return M, C
+
+
+def _score(a, b) -> float:
+    """Silhouette IoU (shape and width) plus colour-layout agreement inside the shared
+    silhouette (1 - mean chroma distance, scaled)."""
+    (ma, ca), (mb, cb) = a, b
+    union = (ma | mb).sum()
+    iou = (ma & mb).sum() / union if union else 0.0
+    both = ma & mb
+    if both.sum() < 20:
+        return float(iou)
+    dist = np.linalg.norm(ca[both] - cb[both], axis=1).mean()
+    colour = max(0.0, 1 - dist / 0.15)
+    return float(0.6 * iou + 0.4 * colour)
+
+
+def match_angles(orbit_dir: Path, turntable_dir: Path, max_step_deg: float = 30,
+                 smooth: float = 0.004, tol_deg: float = 12) -> dict:
+    """Angle of every orbit frame from the asset's mesh renders; picks the best frame for
+    each side (front / left / back / right) the orbit actually reaches."""
+    meta = read_json(turntable_dir / "renders.json")
+    step = meta["step"]
+    azs = sorted({r["azimuth"] for r in meta["renders"]})
+    elevs = sorted({r["elevation"] for r in meta["renders"]})
+    frames = sorted(orbit_dir.glob("frame_*.png"))
+    fdesc = [_descriptor(Image.open(f)) for f in frames]
+    best = None
+    for elev in elevs:  # the orbit's camera height is unknown: take the one that fits best
+        rdesc = [_descriptor(Image.open(turntable_dir / f"e{int(elev):02d}_a{az:03d}.png")) for az in azs]
+        E = np.array([[(_score(fd, rd) if fd and rd else 0.0) for rd in rdesc] for fd in fdesc])
+        if best is None or E.max(axis=1).mean() > best[1].max(axis=1).mean():
+            best = (elev, E)
+    elev, E = best
+    T, S = E.shape
+    # Viterbi: maximise sum of scores minus smooth * (azimuth steps moved)^2, with moves
+    # limited to max_step_deg per frame. Frame 0 is the chosen view = the mesh's front.
+    d = np.arange(S)
+    circ = np.minimum(np.abs(d[:, None] - d[None, :]), S - np.abs(d[:, None] - d[None, :]))
+    trans = np.where(circ * step <= max_step_deg, -smooth * circ.astype(float) ** 2, -np.inf)
+    V = np.full(S, -np.inf)
+    V[0] = E[0, 0]
+    back = np.zeros((T, S), int)
+    for t in range(1, T):
+        cand = V[:, None] + trans
+        back[t] = cand.argmax(axis=0)
+        V = cand.max(axis=0) + E[t]
+    path = [int(V.argmax())]
+    for t in range(T - 1, 0, -1):
+        path.append(int(back[t][path[-1]]))
+    path.reverse()
+    angles = [azs[s] for s in path]
+    # Unwrapped rotation: how far and which way the object turned.
+    unwrapped = [0.0]
+    for a, b in zip(angles, angles[1:]):
+        unwrapped.append(unwrapped[-1] + ((b - a + 180) % 360 - 180))
+    fit = [float(E[t, s]) for t, s in enumerate(path)]
+    picks = {}
+    for side, target in SIDES.items():
+        near = [t for t, a in enumerate(angles) if abs((a - target + 180) % 360 - 180) <= tol_deg]
+        if near:
+            picks[side] = max(near, key=lambda t: fit[t])
+    for f in orbit_dir.glob("view_*.png"):
+        f.unlink()
+    for side, t in picks.items():
+        Image.open(frames[t]).save(orbit_dir / f"view_{side}.png")
+    result = {"turntable": str(turntable_dir), "elevation": elev, "angles": angles,
+              "fit": [round(x, 3) for x in fit], "mean_fit": round(float(np.mean(fit)), 3),
+              "rotation_deg": round(unwrapped[-1], 1), "max_reach_deg": round(max(map(abs, unwrapped)), 1),
+              "picks": picks, "sides": sorted(picks, key=lambda s: SIDES[s])}
+    write_json(orbit_dir / "angles.json", result)
+    return result
+
+
+
+# --- Multi-view shape (Hunyuan3D-2mv in ComfyUI) ---------------------------------------
+_SIDE_NODES = {"front": ("10", "11"), "left": ("12", "13"), "back": ("14", "15"), "right": ("16", "17")}
+
+
+def multiview_mesh(views: dict[str, Path], out: Path, seed: int = 0, steps: int = 8,
+                   client: ComfyClient | None = None) -> Path:
+    """Shape (untextured GLB) from any subset of front / left / back / right images, via
+    Hunyuan3D-2mv turbo in ComfyUI (GPU 1). "left" is the asset's own left side."""
+    if "front" not in views:
+        raise ValueError("a front view is required")
+    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    graph, manifest = workflow.load_template("hunyuan3d_mv")
+    values = {"seed": seed, "steps": steps}
+    for side, (load, enc) in _SIDE_NODES.items():
+        if side in views:
+            values[side] = c.upload_image(Path(views[side]))
+        else:  # drop the unused view: its loader, its encoder and the conditioning input
+            graph.pop(load)
+            graph.pop(enc)
+            graph["20"]["inputs"].pop(side)
+            manifest = {**manifest, "bindings": {k: v for k, v in manifest["bindings"].items() if k != side}}
+    graph = workflow.fill(graph, manifest, values)
+    files = [f for f in c.run_files(graph, manifest["outputs"]) if f.filename.endswith(".glb")]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(files[0].data)
+    return out
+
+
+
+def render_turntable(glb: Path, out: Path, step: int = 5, elevations: str = "0,10,20,30",
+                     size: int = 192) -> Path:
+    """Blender headless (CPU-light Workbench): the asset's mesh at known azimuths."""
+    import subprocess
+    cmd = ["/snap/bin/blender", "-b", "--factory-startup", "--python",
+           str(config.REPO_ROOT / "scripts" / "blender_turntable.py"), "--", str(glb), str(out),
+           "--step", str(step), "--elevations", elevations, "--size", str(size)]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not (out / "renders.json").is_file():
+        raise RuntimeError(f"blender turntable failed: {r.stdout[-800:]}{r.stderr[-800:]}")
+    return out
+
+
+def trellis_mesh_for_chosen(store: ProjectStore, plan: str, asset_id: str) -> Path:
+    """The newest TRELLIS GLB built from the asset's chosen view (the orbit's start)."""
+    from . import s5_3d
+    view = review.chosen(store, plan, asset_id)
+    stem = Path(view).stem[:24] if view else None
+    glbs = sorted((s5_3d.out_dir(store, plan, asset_id)).glob(f"{stem}_*.glb"),
+                  key=lambda p: -p.stat().st_mtime) if stem else []
+    if not glbs:
+        raise ValueError(f"{plan}/{asset_id}: no TRELLIS mesh from the chosen view yet (Make 3D first)")
+    return glbs[0]

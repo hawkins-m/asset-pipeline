@@ -1,0 +1,23 @@
+{
+  "1":  {"class_type": "ImageOnlyCheckpointLoader", "_meta": {"title": "Hunyuan3D-2mv (turbo)"},
+         "inputs": {"ckpt_name": "hunyuan3d-dit-v2-mv-turbo.safetensors"}},
+  "2":  {"class_type": "ModelSamplingAuraFlow", "_meta": {"title": "Shift"}, "inputs": {"model": ["1", 0], "shift": 1.0}},
+  "10": {"class_type": "LoadImage", "_meta": {"title": "front"}, "inputs": {"image": ""}},
+  "11": {"class_type": "CLIPVisionEncode", "_meta": {"title": "front enc"}, "inputs": {"clip_vision": ["1", 1], "image": ["10", 0], "crop": "none"}},
+  "12": {"class_type": "LoadImage", "_meta": {"title": "left"}, "inputs": {"image": ""}},
+  "13": {"class_type": "CLIPVisionEncode", "_meta": {"title": "left enc"}, "inputs": {"clip_vision": ["1", 1], "image": ["12", 0], "crop": "none"}},
+  "14": {"class_type": "LoadImage", "_meta": {"title": "back"}, "inputs": {"image": ""}},
+  "15": {"class_type": "CLIPVisionEncode", "_meta": {"title": "back enc"}, "inputs": {"clip_vision": ["1", 1], "image": ["14", 0], "crop": "none"}},
+  "16": {"class_type": "LoadImage", "_meta": {"title": "right"}, "inputs": {"image": ""}},
+  "17": {"class_type": "CLIPVisionEncode", "_meta": {"title": "right enc"}, "inputs": {"clip_vision": ["1", 1], "image": ["16", 0], "crop": "none"}},
+  "20": {"class_type": "Hunyuan3Dv2ConditioningMultiView", "_meta": {"title": "Views"},
+         "inputs": {"front": ["11", 0], "left": ["13", 0], "back": ["15", 0], "right": ["17", 0]}},
+  "21": {"class_type": "EmptyLatentHunyuan3Dv2", "_meta": {"title": "Latent"}, "inputs": {"resolution": 3072, "batch_size": 1}},
+  "22": {"class_type": "KSampler", "_meta": {"title": "Sample (turbo: few steps)"},
+         "inputs": {"model": ["2", 0], "seed": 0, "steps": 8, "cfg": 5.0, "sampler_name": "euler", "scheduler": "normal",
+                    "positive": ["20", 0], "negative": ["20", 1], "latent_image": ["21", 0], "denoise": 1.0}},
+  "23": {"class_type": "VAEDecodeHunyuan3D", "_meta": {"title": "Decode"},
+         "inputs": {"samples": ["22", 0], "vae": ["1", 2], "num_chunks": 8000, "octree_resolution": 256}},
+  "24": {"class_type": "VoxelToMesh", "_meta": {"title": "Mesh"}, "inputs": {"voxel": ["23", 0], "algorithm": "surface net", "threshold": 0.6}},
+  "25": {"class_type": "SaveGLB", "_meta": {"title": "Save GLB"}, "inputs": {"mesh": ["24", 0], "filename_prefix": "ap_hero/mesh"}}
+}

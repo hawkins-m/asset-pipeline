@@ -1,0 +1,12 @@
+{
+  "outputs": ["25"],
+  "bindings": {
+    "front": {"node": "10", "input": "image"},
+    "left":  {"node": "12", "input": "image"},
+    "back":  {"node": "14", "input": "image"},
+    "right": {"node": "16", "input": "image"},
+    "seed":  {"node": "22", "input": "seed"},
+    "steps": {"node": "22", "input": "steps"},
+    "octree_resolution": {"node": "23", "input": "octree_resolution"}
+  }
+}

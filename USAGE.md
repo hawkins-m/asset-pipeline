@@ -351,5 +351,18 @@ ap hero orbit alpine-market batch_001__scene_000 timber-market-stall   # ~3 min,
 ```
 
 It animates the asset's chosen view as a turntable with Wan 2.2 and writes the frames, a
-contact sheet and an analysis to `hero/<plan>/<asset>/orbit_s<seed>/`. The frames it picks
-as 0/90/180/270 degrees are only approximate so far.
+contact sheet and an analysis to `hero/<plan>/<asset>/orbit_s<seed>/`. Its automatic
+0/90/180/270-degree picks are only approximate.
+
+Then look at `contact.png`, pick the frames that show the asset's front, left, back and
+right yourself, and build a shape from them with Hunyuan3D-2mv (~40 s, GPU 1, untextured):
+
+```bash
+ap hero mesh alpine-market batch_001__scene_000 timber-market-stall orbit_s2 \
+    --front 0 --left 20 --back 40 --right 60
+```
+
+"Left" is the asset's own left side. If the shape has a lump where two views disagree,
+swap `--left` and `--right`. `ap hero angles ... orbit_s2` tries to find the angles by
+matching the frames to renders of the asset's TRELLIS mesh, but on real orbits it isn't
+reliable yet. Hunyuan3D-2mv's license excludes the EU, UK and South Korea.

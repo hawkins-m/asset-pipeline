@@ -268,6 +268,32 @@ def cmd_hero_orbit(a) -> None:
     print("prototype: the picked frames' angles are approximate (see CLAUDE.md)")
 
 
+def cmd_hero_angles(a) -> None:
+    from .stages import s5_hero
+    store = ProjectStore.open(a.project)
+    orbit = store.root / s5_hero.HERO / a.plan / a.asset / a.orbit
+    glb = s5_hero.trellis_mesh_for_chosen(store, a.plan, a.asset)
+    tt = s5_hero.render_turntable(glb, orbit / "turntable")
+    r = s5_hero.match_angles(orbit, tt)
+    print(f"mesh {glb.name}; turned {r['rotation_deg']} deg (reach {r['max_reach_deg']}), "
+          f"fit {r['mean_fit']}, sides {r['picks']}")
+    print("experimental: on real Wan orbits these angles are unreliable (see CLAUDE.md)")
+
+
+def cmd_hero_mesh(a) -> None:
+    from .stages import s5_hero
+    store = ProjectStore.open(a.project)
+    orbit = store.root / s5_hero.HERO / a.plan / a.asset / a.orbit
+    views = {side: orbit / f"frame_{getattr(a, side):03d}.png"
+             for side in ("front", "left", "back", "right") if getattr(a, side) is not None}
+    missing = [str(p) for p in views.values() if not p.is_file()]
+    if missing:
+        raise FileNotFoundError(f"no such frame(s): {', '.join(missing)}")
+    tag = "_".join(f"{k[0]}{getattr(a, k)}" for k in ("front", "left", "back", "right") if getattr(a, k) is not None)
+    out = s5_hero.multiview_mesh(views, orbit / f"mv_{tag}_s{a.seed}.glb", seed=a.seed)
+    print(out)
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -444,6 +470,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("asset")
     p.add_argument("--seed", type=int)
     p.set_defaults(fn=cmd_hero_orbit)
+    p = hsub.add_parser("angles", help="frame angles by matching the TRELLIS mesh's renders (unreliable)")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("orbit", help="orbit dir name, e.g. orbit_s2")
+    p.set_defaults(fn=cmd_hero_angles)
+    p = hsub.add_parser("mesh", help="Hunyuan3D-2mv shape from orbit frames you pick (GPU 1, ~30 s)")
+    p.add_argument("project")
+    p.add_argument("plan")
+    p.add_argument("asset")
+    p.add_argument("orbit", help="orbit dir name, e.g. orbit_s2")
+    p.add_argument("--front", type=int, default=0, help="frame number (default 0)")
+    p.add_argument("--left", type=int, help="frame showing the asset's own left side")
+    p.add_argument("--back", type=int)
+    p.add_argument("--right", type=int)
+    p.add_argument("--seed", type=int, default=1)
+    p.set_defaults(fn=cmd_hero_mesh)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)
