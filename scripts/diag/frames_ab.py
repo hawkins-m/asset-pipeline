@@ -46,8 +46,7 @@ def main():
                 t = time.time()
                 s0_frames.generate(store, shot, n=1, seed=a.seed, fs=fs, out=out)
                 print(f"{shot} {name}: {time.time() - t:.0f}s", flush=True)
-            meta = json.loads((out / "meta.json").read_text())
-            rec = meta["frames"][0]["edge_match"]
+            rec = s0_frames.edge_match(out / "frame_000.png", sw_shots.shot_dir(store, shot) / "canny.png")
             results.setdefault(shot, {})[name] = rec
             tiles.append((f"{name}  match {rec:.2f}", out / "frame_000.png", rec))
             (root / "results.json").write_text(json.dumps(results, indent=1))

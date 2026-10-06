@@ -141,6 +141,44 @@ Warnings flag a camera that sees no geometry, flat depth, untagged meshes, or pa
 that disagree. Passes go stale whenever the greybox changes. The UI's **Site · Shots**
 tab does all of this with thumbnails.
 
+## Concept frames per shot
+
+Each shot's frames are generated onto its greybox passes. The structure comes from the
+depth and edge passes (ControlNet Union Pro 2.0), and the look from the project's style
+anchor. The prompt is built from what the camera sees (the ID pass), the visible
+districts' `notes` and the shot's `notes`; `ap frames show --prompt` prints it.
+
+```
+ap style text my-project "honed pale stone, bronze, deep shade, lush planting, photoreal"
+ap frames generate my-project wide-01 -n 4           # ~40 s per frame, ComfyUI on GPU 1
+ap frames show my-project --prompt                   # frames, approvals, edge match
+ap style star my-project frames/wide-01/batch_001/frame_002.png   # approve
+ap frames generate my-project street-01 --ref frames/wide-01/batch_001/frame_002.png
+ap frames settings my-project --depth 0.6 --depth-end 0.6 --canny 0.3   # project defaults
+```
+
+- `--ref` adds approved frames of other shots as extra Redux references, to carry
+  materials and palette across shots.
+- *Match* (0–1) is how much of the greybox's layout a frame keeps, corrected for chance:
+  a busy image doesn't score by accident.
+- `--model depth_lora` uses the BFL depth LoRA instead. It keeps the layout loosely and
+  invents more.
+
+## Moodboard
+
+Export a PureRef board's images to a folder (PureRef's `.pur` format can't be read),
+then import it one group at a time:
+
+```
+ap moodboard import my-project references ~/Pictures/board-export/
+ap moodboard style my-project            # the vision LLM drafts a style text (GPU 0)
+ap moodboard style my-project --save     # ... and saves it as the project's style text
+```
+
+Moodboard images can also be picked in the Style tab's *Derive objects*, to cut objects
+out of them as anchor images, like scenes. The UI has the same steps in the Style tab
+(Moodboard) and the Frames tab.
+
 # Stage 0: exploring scenes and setting a style anchor
 
 ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with

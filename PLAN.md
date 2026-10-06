@@ -142,8 +142,16 @@ geometry is fixed first; images are generated onto it.
    After the import the UE level is the layout source of truth. Actor names and tags stay
    stable for editing over an Unreal MCP server.
 
-Status (2026-10-05): step 1 and 2 done and verified (`ap site`, `ap shots`, UI Site ·
-Shots tab). Next: step 3, then a review of the frames before step 4.
+Status (2026-10-06):
+- Steps 1–2 are done and verified (`ap site`, `ap shots`, UI Site · Shots tab).
+- Step 3 is done (`ap frames`, `ap moodboard`, UI Frames tab). The depth/canny A/B is in
+  CLAUDE.md "Concept frames"; the default is Union depth alone, 0.6 strength to 60% of
+  the steps.
+- Next: the frames need human review before step 4. Starring them is the approval.
+
+Open questions:
+- Whether approved frames used as references (`--ref`) make shots consistent enough.
+- Whether a moodboard-derived anchor helps beyond the style text.
 
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a

@@ -167,6 +167,7 @@ def test_generate_uses_the_shot_passes_settings_and_refs(world, monkeypatch):
     fake = FakeBackend(canny=sw_shots.shot_dir(world, "a") / "canny.png")
     monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
     s0_style.set_style_text(world, "pale stone, soft light")
+    assert s0_frames.settings(world).canny_strength == 0                 # default: depth alone
     out = s0_frames.generate(world, "a", n=2, seed=5, fs=FrameSettings(depth_strength=0.7, canny_strength=0.3))
     meta = json.loads((out / "meta.json").read_text())
     assert [f["file"] for f in meta["frames"]] == ["frame_000.png", "frame_001.png"]

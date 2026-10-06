@@ -265,6 +265,31 @@ reflects what was actually verified.
 - Kit modularity: colonnades snap to whole modules, and a stoa's bay angle is module /
   radius. Without that, every building had its own entablature length (no reuse).
 
+## Concept frames (world mode) findings (2026-10-06)
+- ControlNet Union Pro 2.0 (`flux1-dev-controlnet-union-pro-2.0.safetensors`) and the
+  BFL `flux1-depth-dev-lora.safetensors` both load in ComfyUI 0.24 with core nodes.
+  Union needs the VAE input on `ControlNetApplyAdvanced`. About 35 s per 1344x768 frame
+  at 28 steps on GPU 1.
+- A/B (`scripts/diag/frames_ab.py`, 3 shots: a domed rotunda at eye level, a wide coastal
+  aerial, a curved colonnade beside a garden; same seed and prompt). Edge match
+  (chance-corrected, see `s0_frames.edge_match`) means:
+
+  | Variant | Match | Look |
+  |---|---|---|
+  | Union depth 0.8, end ≥ 0.6 (+ canny 0.4) | 0.88–0.93 | Greybox shows through: flat grey ground, plain masses, desaturated; the sea became a concrete wall |
+  | Union depth 0.6/0.6 + canny 0.3/0.5 | 0.79 | Layout exact, but surfaces flat and garden turned to paving |
+  | **Union depth 0.6/0.6 alone** | 0.67 | **Best**: layout and scale hold; planting, sky and light come back. The default. |
+  | Union depth 0.4 (any end) | 0.50–0.72 | Style good, layout and scale drift (a rotunda shrank behind an invented arch) |
+  | Depth LoRA 0.65 / 0.85 | 0.17 / 0.37 | Redesigns or relocates buildings: unusable for one consistent place |
+
+  Canny edges from the greybox are what flatten surfaces: they ask for the greybox's
+  plain planes.
+- The edge score must be chance-corrected: raw recall gave random noise 0.96. Sobel
+  edges at the top 12%, dilated 2 px, cover most of a busy image.
+- Shell gotcha: `pgrep -f`/`pkill -f` with a script path also match the calling
+  shell's own command line (a wait loop never ends; pkill kills itself). Match on
+  something the caller doesn't contain, or use PIDs.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

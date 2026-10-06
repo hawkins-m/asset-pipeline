@@ -32,7 +32,7 @@ class FrameSettings(BaseModel):
     model: Literal["union", "depth_lora"] = "union"
     depth_strength: float = Field(default=0.6, ge=0, le=2)
     depth_end: float = Field(default=0.6, ge=0, le=1)
-    canny_strength: float = Field(default=0.35, ge=0, le=2)   # union only; 0 = depth alone
+    canny_strength: float = Field(default=0.0, ge=0, le=2)    # union only; 0 = depth alone (best, A/B)
     canny_end: float = Field(default=0.5, ge=0, le=1)
     steps: int = Field(default=28, ge=1, le=100)
 
