@@ -188,8 +188,26 @@ ap ue render my-project         # PNGs through each shot camera (full editor off
 ap ue pull-layout my-project    # UE level -> site/ue_layout.json (after layout edits in UE)
 ```
 
-The UE project is `$AP_ROOT/unreal/my-project/<Name>.uproject` (map `/Game/AP/Maps/<Name>`,
-sequence `/Game/AP/Cinematics/LS_<Name>`).
+The UE project is `~/Projects/Unreal/my-project/<Name>.uproject` (`[unreal] projects_dir`;
+map `/Game/AP/Maps/<Name>`, sequence `/Game/AP/Cinematics/LS_<Name>`). It lives on a
+different drive from `$AP_ROOT`.
+
+```
+ap ue backup my-project          # snapshot -> <backup_dir>/my-project/<timestamp>/ (+ latest)
+```
+
+**Backups.** Pipeline-imported content is disposable: a re-import recreates it. What
+needs backing up is the work you do in UE, such as lighting and Sequencer.
+- `ap ue backup` copies the project to `[unreal] backup_dir` (default
+  `/mnt/storage/backups/unreal`, the other drive).
+- It skips `Intermediate`, `Saved` and `DerivedDataCache`, which the editor rebuilds.
+- Each snapshot is complete, but files that didn't change are hard links to the previous
+  one, so it costs only what changed.
+- The newest 10 are kept (`--keep`).
+- It refuses while an editor has the project open. Save and close first, or use
+  `--force`.
+- To restore, copy a snapshot back with the editor closed:
+  `rsync -a <backup_dir>/my-project/latest/ ~/Projects/Unreal/my-project/`.
 
 **After the import, the UE level is the source of truth for the layout.** Edit it by hand
 or through an Unreal MCP server.

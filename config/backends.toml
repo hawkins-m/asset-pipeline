@@ -56,3 +56,8 @@ llm = "local"      # local | gemini | claude
 # pythonscript commandlet (-nullrhi: no GPU). Override with AP_UE_EDITOR_CMD.
 [unreal]
 editor_cmd = "/mnt/storage/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor-Cmd"
+# Active UE projects (<projects_dir>/<slug>/), and where `ap ue backup` snapshots them. Keep
+# them on different physical drives. Overrides: AP_UE_PROJECTS, AP_UE_BACKUPS.
+projects_dir = "~/Projects/Unreal"
+backup_dir = "/mnt/storage/backups/unreal"
+backup_keep = 10

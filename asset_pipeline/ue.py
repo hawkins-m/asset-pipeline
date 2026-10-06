@@ -1,6 +1,10 @@
-"""Unreal Engine 5.8 side of world mode: project setup, import, layout read-back.
+"""Unreal Engine 5.8 side of world mode: project setup, import, renders, layout read-back,
+backups.
 
-The UE project lives outside the repo, at $AP_ROOT/unreal/<slug>/<Name>.uproject. Editor
+The UE project lives outside the repo, at <[unreal] projects_dir>/<slug>/<Name>.uproject
+(default ~/Projects/Unreal, on a different drive from $AP_ROOT); `backup()` snapshots it to
+<[unreal] backup_dir>/<slug>/<timestamp>/. Pipeline-imported content is disposable (re-import
+recreates it); backups are for the work done in UE itself (lighting, Sequencer...). Editor
 Python scripts in unreal/ run headless through UnrealEditor-Cmd's pythonscript commandlet
 with -nullrhi: no GPU, so imports never compete with ComfyUI or TRELLIS. Each script takes
 a single JSON args file (no quoting trouble in -script=) and writes a JSON report.
@@ -9,6 +13,8 @@ Engine: [unreal] editor_cmd in config/backends.toml, or AP_UE_EDITOR_CMD.
 """
 import json
 import os
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -46,8 +52,20 @@ def editor_cmd() -> Path:
     return Path(path)
 
 
+def _setting(env: str, key: str, default):
+    return os.environ.get(env) or config.backends().get("unreal", {}).get(key, default)
+
+
+def projects_dir() -> Path:
+    return Path(_setting("AP_UE_PROJECTS", "projects_dir", "~/Projects/Unreal")).expanduser()
+
+
+def backups_dir() -> Path:
+    return Path(_setting("AP_UE_BACKUPS", "backup_dir", "/mnt/storage/backups/unreal")).expanduser()
+
+
 def project_dir(store: ProjectStore) -> Path:
-    return config.ap_root() / "unreal" / store.load().slug
+    return projects_dir() / store.load().slug
 
 
 def uproject(store: ProjectStore) -> Path:
@@ -204,6 +222,77 @@ def render_shots(store: ProjectStore, shots: list[str] | None = None, timeout_s:
     rep["log_errors"] = log_errors(log)
     store.log_run({"stage": "ue.render", "ok": rep["ok"], "shots": len(rep["shots"]),
                    "seconds": rep.get("seconds")})
+    return rep
+
+
+BACKUP_EXCLUDE = ["Intermediate/", "Saved/", "DerivedDataCache/"]
+
+
+def editor_running(up: Path) -> bool:
+    """Is an Unreal Editor open on this .uproject? (checked by its command line)"""
+    for d in Path("/proc").iterdir():
+        if d.name.isdigit():
+            try:
+                cmd = (d / "cmdline").read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if cmd and b"UnrealEditor" in cmd[0] and str(up).encode() in cmd:
+                return True
+    return False
+
+
+def backups(store: ProjectStore) -> list[Path]:
+    """Snapshots of the project, oldest first."""
+    d = backups_dir() / store.load().slug
+    return sorted(p for p in d.iterdir() if p.is_dir() and not p.is_symlink()) if d.is_dir() else []
+
+
+def backup(store: ProjectStore, keep: int | None = None, force: bool = False) -> dict:
+    """Snapshot the UE project to <backup_dir>/<slug>/<YYYYmmdd-HHMMSS>/, without
+    Intermediate, Saved and DerivedDataCache (rebuilt by the editor). Unchanged files are
+    hard links into the previous snapshot (rsync --link-dest), so each copy costs only what
+    changed. Keeps the newest `keep` snapshots; `latest` points at the newest."""
+    keep = keep or int(_setting("AP_UE_BACKUP_KEEP", "backup_keep", 10))
+    if keep < 1:
+        raise ValueError("keep must be at least 1")
+    up = uproject(store)
+    if not up.is_file():
+        raise FileNotFoundError(f"no UE project at {up}")
+    if editor_running(up) and not force:
+        raise RuntimeError(f"an Unreal Editor has {up.name} open: save and close it first (or force; a "
+                           f"snapshot taken mid-save can be inconsistent)")
+    root = backups_dir() / store.load().slug
+    root.mkdir(parents=True, exist_ok=True)
+    previous = backups(store)
+    dest = root / time.strftime("%Y%m%d-%H%M%S")
+    if dest.exists():
+        raise FileExistsError(f"{dest} exists (two backups within a second)")
+    t = time.time()
+    tmp = dest.with_name(dest.name + ".partial")
+    # --checksum: rsync's default size + mtime test would hard-link the previous snapshot's
+    # copy of a file re-saved within the same second at the same size (caught by a test)
+    cmd = ["rsync", "-a", "--checksum", "--delete"] + [f"--exclude=/{x}" for x in BACKUP_EXCLUDE]
+    if previous:
+        cmd.append(f"--link-dest={previous[-1]}")
+    cmd += [f"{up.parent}/", f"{tmp}/"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise RuntimeError(f"rsync failed ({r.returncode}): {r.stderr.strip()[-500:]}")
+    tmp.rename(dest)                       # a snapshot is complete or absent, never partial
+    latest = root / "latest"
+    if latest.is_symlink() or latest.exists():
+        latest.unlink()
+    latest.symlink_to(dest.name)
+    removed = []
+    for old in backups(store)[:-keep]:
+        shutil.rmtree(old)
+        removed.append(old.name)
+    files = sum(1 for p in dest.rglob("*") if p.is_file())
+    new_bytes = sum(p.stat().st_size for p in dest.rglob("*") if p.is_file() and p.stat().st_nlink == 1)
+    rep = {"snapshot": str(dest), "files": files, "new_mb": round(new_bytes / 2**20, 1),
+           "kept": [p.name for p in backups(store)], "removed": removed, "seconds": round(time.time() - t, 1)}
+    store.log_run({"stage": "ue.backup", **{k: rep[k] for k in ("snapshot", "files", "new_mb", "seconds")}})
     return rep
 
 

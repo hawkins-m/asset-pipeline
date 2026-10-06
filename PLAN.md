@@ -143,20 +143,36 @@ geometry is fixed first; images are generated onto it.
    stable for editing over an Unreal MCP server.
 
 Status (2026-10-06):
-- Steps 1–2 are done and verified (`ap site`, `ap shots`, UI Site · Shots tab).
-- Step 3 is done (`ap frames`, `ap moodboard`, UI Frames tab). The depth/canny A/B is in
-  CLAUDE.md "Concept frames"; the default is Union depth alone, 0.6 strength to 60% of
-  the steps.
-- Next: the frames need human review before step 4. Starring them is the approval.
-- Steps 5–6 have been proven early with the greybox as stand-in assets (2026-10-06, UE
-  5.8.3): `ap export` (stand-in GLBs + manifest) and `ap ue import|render|pull-layout`.
-  What it produces:
-  - Nanite meshes, per-slot ISM actors, material instances, CineCameras and a Level
-    Sequence;
-  - layout edits made in UE survive a re-import.
 
-  Real assets replace the stand-ins by asset id once step 4 exists. Terrain is a Nanite
-  mesh: UE's Python can't create a Landscape (manual import values are in the manifest).
+| Step | State |
+|---|---|
+| 1–2 Site, greybox, shots | Done, verified (`ap site`, `ap shots`, UI Site · Shots) |
+| 3 Concept frames | Done (`ap frames`, `ap moodboard`, UI Frames); frames generated for every shot. Default: Union depth alone, 0.6 strength to 60% of the steps (A/B in CLAUDE.md "Concept frames") |
+| 4 Asset library | **Not started: waits for the frame review** |
+| 5–6 Export and UE 5.8 import | Proven early with the greybox as stand-in assets (UE 5.8.3, live). `ap export`, `ap ue import / render / pull-layout / backup`. Real assets will replace the stand-ins by asset id. |
+
+What phases 5–6 produce today: Nanite meshes, one ISM actor per slot, material instances,
+CineCameras, a Level Sequence, and renders through the shot cameras. Layout edits made in
+UE survive a re-import.
+- The UE project lives on a different drive from `$AP_ROOT` (`[unreal] projects_dir`).
+- Pipeline-imported content is disposable (a re-import recreates it).
+- `ap ue backup` snapshots the project for the work done in UE itself (lighting,
+  Sequencer). It goes to `[unreal] backup_dir`, timestamped, hard-linked and rotated
+  (10 kept).
+- Terrain is a Nanite mesh: UE's Python can't create a Landscape. The values for a
+  manual Landscape import are in the manifest.
+
+Next, in order:
+1. **Frame review (the user).** Star the frames that set the look, choose the rotunda
+   design, and decide on the plateau's ring-wall edge and the layout density.
+2. **Step 4: asset library from the object-ID pass** (`s1_library`):
+   - greybox types keyed by slot type, counts from the greybox;
+   - props deduplicated across the starred frames;
+   - the classical kit piece list;
+   - then stages 2–6 run on the library.
+3. **Step 5 with real assets:** cleanup GLBs and textures in the manifest instead of
+   stand-ins. The master material gets ORM/roughness textures.
+4. **Vegetation scatter** (baked points → ISMs per zone).
 
 Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.

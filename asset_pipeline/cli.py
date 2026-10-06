@@ -526,6 +526,11 @@ def cmd_ue(a) -> None:
     elif a.action == "pull-layout":
         rep = ue.pull_layout(store)
         print(f"{len(rep['actors'])} actors -> {store.root / 'site/ue_layout.json'}")
+    elif a.action == "backup":
+        rep = ue.backup(store, keep=a.keep, force=a.force)
+        print(f"{rep['snapshot']}: {rep['files']} files, {rep['new_mb']} MB new (the rest hard-linked), "
+              f"{rep['seconds']} s; keeping {len(rep['kept'])}"
+              + (f", removed {', '.join(rep['removed'])}" if rep["removed"] else ""))
 
 
 def cmd_ui(a) -> None:
@@ -827,12 +832,14 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_export)
 
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
-    p.add_argument("action", choices=["init", "import", "render", "pull-layout"])
+    p.add_argument("action", choices=["init", "import", "render", "pull-layout", "backup"])
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="render: only these shots")
     p.add_argument("--reset-layout", action="store_true",
                    help="import: move every actor back to the manifest (discards layout edits made in UE)")
     p.add_argument("--prune", action="store_true", help="import: delete pipeline actors not in the manifest")
+    p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config, 10)")
+    p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")

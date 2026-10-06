@@ -97,10 +97,11 @@ def test_run_script_trusts_the_report_over_the_exit_code(tmp_path, monkeypatch):
     fake.write_text(FAKE_EDITOR)
     fake.chmod(0o755)
     monkeypatch.setenv("AP_UE_EDITOR_CMD", str(fake))
+    monkeypatch.setenv("AP_UE_PROJECTS", str(tmp_path / "ue"))
     store = ProjectStore.create("demo-world")
     rep = ue.run_script(store, "ap_import.py", {"manifest": "m.json"}, "test")
     up = ue.uproject(store)
-    assert up.name == "DemoWorld.uproject" and json.loads(up.read_text())["EngineAssociation"] == "5.8"
+    assert up == tmp_path / "ue/demo-world/DemoWorld.uproject" and json.loads(up.read_text())["EngineAssociation"] == "5.8"
     assert "SF_VULKAN_SM6" in (up.parent / "Config/DefaultEngine.ini").read_text()
     assert rep["ok"] and rep["echo"][0] == str(up) and rep["echo"][1] == "-run=pythonscript"
     assert rep["exit"].startswith("UnrealEditor-Cmd exited with code 1")
@@ -111,3 +112,46 @@ def test_missing_editor_is_a_clear_error(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_UE_EDITOR_CMD", str(tmp_path / "nope"))
     with pytest.raises(FileNotFoundError, match="UnrealEditor-Cmd not found"):
         ue.editor_cmd()
+
+
+@pytest.fixture
+def ue_project(tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_ROOT", str(tmp_path / "root"))
+    monkeypatch.setenv("AP_UE_PROJECTS", str(tmp_path / "ue"))
+    monkeypatch.setenv("AP_UE_BACKUPS", str(tmp_path / "backups"))
+    store = ProjectStore.create("demo-world")
+    up = ue.init(store)
+    for rel in ("Content/AP/Maps/Demo.umap", "Content/Lighting/Sun.uasset", "Intermediate/cache.bin",
+                "Saved/Logs/editor.log", "DerivedDataCache/ddc.bin"):
+        (up.parent / rel).parent.mkdir(parents=True, exist_ok=True)
+        (up.parent / rel).write_bytes(b"x" * 1000)
+    stamps = iter(f"20261006-0000{i:02d}" for i in range(60))
+    monkeypatch.setattr(ue.time, "strftime", lambda fmt: next(stamps))
+    return store, up
+
+
+def test_backup_snapshots_exclude_caches_hardlink_and_rotate(ue_project):
+    store, up = ue_project
+    first = ue.backup(store, keep=3)
+    snap = Path(first["snapshot"])
+    assert (snap / "Content/Lighting/Sun.uasset").is_file() and (snap / up.name).is_file()
+    assert not any((snap / d).exists() for d in ("Intermediate", "Saved", "DerivedDataCache"))
+    (up.parent / "Content/Lighting/Sun.uasset").write_bytes(b"y" * 1000)       # your lighting work
+    second = ue.backup(store, keep=3)
+    s2 = Path(second["snapshot"])
+    assert (s2 / "Content/Lighting/Sun.uasset").read_bytes() == b"y" * 1000
+    assert (snap / "Content/Lighting/Sun.uasset").read_bytes() == b"x" * 1000   # old copy intact
+    assert os.stat(s2 / "Content/AP/Maps/Demo.umap").st_ino == os.stat(snap / "Content/AP/Maps/Demo.umap").st_ino
+    for _ in range(3):
+        rep = ue.backup(store, keep=3)
+    assert len(rep["kept"]) == 3 and [p.name for p in ue.backups(store)] == rep["kept"]
+    assert (Path(rep["snapshot"]).parent / "latest").resolve() == Path(rep["snapshot"]).resolve()
+    assert not snap.exists() and not list(Path(rep["snapshot"]).parent.glob("*.partial"))
+
+
+def test_backup_refuses_while_the_editor_has_the_project_open(ue_project, monkeypatch):
+    store, _ = ue_project
+    monkeypatch.setattr(ue, "editor_running", lambda up: True)
+    with pytest.raises(RuntimeError, match="open"):
+        ue.backup(store)
+    assert ue.backup(store, force=True)["files"] > 0

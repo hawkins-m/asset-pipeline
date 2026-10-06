@@ -303,8 +303,14 @@ reflects what was actually verified.
 
 ## Unreal Engine 5.8.3 (world mode delivery) findings (2026-10-06)
 - Editor: `/mnt/storage/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor(-Cmd)`
-  (config `[unreal] editor_cmd`). Python 3.11.8 inside. UE projects live in
-  `$AP_ROOT/unreal/<slug>/`, outside the repo.
+  (config `[unreal] editor_cmd`). Python 3.11.8 inside.
+- UE projects live in `~/Projects/Unreal/<slug>/` (`[unreal] projects_dir`, the system
+  NVMe). Backups go to `/mnt/storage/backups/unreal/<slug>/<timestamp>/`
+  (`[unreal] backup_dir`, the other drive): `ap ue backup`, rsync with `--link-dest`,
+  10 kept.
+- **rsync needs `--checksum` for backups.** Its default size + mtime check skipped a file
+  re-saved within the same second at the same size, and the new snapshot hard-linked the
+  old content.
 - Headless runs: `UnrealEditor-Cmd <uproject> -run=pythonscript -script="<file> <args.json>"
   -unattended -nullrhi`. No GPU is used, and an import takes about 1 min fresh and 10 s
   unchanged.
