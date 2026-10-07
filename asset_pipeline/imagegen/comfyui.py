@@ -44,6 +44,19 @@ class ComfyUIBackend:
             out[c.kind] = v
         return out
 
+    def _regional_values(self, req: GenRequest) -> list[dict]:
+        """Upload regional refs and their masks (one chained, masked Redux block each)."""
+        if req.regional and not (req.control and req.control_model == "union"):
+            raise BackendCapabilityError("regional refs need the union control workflow")
+        out = []
+        for r in req.regional:
+            for p in (r.image, r.mask):
+                if not Path(p).is_file():
+                    raise FileNotFoundError(f"regional ref image missing: {p}")
+            out.append({"image": self.client.upload_image(Path(r.image)),
+                        "mask": self.client.upload_image(Path(r.mask)), "strength": r.strength})
+        return out
+
     def generate(self, req: GenRequest, out_dir: Path, prefix: str = "img") -> list[GenResult]:
         if req.refs:
             raise BackendCapabilityError("reference images (refs) aren't supported by the "
@@ -51,6 +64,7 @@ class ComfyUIBackend:
         lora = req.lora or (req.anchor.lora if req.anchor else None)
         anchor = self._anchor_values(req)
         control = self._control_values(req) if req.control else {}
+        regional = self._regional_values(req)
         if control:
             name = self.workflows["control_union" if req.control_model == "union" else "depth_lora"]
         else:
@@ -66,6 +80,8 @@ class ComfyUIBackend:
             values["anchor"] = anchor
             values["lora"] = lora.model_dump() if lora else None
         values |= control
+        if control and req.control_model == "union":
+            values["regional"] = regional
         # the depth LoRA's latent takes its size from the control image
         values = {k: v for k, v in values.items() if k in manifest["bindings"] or k not in ("width", "height")}
         images = self.client.run(workflow.fill(graph, manifest, values), manifest["outputs"])
@@ -84,5 +100,6 @@ class ComfyUIBackend:
                                            if req.anchor else [],
                                            "lora": lora.model_dump() if lora else None,
                                            "control": [c.model_dump(mode="json") for c in req.control],
+                                           "regional": [r.model_dump(mode="json") for r in req.regional],
                                            "ignored": []}))
         return results

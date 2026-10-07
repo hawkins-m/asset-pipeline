@@ -17,6 +17,13 @@ class ControlImage(BaseModel):
     end: float = Field(default=0.6, ge=0, le=1)
 
 
+class RegionalRef(BaseModel):
+    """A Redux reference applied only where `mask` is white (e.g. one material's slots)."""
+    image: Path
+    mask: Path
+    strength: float = Field(default=0.15, ge=0, le=2)
+
+
 class GenRequest(BaseModel):
     prompt: str
     negative: str = ""
@@ -32,6 +39,7 @@ class GenRequest(BaseModel):
     # union: Flux ControlNet Union Pro 2.0 (depth and/or canny); depth_lora: BFL
     # FLUX.1-Depth-dev LoRA (depth only, strict). See CLAUDE.md "Concept frames".
     control_model: Literal["union", "depth_lora"] = "union"
+    regional: list[RegionalRef] = Field(default_factory=list)  # union only
 
 
 class GenResult(BaseModel):

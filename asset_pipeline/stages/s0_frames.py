@@ -5,14 +5,20 @@ sw_shots), so every shot shows the same layout. The prompt says what the camera 
 taken from the shot's object-id pass rather than written per shot:
   - tier and the shot's own notes;
   - the visible slot types, by screen coverage;
-  - the material notes of the visible districts.
+  - the visible materials (layout `materials`, by coverage), or, for a layout without
+    materials, the notes of the visible districts. A material's reference image goes in as
+    Redux masked to its slots (from the id pass), so it only restyles those surfaces.
 The project's style anchor (Redux images + style text) is applied as everywhere else.
 Consistency across shots: approved frames of other shots can be added as extra Redux
 references (`refs`); depth locks the structure, so their content leakage mostly carries
 materials and palette.
 
+Tight shots are for mood and material only: their frames never seed assets
+(`asset_sources`), though they can still serve as Redux references.
+
 Layout under the project:
     frames/<shot>/batch_NNN/frame_###.png + meta.json   (stars in review.json = approved)
+    frames/<shot>/batch_NNN/mask_<material>.png         (regional ref masks, when used)
 """
 import math
 import re
@@ -23,14 +29,16 @@ import numpy as np
 from PIL import Image
 
 from .. import review
-from ..imagegen.base import ControlImage, GenRequest
+from ..imagegen.base import ControlImage, GenRequest, RegionalRef
 from ..imagegen.registry import backend_for
 from ..project import ProjectStore, read_json, write_json
-from ..schema import FrameSettings, StyleAnchor
+from ..schema import FrameSettings, Material, StyleAnchor
 from . import sw_shots, sw_site
 
 FRAMES = "frames"
 MIN_COVERAGE = 0.01          # slot types under this share of the frame aren't named
+MAX_MATERIALS = 3            # materials named in a prompt, largest coverage first
+MOOD_TIERS = ("tight",)      # frames of these shots set mood/material, never assets
 TIER = {"wide": "wide establishing view", "medium": "eye-level view", "tight": "close-up detail view"}
 # What each greybox slot type is, for the prompt (plural forms: types usually repeat).
 TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed rotunda ringed by columns",
@@ -78,6 +86,57 @@ def visible(store: ProjectStore, shot: str) -> tuple[list[tuple[str, float]], li
     return order(types), order(districts)
 
 
+def _matches(m: Material, slot: dict) -> bool:
+    return slot["type"] in m.types and (not m.districts or slot.get("district") in m.districts)
+
+
+def visible_materials(store: ProjectStore, shot: str) -> list[tuple[Material, float]]:
+    """(material, coverage) seen by the shot, largest first; a slot counts for the first
+    material that matches it."""
+    ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None)
+    if not ids:
+        raise FileNotFoundError(f"shot {shot} has no id pass (ap shots render)")
+    mats = sw_site.load_layout(store).materials
+    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
+    cover: dict[str, float] = {}
+    for sid, v in ids["slots"].items():
+        m = next((m for m in mats if sid in slots and _matches(m, slots[sid])), None)
+        if m:
+            cover[m.id] = cover.get(m.id, 0) + v["frac"]
+    by_id = {m.id: m for m in mats}
+    return [(by_id[k], f) for k, f in sorted(cover.items(), key=lambda kv: -kv[1])]
+
+
+def material_mask(store: ProjectStore, shot: str, material: Material) -> np.ndarray:
+    """Boolean mask of the pixels whose slot this material covers (exact: the id pass)."""
+    d = sw_shots.shot_dir(store, shot)
+    ids = read_json(d / "ids.json")
+    mats = sw_site.load_layout(store).materials
+    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
+    keys = []
+    for sid, v in ids["slots"].items():
+        first = next((m for m in mats if sid in slots and _matches(m, slots[sid])), None)
+        if first is not None and first.id == material.id:
+            c = v["color"]
+            keys.append((c[0] << 16) | (c[1] << 8) | c[2])
+    rgb = np.array(Image.open(d / "ids.png").convert("RGB"))
+    return np.isin(sw_shots._key(rgb), np.array(keys, np.int64))
+
+
+def regional_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef]:
+    """Masked Redux refs for the visible materials that have a reference image; the masks
+    are written into `out`."""
+    refs = []
+    for m, f in visible_materials(store, shot):
+        if not m.ref or f < MIN_COVERAGE or m.ref_strength <= 0:
+            continue
+        mask = out / f"mask_{m.id}.png"
+        Image.fromarray(material_mask(store, shot, m).astype(np.uint8) * 255).save(mask)
+        refs.append(RegionalRef(image=store.root / review.rel(store, m.ref), mask=mask,
+                                strength=m.ref_strength))
+    return refs
+
+
 def prompt_for(store: ProjectStore, shot: str) -> str:
     meta = _shot_meta(store, shot)
     s = meta["shot"]
@@ -90,11 +149,13 @@ def prompt_for(store: ProjectStore, shot: str) -> str:
     seen = [TYPE_WORDS.get(t, t) for t, f in types if f >= MIN_COVERAGE and t not in ("terrain",)]
     if seen:
         parts.append("showing " + ", ".join(dict.fromkeys(seen)))
-    # the focus district first (if set), then the others by coverage; at most two
-    ds = [d for d, f in districts if f >= MIN_COVERAGE]
-    if s.get("district") in notes:
-        ds = [s["district"]] + [d for d in ds if d != s["district"]]
-    mats = [notes[d] for d in ds if d in notes][:2]
+    mats = [m.words for m, f in visible_materials(store, shot) if f >= MIN_COVERAGE][:MAX_MATERIALS]
+    if not layout.materials:
+        # the focus district first (if set), then the others by coverage; at most two
+        ds = [d for d, f in districts if f >= MIN_COVERAGE]
+        if s.get("district") in notes:
+            ds = [s["district"]] + [d for d in ds if d != s["district"]]
+        mats = [notes[d] for d in ds if d in notes][:2]
     if mats:
         parts.append("; ".join(mats))
     parts.append(SUFFIX)
@@ -118,11 +179,12 @@ def controls(store: ProjectStore, shot: str, fs: FrameSettings) -> list[ControlI
 
 def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None,
              fs: FrameSettings | None = None, refs: list[str] | None = None, ref_strength: float = 0.08,
-             prompt: str | None = None, out: Path | None = None) -> Path:
+             prompt: str | None = None, out: Path | None = None, material_refs: bool = True) -> Path:
     """n concept frames for one shot into a new batch dir; returns the dir.
 
     refs: project-relative images (e.g. an approved wide frame) added to the Redux anchor
-    with `ref_strength` more total strength."""
+    with `ref_strength` more total strength. material_refs: apply the visible materials'
+    reference images, masked to their slots (False: wording only)."""
     meta = _shot_meta(store, shot)
     if meta["greybox_sha256"] != sw_site.load_greybox(store)["blend_sha256"]:
         raise ValueError(f"shot {shot}'s passes are stale (the greybox changed): ap shots render first")
@@ -139,12 +201,13 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     backend = backend_for("frames", project)
     out = out or _next_batch(frames_dir(store, shot))
     out.mkdir(parents=True, exist_ok=True)
+    regional = regional_refs(store, shot, out) if material_refs and fs.model == "union" else []
     t, results = time.time(), []
     try:
         for i in range(n):  # one image per request: each gets its own seed, VRAM stays flat
             s = None if seed is None else seed + i
             req = GenRequest(prompt=prompt, width=w, height=h, n=1, seed=s, steps=fs.steps, anchor=anchor,
-                             control=controls(store, shot, fs), control_model=fs.model)
+                             control=controls(store, shot, fs), control_model=fs.model, regional=regional)
             r = backend.generate(req, out, prefix=f"tmp{i:03d}")[0]
             final = out / f"frame_{len(results):03d}.png"
             r.path.rename(final)
@@ -154,6 +217,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
         write_json(out / "meta.json", {
             "shot": shot, "prompt": prompt, "settings": fs.model_dump(mode="json"),
             "anchor": anchor.model_dump(mode="json") if anchor else None, "refs": refs or [],
+            "material_refs": [{"image": review.rel(store, r.image), "mask": r.mask.name, "strength": r.strength}
+                              for r in regional],
             "greybox_sha256": meta["greybox_sha256"], "size": [w, h], "backend": backend.name,
             "frames": results, "complete": len(results) == n})
         store.log_run({"stage": "frames.generate", "shot": shot, "dir": str(out), "n": len(results),
@@ -175,6 +240,16 @@ def batches(store: ProjectStore, shot: str) -> list[dict]:
 def approved(store: ProjectStore, shot: str | None = None) -> list[str]:
     """Starred frames (of one shot, or all)."""
     return review.starred(store, f"{FRAMES}/{shot}/" if shot else f"{FRAMES}/")
+
+
+def mood_shots(store: ProjectStore) -> set[str]:
+    return {s["id"] for s in sw_site.load_greybox(store)["shots"] if s["tier"] in MOOD_TIERS}
+
+
+def asset_sources(store: ProjectStore) -> list[str]:
+    """Starred frames the asset library may derive assets from: not those of mood shots."""
+    mood = mood_shots(store)
+    return [k for k in approved(store) if k.split("/")[1] not in mood]
 
 
 # --- structure check -----------------------------------------------------------------------

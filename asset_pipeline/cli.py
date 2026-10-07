@@ -449,7 +449,8 @@ def cmd_frames_generate(a) -> None:
     fs = _frame_settings(a, store)
     shots = a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]
     for shot in shots:
-        out = s0_frames.generate(store, shot, n=a.n, seed=a.seed, fs=fs, refs=a.ref, ref_strength=a.ref_strength)
+        out = s0_frames.generate(store, shot, n=a.n, seed=a.seed, fs=fs, refs=a.ref, ref_strength=a.ref_strength,
+                                material_refs=not a.no_material_refs)
         meta = json.loads((out / "meta.json").read_text())
         print(f"{out}: {len(meta['frames'])} frame(s), edge match "
               + ", ".join(f"{f['edge_match']:.2f}" for f in meta["frames"]))
@@ -470,10 +471,12 @@ def cmd_frames_show(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
     stars = set(s0_frames.approved(store))
+    mood = s0_frames.mood_shots(store)
     for shot in a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]:
         bs = s0_frames.batches(store, shot)
         n = sum(len(b["frames"]) for b in bs)
-        print(f"{shot}: {n} frame(s), {sum(1 for b in bs for f in b['frames'] if f['key'] in stars)} approved")
+        print(f"{shot}: {n} frame(s), {sum(1 for b in bs for f in b['frames'] if f['key'] in stars)} approved"
+              + ("  (mood only: no assets)" if shot in mood else ""))
         if a.prompt:
             try:
                 print(f"    prompt: {s0_frames.prompt_for(store, shot)}")
@@ -813,6 +816,8 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--seed", type=int)
             p.add_argument("--ref", action="append", help="approved frame (project-relative) to add as a Redux reference")
             p.add_argument("--ref-strength", type=float, default=0.08)
+            p.add_argument("--no-material-refs", action="store_true",
+                           help="materials by wording only (skip their masked reference images)")
         p.add_argument("--model", choices=["union", "depth_lora"])
         p.add_argument("--depth", type=float, help="depth control strength")
         p.add_argument("--depth-end", type=float, help="depth control stops at this fraction of the steps")

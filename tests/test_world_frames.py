@@ -6,7 +6,7 @@ from PIL import Image
 
 from asset_pipeline import config
 from asset_pipeline.comfy import workflow
-from asset_pipeline.imagegen.base import BackendCapabilityError, ControlImage, GenRequest
+from asset_pipeline.imagegen.base import BackendCapabilityError, ControlImage, GenRequest, RegionalRef
 from asset_pipeline.imagegen.comfyui import ComfyUIBackend
 from asset_pipeline.schema import StyleAnchor
 
@@ -73,6 +73,31 @@ def test_union_with_depth_only_removes_the_canny_block(tmp_path, images):
     workflow.validate(g, {"outputs": ["9"], "bindings": {}})
 
 
+def test_regional_refs_chain_masked_redux_after_the_anchor(tmp_path, images):
+    c = Client()
+    mask = tmp_path / "mask.png"
+    Image.new("L", (64, 32)).save(mask)
+    req = GenRequest(prompt="x", anchor=StyleAnchor(images=[images["anchor"]], strength=0.06),
+                     control=[ControlImage(kind="depth", image=images["depth"])],
+                     regional=[RegionalRef(image=images["anchor"], mask=mask, strength=0.2),
+                               RegionalRef(image=images["canny"], mask=mask, strength=0.3)])
+    backend(c).generate(req, tmp_path / "out")
+    g = c.graphs[0]
+    workflow.validate(g, {"outputs": ["9"], "bindings": {}})
+    # each material: base (text + anchor) + its image, masked, combined onto the chain
+    assert g["42_0"]["inputs"]["conditioning"] == ["24_0", 0] and g["42_1"]["inputs"]["conditioning"] == ["24_0", 0]
+    assert g["42_1"]["inputs"]["strength"] == 0.3 and g["43_0"]["inputs"]["image"] == "mask.png"
+    assert g["45_0"]["inputs"]["conditioning_1"] == ["24_0", 0] and g["45_1"]["inputs"]["conditioning_1"] == ["45_0", 0]
+    assert g["32"]["inputs"]["positive"] == ["45_1", 0]
+    # none: the block is bypassed
+    backend(c).generate(GenRequest(prompt="x", control=[ControlImage(kind="depth", image=images["depth"])]),
+                        tmp_path / "out")
+    g = c.graphs[1]
+    assert not by_type(g, "ConditioningSetMask") and g["32"]["inputs"]["positive"] == ["11", 0]
+    with pytest.raises(BackendCapabilityError):
+        backend(c).generate(req.model_copy(update={"control_model": "depth_lora"}), tmp_path / "out")
+
+
 def test_depth_lora_takes_its_size_from_the_control_image(tmp_path, images):
     c = Client()
     req = GenRequest(prompt="x", n=3, width=999, height=999, control_model="depth_lora",
@@ -106,7 +131,7 @@ import numpy as np  # noqa: E402
 from asset_pipeline import review  # noqa: E402
 from asset_pipeline.imagegen.base import GenResult  # noqa: E402
 from asset_pipeline.project import ProjectStore, write_json  # noqa: E402
-from asset_pipeline.schema import District, FrameSettings, ShotSpec, SiteLayout  # noqa: E402
+from asset_pipeline.schema import District, FrameSettings, Material, ShotSpec, SiteLayout  # noqa: E402
 from asset_pipeline.stages import s0_frames, s0_style, sw_shots, sw_site  # noqa: E402
 
 EYE = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
@@ -184,6 +209,58 @@ def test_generate_uses_the_shot_passes_settings_and_refs(world, monkeypatch):
     assert r.anchor.images[-1].name == "frame_000.png" and r.anchor.strength == pytest.approx(0.16)
     assert [c.kind for c in r.control] == ["depth"] and r.control_model == "depth_lora"
     assert len(s0_frames.batches(world, "a")) == 2
+
+
+def _with_materials(store, ref=None):
+    """Two materials, a coloured id pass (rotunda left half, villa a corner) and a ref image."""
+    layout = sw_site.load_layout(store)
+    layout.materials = [Material(id="marble", words="polished white marble, fine grey veining",
+                                 types=["rotunda", "temple"], ref=ref, ref_strength=0.25),
+                        Material(id="render", words="smooth white lime render", types=["villa"])]
+    sw_site.save_layout(store, layout)
+    d = sw_shots.shot_dir(store, "a")
+    ids = json.loads((d / "ids.json").read_text())
+    colors = {"rot": [10, 20, 30], "v1": [40, 50, 60], "t": [70, 80, 90]}
+    for k, c in colors.items():
+        ids["slots"][k]["color"] = c
+    write_json(d / "ids.json", ids)
+    rgb = np.zeros((32, 64, 3), np.uint8)
+    rgb[:, :32] = colors["rot"]
+    rgb[:8, 48:] = colors["v1"]
+    rgb[24:, 32:] = colors["t"]
+    Image.fromarray(rgb).save(d / "ids.png")
+
+
+def test_materials_replace_district_notes_and_their_refs_are_masked(world, monkeypatch):
+    (world.root / "moodboard").mkdir()
+    Image.new("RGB", (8, 8), "white").save(world.root / "moodboard/marble.png")
+    _with_materials(world, ref="moodboard/marble.png")
+    p = s0_frames.prompt_for(world, "a")
+    assert "polished white marble" in p and "lime render" in p and "brick and concrete" not in p
+    assert p.index("marble") < p.index("lime render")            # by coverage
+    m = s0_frames.material_mask(world, "a", sw_site.load_layout(world).materials[0])
+    assert m[:, :32].all() and not m[:, 32:].any()               # exactly the rotunda's pixels
+    fake = FakeBackend()
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    out = s0_frames.generate(world, "a", n=1)
+    (r,) = fake.requests[0].regional                              # only materials with a ref
+    assert r.strength == 0.25 and r.image.name == "marble.png" and r.mask == out / "mask_marble.png"
+    assert json.loads((out / "meta.json").read_text())["material_refs"][0]["image"] == "moodboard/marble.png"
+    s0_frames.generate(world, "a", n=1, material_refs=False)       # wording only
+    assert fake.requests[-1].regional == [] and "polished white marble" in fake.requests[-1].prompt
+
+
+def test_tight_shots_are_mood_only(world):
+    gb = json.loads((world.root / "site/greybox.json").read_text())
+    gb["shots"].append(gb["shots"][0] | {"id": "close", "tier": "tight"})
+    write_json(world.root / "site/greybox.json", gb)
+    for shot in ("a", "close"):
+        f = world.root / f"frames/{shot}/batch_001/frame_000.png"
+        f.parent.mkdir(parents=True)
+        Image.new("L", (4, 4)).save(f)
+        review.set_star(world, f)
+    assert len(s0_frames.approved(world)) == 2
+    assert s0_frames.asset_sources(world) == ["frames/a/batch_001/frame_000.png"]
 
 
 def test_stale_passes_are_refused(world):

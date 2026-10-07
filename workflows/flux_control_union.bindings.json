@@ -107,6 +107,37 @@
         "start": "start_percent",
         "end": "end_percent"
       }
+    },
+    "regional": {
+      "repeat": {
+        "nodes": [
+          "40",
+          "41",
+          "42",
+          "43",
+          "44",
+          "45"
+        ],
+        "chain_in": {
+          "node": "45",
+          "input": "conditioning_1"
+        },
+        "out": "45"
+      },
+      "fields": {
+        "image": {
+          "node": "40",
+          "input": "image"
+        },
+        "mask": {
+          "node": "43",
+          "input": "image"
+        },
+        "strength": {
+          "node": "42",
+          "input": "strength"
+        }
+      }
     }
   }
 }

@@ -476,7 +476,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             except FileNotFoundError:
                 prompt = None
             out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
-                            "prompt": prompt, "batches": s0_frames.batches(store, r["id"])})
+                            "prompt": prompt, "batches": s0_frames.batches(store, r["id"]),
+                            "mood": r["tier"] in s0_frames.MOOD_TIERS})
         return {"shots": out, "settings": s0_frames.settings(store).model_dump()}
 
     @app.post("/api/projects/{slug}/frames/generate")

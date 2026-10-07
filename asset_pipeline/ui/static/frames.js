@@ -16,7 +16,7 @@ function renderFrames() {
   for (const r of f.shots) {
     const el = document.createElement("section"); el.className = "unit";
     const ok = r.rendered && !r.stale;
-    el.innerHTML = `<div class="unit-head"><span class="title">${esc(r.id)}</span><span class="chip">${esc(r.tier)}</span>
+    el.innerHTML = `<div class="unit-head"><span class="title">${esc(r.id)}</span><span class="chip">${esc(r.tier)}</span>${r.mood ? `<span class="hint">mood only: no assets</span>` : ""}
         <span class="hint">${ok ? "" : "passes missing or stale: render them in Site · Shots"}</span>
         <label class="hint">ref <select class="ref"><option value="">none</option>${approved.filter(k => !k.startsWith(`frames/${r.id}/`))
           .map(k => `<option>${esc(k)}</option>`).join("")}</select></label>

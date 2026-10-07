@@ -120,6 +120,19 @@ class District(BaseModel):
     sector: Vec2 = (0.0, 360.0)           # angle range (may wrap: (300, 60))
 
 
+class Material(BaseModel):
+    """A surface material, named precisely in concept-frame prompts. Vague words drift:
+    "honed pale stone" came out as etched wood. `ref` (a project image, e.g. a moodboard
+    swatch) is applied as Redux masked to this material's slots (the shot's id pass), so
+    it doesn't restyle everything else."""
+    id: str
+    words: str                            # "polished white marble, fine grey veining, ..."
+    types: list[str] = Field(default_factory=list)      # greybox slot types it covers
+    districts: list[str] = Field(default_factory=list)  # only these districts (empty = all)
+    ref: str | None = None                # project-relative reference image
+    ref_strength: float = Field(default=0.15, ge=0, le=2)
+
+
 class Kit(BaseModel):
     """A classical modular kit: pieces sit on a grid of `module_m` bays."""
     id: str
@@ -220,6 +233,7 @@ class SiteLayout(BaseModel):
     sea_level: float = 0.0
     terrain: TerrainSpec = Field(default_factory=TerrainSpec)
     districts: list[District] = Field(default_factory=list)
+    materials: list[Material] = Field(default_factory=list)
     kits: list[Kit] = Field(default_factory=list)
     rings: list[Ring] = Field(default_factory=list)
     radials: list[Radial] = Field(default_factory=list)

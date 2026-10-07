@@ -60,8 +60,8 @@ class GeminiImageBackend:
 
     def generate(self, req: GenRequest, out_dir: Path, prefix: str = "img") -> list[GenResult]:
         from google.genai import types
-        if req.control:
-            raise BackendCapabilityError("control images (depth/canny) need the ComfyUI backend")
+        if req.control or req.regional:
+            raise BackendCapabilityError("control images (depth/canny) and regional refs need the ComfyUI backend")
         ignored = [f for f, v in [("lora", req.lora or (req.anchor.lora if req.anchor else None)),
                                   ("steps", req.steps)] if v]
         aspect = nearest_aspect(req.width, req.height)
