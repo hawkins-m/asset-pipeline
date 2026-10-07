@@ -293,6 +293,16 @@ reflects what was actually verified.
 
   Keep it opt-in. Try a lower strength (≈0.04) or a reference with a clear sky before
   making it a default.
+- Material wording (A/B 2026-10-06, 2 medium shots x 3 seeds, wording only):
+  "board-formed concrete" draws wood: slatted screens, timber fins, plank-streaked
+  walls. "Honed pale stone/travertine" gives banded, streaky surfaces. Precise wording
+  per material (`SiteLayout.materials`), e.g. "polished white Carrara marble, smooth
+  seamless stone with fine soft grey veining, crisp sharp machined edges", gave veined
+  marble and clean ashlar. The style text must drop the vague words too: it is appended
+  to every prompt. Cost: the frames come out whiter and more sterile (less warm brick).
+- A material's `ref` is Redux masked to its slots (id pass; `ConditioningSetMask` +
+  `ConditioningCombine`). The masked cond is evaluated as well, so one regional ref
+  roughly doubles the sampling time (~90 s per frame incl. model load).
 - Wide aerials read a plateau's edge (a depth step around the city) as a circular ring
   wall, and a sparse layout makes wide shots look like a scale model.
 - The edge score must be chance-corrected: raw recall gave random noise 0.96. Sobel
