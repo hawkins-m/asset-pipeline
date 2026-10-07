@@ -113,6 +113,27 @@ def city_shots(layout: SiteLayout) -> list[ShotSpec]:
     return city.shots(layout, city.apply_pads(layout, h))
 
 
+def plan_city(store: ProjectStore) -> dict:
+    """City mode without Blender: site/city_plan.png (top-down plan) and site/city.json
+    (area shares, counts, warnings). Returns the stats."""
+    layout = load_layout(store)
+    if layout.city is None:
+        raise ValueError("the layout has no city spec (ap site init --city, or add \"city\" to layout.json)")
+    h = terrain(store, layout)
+    P = city.plan(layout, h)
+    city.plan_image(P, h).save(site_dir(store) / "city_plan.png")
+    write_json(site_dir(store) / "city.json", P.stats)
+    return P.stats
+
+
+def set_city_shots(store: ProjectStore) -> list[ShotSpec]:
+    """Replace the layout's shots with the auto-placed city shots (rebuild to apply)."""
+    layout = load_layout(store)
+    layout.shots = city_shots(layout)
+    save_layout(store, layout)
+    return layout.shots
+
+
 def init(store: ProjectStore, layout_file: Path | None = None, force: bool = False,
          city_mode: bool = False) -> SiteLayout:
     """Copy a layout (default: the neutral starter, or with city_mode the starter city) into
@@ -197,6 +218,7 @@ def build(store: ProjectStore, force: bool = False) -> dict:
     spec["terrain"]["resolution"] = int(small.shape[0])
     if spec.get("city"):
         write_json(site_dir(store) / "city.json", spec["city"])
+        city.plan_image(city.plan(layout, h), h).save(site_dir(store) / "city_plan.png")
     write_json(work / "spec.json", spec)
     if b.exists():
         shutil.copyfile(b, b.with_suffix(".prev.blend"))

@@ -315,9 +315,24 @@ def _vec(s: str, n: int = 3) -> tuple[float, ...]:
 def cmd_site_init(a) -> None:
     from .stages import sw_site
     store = ProjectStore.open(a.project)
-    layout = sw_site.init(store, Path(a.layout) if a.layout else None, force=a.force)
+    layout = sw_site.init(store, Path(a.layout) if a.layout else None, force=a.force, city_mode=a.city)
     print(f"{store.root / 'site/layout.json'}: {len(layout.plots)} plots, {len(layout.rows)} ring rows, "
           f"{len(layout.shots)} shots; project is in world mode. Next: ap site build {a.project}")
+
+
+def cmd_site_plan(a) -> None:
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    if a.shots:
+        print("shots:", ", ".join(s.id for s in sw_site.set_city_shots(store)), "(rebuild to apply)")
+    st = sw_site.plan_city(store)
+    print(f"{sw_site.site_dir(store) / 'city_plan.png'}: {st['buildings']} buildings ({st['housing_blocks']} in "
+          f"blocks/terraces, {st['houses']} houses), {st['blocks']} blocks, {st['streets']} streets, "
+          f"{st['parks']} parks ({st['park_area_ha']} ha), {st['markets']} markets, {st['trees']} trees")
+    print("footprint share:", ", ".join(f"{k} {v:.1%}" for k, v in st["footprint_share"].items()),
+          f"; heights median {st['height_m']['median']} m, p90 {st['height_m']['p90']} m; extent {st['extent_m']} m")
+    for w in st["warnings"]:
+        print("warning:", w)
 
 
 def cmd_site_build(a) -> None:
@@ -749,7 +764,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--layout", help="layout.json to start from")
     p.add_argument("--force", action="store_true", help="replace an existing site/layout.json")
+    p.add_argument("--city", action="store_true", help="start from the neutral starter city (city mode)")
     p.set_defaults(fn=cmd_site_init)
+    p = sisub.add_parser("plan", help="city mode: plan image + area report, no Blender (fast)")
+    p.add_argument("project")
+    p.add_argument("--shots", action="store_true", help="also replace the layout's shots with the auto-placed ones")
+    p.set_defaults(fn=cmd_site_plan)
     p = sisub.add_parser("build", help="layout.json -> terrain + greybox.blend + greybox.json (Blender, CPU)")
     p.add_argument("project")
     p.add_argument("--force", action="store_true", help="replace a hand-edited greybox.blend")

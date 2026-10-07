@@ -41,6 +41,7 @@ STEP_M = 20.0                # avenue tracing step
 MIN_BLOCK_M2 = 500.0
 MIN_STRIP_M = 7.0            # shorter facade segments are skipped
 TREE_CAP = 30000
+MAX_SPIRAL_DEG = 75.0        # a spiral avenue turns at most this far in total
 CORE_D, TERRACE_D = 0.6, 0.4  # density: perimeter courtyard blocks / terraces / detached houses
 
 
@@ -262,11 +263,11 @@ def _trace(f: Fields, start, heading, length, curve, target=None, free_m=0.0, st
     hd = planned = heading
     walked = 0.0
     while walked < length:
-        planned += curve * STEP_M / 100
+        if abs(planned - heading) < MAX_SPIRAL_DEG:   # an arm, not a coil
+            planned += curve * STEP_M / 100
         if target is not None:
             want = math.degrees(math.atan2(target[1] - pts[-1][1], target[0] - pts[-1][0]))
-            planned = want if np.hypot(*(np.array(target) - pts[-1])) < 3 * STEP_M else \
-                planned + float(np.clip(_angdiff(want, planned), -6, 6))
+            planned = want         # steering stays within 50 deg of the bearing: no loops
         cands = [planned] if walked < free_m else [hd + d for d in (-10, -5, 0, 5, 10)]
         best, best_s = None, 1e9
         z0 = float(f.z(*pts[-1]))
@@ -920,7 +921,7 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
                             look_at=(*nd.center, cz), lens_mm=24.0, district=nd.id,
                             notes=f"raised view of the whole circular {nd.role} node and the streets around it"))
         if nd.monument:
-            rr = next(pl.size[0] / 2 for pl in civic_layout(layout, f).plots
+            rr = next(max(pl.size[0], pl.size[1]) / 2 for pl in civic_layout(layout, f).plots
                       if pl.id == f"{nd.id}-{nd.monument}")
             p = np.array(nd.center) + (rr + 26) * _dir(a + 8)
             out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, cz + 1.7),
