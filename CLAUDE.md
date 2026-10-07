@@ -301,8 +301,9 @@ reflects what was actually verified.
   marble and clean ashlar. The style text must drop the vague words too: it is appended
   to every prompt. Cost: the frames come out whiter and more sterile (less warm brick).
 - A material's `ref` is Redux masked to its slots (id pass; `ConditioningSetMask` +
-  `ConditioningCombine`). The masked cond is evaluated as well, so one regional ref
-  roughly doubles the sampling time (~90 s per frame incl. model load).
+  `ConditioningCombine`). Each masked cond is one more model evaluation per step; the
+  only run so far (one ref) took 91 s including the model load. Not yet A/B'd: no
+  moodboard images.
 - Wide aerials read a plateau's edge (a depth step around the city) as a circular ring
   wall, and a sparse layout makes wide shots look like a scale model.
 - The edge score must be chance-corrected: raw recall gave random noise 0.96. Sobel
