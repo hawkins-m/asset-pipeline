@@ -337,7 +337,13 @@ reflects what was actually verified.
     independently: all within 1 cm.
 - Interchange puts a mesh at `<dest>/<file>/StaticMeshes/<file>`, so the importer moves
   it to `/Game/AP/Library/<id>/SM_<id>`. A changed GLB replaces the mesh with
-  `consolidate_assets`, which keeps references.
+  `consolidate_assets`, which keeps references. In the commandlet the old asset stays at
+  the target path after consolidating, so the importer deletes it before the rename, and
+  the rename leaves redirectors in `_import` that are deleted directly (UE 5.8's Python
+  AssetTools has no `fixup_referencers`). Verified 2026-10-06 on a full relayout.
+- A wholesale relayout needs `ap ue import --reset-layout --prune` (after `ap ue backup`):
+  otherwise actors whose ids the new layout reuses keep their old UE transform (UE is the
+  layout source of truth) and the old layout's actors stay.
 - InstancedStaticMeshComponents added through `SubobjectDataSubsystem.add_new_subobject`
   persist across save and reload, with label, tags, outliner folder and instances.
 - **No Python API creates a Landscape from a heightmap.** Only
@@ -348,6 +354,29 @@ reflects what was actually verified.
   (Vulkan adapter 0 = GPU 0) with a Slate tick callback. Screenshots taken while
   ShaderCompileWorkers still run show grey default materials, so wait for them to go
   idle.
+
+## City mode (verified 2026-10-06)
+- `SiteLayout.city` (`asset_pipeline/city.py`): civic nodes, terrain-steered avenues,
+  organic blocks, instanced massing. `ap site init --city` (neutral starter city) and
+  `ap site plan PROJECT` (plan image + area report, no Blender, ~1 s).
+- Measured at 5 x 3 km on 8 km terrain (6 nodes): ~7.6k buildings, ~10k trees, 468
+  slots, 19.8k pieces. Greybox build 11 s; 17 shots' passes 155 s (~9 s each, CPU);
+  export 208 s (251 GLBs); UE import 1-1.5 min fresh, 8 s unchanged.
+- Housing is a scaled unit box (`scale` on the piece): one mesh for every building, so
+  Blender, the export and UE instancing stay cheap. Draped pieces (ribbons, lawns) are
+  unique, so the build merges them into one mesh per slot: 496 -> 186 GLBs on the
+  starter city, export 314 s -> 115 s.
+- Slot ids made file-safe must stay unique: tiles are `x<i>y<j>` (`-3_-1` and `3_-1`
+  collided as asset ids).
+- Density: `1 - prod(1 - exp(-(d / (falloff * weight))^2))` over the nodes, plus a
+  waterfront bonus and noise, minus steep ground. With a 900 m falloff the whole city
+  was dense; 650 m gives cores, terraces and a fraying low-rise edge. Classes: >= 0.6
+  perimeter courtyard blocks, >= 0.4 terraces, below detached houses.
+- Spiral avenues need a cap on their total turn (75 deg), and arterials must aim at the
+  bearing to their target: otherwise both coil or loop near a node's pad.
+- Auto shots: wides look down ~13-18 deg (lower ones showed the city as a sliver on a
+  coastal plain); the aerial shows the radial plan; the tight steps back by the
+  monument's longest side.
 
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.

@@ -162,9 +162,18 @@ UE survive a re-import.
 - Terrain is a Nanite mesh: UE's Python can't create a Landscape. The values for a
   manual Landscape import are in the manifest.
 
+City-scale mode (2026-10-06, after the first frame review: the single-precinct wides
+read as a memorial, not a city): `SiteLayout.city` plans a multi-km coastal city with
+several civic nodes, terrain-following radial and spiral avenues, organic blocks, a
+density gradient from mid-rise cores to low-rise edges, green corridors, markets and a
+waterfront. Housing is instanced massing per tile, never per-building assets. Wides frame
+the whole city; mediums frame one node; tight shots are mood/material only and never seed
+assets. Materials are named precisely per slot type (`SiteLayout.materials`), with an
+optional moodboard reference applied as Redux masked to that material's slots.
+
 Next, in order:
-1. **Frame review (the user).** Star the frames that set the look, choose the rotunda
-   design, and decide on the plateau's ring-wall edge and the layout density.
+1. **Frame review (the user)** of the city-scale frames: pick the rotunda design (not
+   locked yet) and judge the density and the look.
 2. **Step 4: asset library from the object-ID pass** (`s1_library`):
    - greybox types keyed by slot type, counts from the greybox;
    - props deduplicated across the starred frames;

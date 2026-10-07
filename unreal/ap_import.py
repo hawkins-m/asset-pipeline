@@ -147,6 +147,10 @@ def import_mesh(asset, root, mi, report):
         raise RuntimeError(f"{aid}: Interchange imported no static mesh from {glb}")
     if old:
         eal.consolidate_assets(new, [old])          # references to the old mesh -> new one
+        # in the commandlet the old asset stays at the target path: remove it so the
+        # import can take its place
+        if eal.does_asset_exist(target) and not eal.delete_asset(target):
+            raise RuntimeError(f"{aid}: could not remove the replaced mesh at {target}")
     if not eal.rename_asset(new.get_path_name().split(".")[0], target):
         raise RuntimeError(f"{aid}: could not move the import to {target}")
     mesh = eal.load_asset(target)
@@ -164,10 +168,13 @@ def import_mesh(asset, root, mi, report):
 def clean_tmp():
     if not eal.does_directory_exist(TMP):
         return
-    redirectors = [eal.load_asset(p) for p in eal.list_assets(TMP, recursive=True)
-                   if eal.find_asset_data(p).asset_class_path.asset_name == "ObjectRedirector"]
-    if redirectors:
-        tools.fixup_referencers([r for r in redirectors if r])
+    # A replaced mesh leaves a redirector here (consolidate pointed the level at the import,
+    # then it moved). The level is loaded and holds the moved objects themselves, so it
+    # saves their final paths; the redirectors can go. (AssetTools has no
+    # fixup_referencers in UE 5.8's Python.)
+    for p in eal.list_assets(TMP, recursive=True):
+        if eal.find_asset_data(p).asset_class_path.asset_name == "ObjectRedirector":
+            eal.delete_asset(p)
     eal.delete_directory(TMP)
 
 
@@ -384,8 +391,9 @@ def main(args):
         sid = tg.get("ap:id") or tg.get("ap:shot")
         if tg.get("ap:source") == "pipeline" and sid and sid not in known:
             if args.get("prune"):
+                name = a.get_actor_label()     # before the actor is gone
                 eas.destroy_actor(a)
-                report["warnings"].append(f"pruned {a.get_actor_label()}")
+                report["warnings"].append(f"pruned {name}")
             else:
                 report["warnings"].append(f"{a.get_actor_label()} is not in the manifest (prune to delete)")
     eal.save_directory("/Game/AP", only_if_is_dirty=False, recursive=True)
