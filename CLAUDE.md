@@ -378,6 +378,14 @@ reflects what was actually verified.
   coastal plain); the aerial shows the radial plan; the tight steps back by the
   monument's longest side.
 
+- First city frames (Union depth 0.6/0.6, 2 per shot, 2026-10-06): the wides read as a
+  large coastal city. Eye-level node mediums follow the layout (edge match 0.45-0.78) and
+  the precise material words hold (marble, no wood). Views from far above follow it
+  poorly: raised node mediums 0.00-0.38 and the aerial 0.06-0.12. Flux keeps the
+  "radial city" idea but invents its own plan and megastructures (oval stadia, curved
+  slabs), because a near-top-down depth pass is almost flat. Not yet tried: per-tier
+  control settings (more depth, or canny) for raised and aerial shots.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.
