@@ -259,7 +259,11 @@ def test_tight_shots_are_mood_only(world):
         f.parent.mkdir(parents=True)
         Image.new("L", (4, 4)).save(f)
         review.set_star(world, f)
-    assert len(s0_frames.approved(world)) == 2
+    old = world.root / "frames/_old_layout/a/batch_001/frame_000.png"   # an archived layout's frame
+    old.parent.mkdir(parents=True)
+    Image.new("L", (4, 4)).save(old)
+    review.set_star(world, old)
+    assert len(s0_frames.approved(world)) == 3
     assert s0_frames.asset_sources(world) == ["frames/a/batch_001/frame_000.png"]
 
 

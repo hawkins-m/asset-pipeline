@@ -251,9 +251,11 @@ def mood_shots(store: ProjectStore) -> set[str]:
 
 
 def asset_sources(store: ProjectStore) -> list[str]:
-    """Starred frames the asset library may derive assets from: not those of mood shots."""
+    """Starred frames the asset library may derive assets from: frames of the current
+    greybox's shots, except mood shots (archived frames of an old layout never count)."""
+    shots = {s["id"] for s in sw_site.load_greybox(store)["shots"]}
     mood = mood_shots(store)
-    return [k for k in approved(store) if k.split("/")[1] not in mood]
+    return [k for k in approved(store) if k.split("/")[1] in shots - mood]
 
 
 # --- structure check -----------------------------------------------------------------------
