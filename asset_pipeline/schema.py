@@ -147,6 +147,8 @@ class Ring(BaseModel):
     radius: float = Field(gt=0)           # centre line
     width: float = Field(gt=0)
     role: Literal["avenue", "canal", "garden", "terrace"] = "avenue"
+    center: Vec2 = (0.0, 0.0)
+    district: str | None = None
 
 
 class Radial(BaseModel):
@@ -155,6 +157,7 @@ class Radial(BaseModel):
     width: float = Field(gt=0)
     r_from: float = 0.0
     r_to: float = Field(gt=0)
+    center: Vec2 = (0.0, 0.0)
 
 
 class Plaza(BaseModel):
@@ -188,6 +191,7 @@ class RingRow(BaseModel):
     angle_offset: float = 0.0
     kit: str | None = None
     district: str | None = None
+    center: Vec2 = (0.0, 0.0)
 
 
 class VegZone(BaseModel):
@@ -209,10 +213,57 @@ class TerrainSpec(BaseModel):
     headland_m: float = 80.0              # the shore bulges out by this much in front of the city
     headland_width_m: float = 500.0
     hill_height_m: float = 90.0
-    city_radius_m: float = 470.0          # flattened plateau
+    hill_from_m: float = 150.0            # hills rise between these distances inland
+    hill_to_m: float = 900.0
+    coast_amp_m: float = 0.0              # shoreline irregularity (bays and points), +-
+    coast_wavelength_m: float = 1500.0
+    city_radius_m: float = 470.0          # flattened plateau (0: none; city mode uses pads)
     city_z: float = 18.0
     heightmap: str | None = None          # project-relative PNG instead of generating
     z_range: Vec2 = (-40.0, 160.0)        # PNG 0..65535 <-> metres
+
+
+class CivicNode(BaseModel):
+    """A circular civic centre of a city (city mode): plaza, rings and civic buildings,
+    avenues radiating out. Monuments are rare: at most one per node, and most have none."""
+    id: str
+    center: Vec2
+    radius: float = Field(default=200.0, gt=40)   # civic core (plaza + rings + civic blocks)
+    role: Literal["forum", "harbour", "market", "hill", "local"] = "local"
+    monument: Literal["rotunda", "temple"] | None = None
+    radials: int = Field(default=6, ge=0, le=16)
+    rot: float = 0.0                      # angle of the first radial
+    spiral_deg_per_100m: float = 0.0      # avenues curve (a spiral "galaxy" arm); 0 = straight
+    avenue_m: float = 1200.0              # how far its avenues reach into the city
+    weight: float = Field(default=1.0, gt=0)      # pull on the density field (size of its core)
+    notes: str = ""                       # character, fed to frame prompts as a district
+
+
+class CitySpec(BaseModel):
+    """City-scale layout mode: civic nodes, terrain-following avenues, organic blocks and
+    parcels between them, and a density field from dense mid-rise cores to low-rise
+    outskirts. Housing (everything outside the civic cores) is lightweight instanced
+    massing grouped per tile, never a per-building asset."""
+    seed: int = 7
+    nodes: list[CivicNode] = Field(default_factory=list)
+    bounds: tuple[float, float, float, float] = (-2500.0, -1500.0, 2500.0, 1500.0)  # x0, y0, x1, y1
+    density_falloff_m: float = 650.0      # node pull: exp(-(d / (falloff * weight)) ^ 2)
+    urban_threshold: float = 0.12         # below this density: countryside (fraying edge)
+    max_slope: float = 0.3                # steeper than this: no building (rise / run)
+    avenue_w: float = 24.0
+    arterial_w: float = 18.0
+    street_w: float = 9.0
+    promenade_w: float = 20.0
+    block_m: tuple[float, float] = (90.0, 170.0)   # block size: dense core .. outskirts
+    parcel_m: tuple[float, float] = (22.0, 34.0)   # parcel frontage: core .. outskirts
+    storeys: tuple[int, int, int, int] = (5, 8, 2, 3)  # core min..max, outskirts min..max
+    storey_m: float = 3.4
+    green_corridors: int = Field(default=3, ge=0)  # valleys from the hills to the sea
+    corridor_w: float = 70.0
+    park_share: float = 0.06              # extra blocks left green, mostly at the outskirts
+    markets: int = Field(default=4, ge=0) # market squares at avenue crossings
+    trees: bool = True                    # street and park trees (stand-ins for the scatter)
+    tile_m: float = 400.0                 # housing and streets grouped into slots per tile
 
 
 class ShotSpec(BaseModel):
@@ -233,6 +284,7 @@ class SiteLayout(BaseModel):
     sea_level: float = 0.0
     terrain: TerrainSpec = Field(default_factory=TerrainSpec)
     districts: list[District] = Field(default_factory=list)
+    city: CitySpec | None = None          # city-scale mode (sw_city): expands into the rest
     materials: list[Material] = Field(default_factory=list)
     kits: list[Kit] = Field(default_factory=list)
     rings: list[Ring] = Field(default_factory=list)

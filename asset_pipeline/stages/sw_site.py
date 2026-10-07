@@ -11,6 +11,7 @@ Layout under the project:
     site/greybox.json            slots + shots + untagged meshes, read from the .blend
     site/build.json              sha256 of the .blend as last built or written by the pipeline
     site/build/                  spec.json + terrain.npy handed to Blender, blender.log
+    site/city.json + city_plan.png   city mode: the plan's stats and a top-down plan
 """
 import hashlib
 import json
@@ -22,14 +23,16 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .. import blender, config, greybox
+from .. import blender, city, config, greybox
 from ..project import ProjectStore, read_json, write_json
-from ..schema import (District, Kit, Plaza, Plot, Radial, Ring, RingRow, SiteLayout, Shot,
-                      ShotSpec, Slot)
+from ..schema import (CitySpec, CivicNode, District, Kit, Plaza, Plot, Radial, Ring, RingRow, SiteLayout,
+                      Shot, ShotSpec, Slot, TerrainSpec)
 
 SITE = "site"
 SCRIPT = config.REPO_ROOT / "scripts" / "blender_greybox.py"
 BLENDER_TERRAIN_MAX = 337   # samples per side of the greybox terrain mesh (~7 m on 2.4 km)
+BLENDER_TERRAIN_STEP_M = 8.0  # finer than this isn't needed; larger sites get more samples
+BLENDER_TERRAIN_CAP = 1009
 
 
 class SiteEdited(ValueError):
@@ -83,14 +86,45 @@ def starter_layout() -> SiteLayout:
                ShotSpec(id="street", pos=(0, -52, 19.7), look_at=(0, 0, 28), lens_mm=24)])
 
 
-def init(store: ProjectStore, layout_file: Path | None = None, force: bool = False) -> SiteLayout:
-    """Copy a layout (default: the neutral starter) into the project's site/ and switch the
-    project to world mode."""
+def starter_city() -> SiteLayout:
+    """A neutral city-mode layout (no project content): a coast, four civic nodes of
+    different sizes, one monument."""
+    return SiteLayout(
+        name="starter city",
+        terrain=TerrainSpec(extent_m=8000, resolution=2017, shore_m=1400, headland_m=150, headland_width_m=900,
+                            hill_height_m=180, hill_from_m=300, hill_to_m=3200, coast_amp_m=160,
+                            coast_wavelength_m=2600, city_radius_m=0, z_range=(-60, 400)),
+        kits=[Kit(id="civic", module_m=4, storey_m=6, column_d_m=0.9)],
+        city=CitySpec(nodes=[
+            CivicNode(id="centre", center=(0, -600), radius=300, role="forum", monument="rotunda", radials=8,
+                      spiral_deg_per_100m=4, weight=1.3, avenue_m=1800),
+            CivicNode(id="harbour", center=(-1500, -1120), radius=170, role="harbour", radials=5, rot=20),
+            CivicNode(id="market", center=(1500, -500), radius=150, role="market", radials=6, rot=10, weight=0.8),
+            CivicNode(id="hill", center=(-600, 750), radius=200, role="hill", radials=6, weight=0.9)],
+            bounds=(-2500, -1500, 2500, 1500)))
+
+
+def city_shots(layout: SiteLayout) -> list[ShotSpec]:
+    """Auto-placed city-mode shots for a layout (terrain generated as the build would)."""
+    t = layout.terrain
+    h = greybox.make_terrain(t) if not t.heightmap else None
+    if h is None:
+        raise ValueError("city_shots needs a generated terrain")
+    return city.shots(layout, city.apply_pads(layout, h))
+
+
+def init(store: ProjectStore, layout_file: Path | None = None, force: bool = False,
+         city_mode: bool = False) -> SiteLayout:
+    """Copy a layout (default: the neutral starter, or with city_mode the starter city) into
+    the project's site/ and switch the project to world mode. A city layout without shots
+    gets the auto-placed ones."""
     dst = site_dir(store) / "layout.json"
     if dst.exists() and not force:
         raise FileExistsError(f"{dst} exists (use force to replace it)")
     layout = (SiteLayout.model_validate(json.loads(Path(layout_file).read_text())) if layout_file
-              else starter_layout())
+              else starter_city() if city_mode else starter_layout())
+    if layout.city is not None and not layout.shots:
+        layout.shots = city_shots(layout)
     save_layout(store, layout)
     project = store.load()
     project.mode = "world"
@@ -124,6 +158,8 @@ def terrain(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
         h = greybox.from_png16(a, t.z_range)
     else:
         h = greybox.make_terrain(t)
+    if layout.city is not None:
+        h = city.apply_pads(layout, h)
     lo, hi = float(h.min()), float(h.max())
     if lo < t.z_range[0] or hi > t.z_range[1]:
         raise ValueError(f"terrain spans {lo:.1f}..{hi:.1f} m, outside z_range {t.z_range}: widen it")
@@ -154,10 +190,13 @@ def build(store: ProjectStore, force: bool = False) -> dict:
     spec = greybox.build_spec(layout, h)
     work = site_dir(store) / "build"
     work.mkdir(parents=True, exist_ok=True)
-    small = _downsample(h, BLENDER_TERRAIN_MAX)
+    small = _downsample(h, max(BLENDER_TERRAIN_MAX, min(BLENDER_TERRAIN_CAP,
+                                                        math.ceil(layout.terrain.extent_m / BLENDER_TERRAIN_STEP_M) + 1)))
     np.save(work / "terrain.npy", small)
     spec["terrain"]["npy"] = str(work / "terrain.npy")
     spec["terrain"]["resolution"] = int(small.shape[0])
+    if spec.get("city"):
+        write_json(site_dir(store) / "city.json", spec["city"])
     write_json(work / "spec.json", spec)
     if b.exists():
         shutil.copyfile(b, b.with_suffix(".prev.blend"))

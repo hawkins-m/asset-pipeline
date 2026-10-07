@@ -46,7 +46,11 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "villa": "courtyard villas", "garden": "lush gardens", "canal": "a canal",
               "pool": "reflecting pools", "avenue": "broad paved avenues", "radial": "a broad paved avenue",
               "plaza": "a circular paved plaza", "terrace": "terraces", "sea": "the sea",
-              "terrain": "the landscape"}
+              "terrain": "the landscape",
+              # city mode
+              "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
+              "street": "narrow streets", "park": "parks, gardens and tree-lined green corridors",
+              "market": "a market square with stalls", "quay": "harbour piers"}
 SUFFIX = "cinematic environment concept art, one coherent city, consistent architecture"
 
 

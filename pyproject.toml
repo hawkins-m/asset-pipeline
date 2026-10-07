@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2",
     "pillow",
     "numpy",
+    "shapely>=2",
     "python-multipart",
     "google-genai",
     "anthropic",

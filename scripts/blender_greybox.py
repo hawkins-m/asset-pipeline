@@ -43,8 +43,12 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           "radial": (0.58, 0.56, 0.52), "plaza": (0.62, 0.60, 0.56), "garden": (0.16, 0.30, 0.10),
           "canal": (0.08, 0.22, 0.32), "pool": (0.10, 0.30, 0.40), "terrace": (0.50, 0.48, 0.42),
           "temple": (0.80, 0.78, 0.72), "rotunda": (0.85, 0.84, 0.80), "stoa": (0.76, 0.74, 0.68),
-          "block": (0.62, 0.60, 0.56), "villa": (0.82, 0.80, 0.74)}
+          "block": (0.62, 0.60, 0.56), "villa": (0.82, 0.80, 0.74),
+          "housing": (0.66, 0.58, 0.50), "houses": (0.74, 0.66, 0.56), "street": (0.50, 0.49, 0.46),
+          "park": (0.20, 0.34, 0.12), "market": (0.70, 0.55, 0.30), "quay": (0.60, 0.58, 0.54),
+          "tree": (0.10, 0.24, 0.08)}
 WATER = {"pool-water", "court-pool", "canal"}
+MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 
 
 def log(msg):
@@ -85,6 +89,42 @@ def _gable(bm, p):
         bm.faces.new([v[i] for i in f])
 
 
+def _ribbon(bm, p):
+    """A strip of width w along a draped polyline, h thick (top faces up)."""
+    pts = [Vector(q) for q in p["pts"]]
+    w, h = p["w"] / 2, p["h"]
+    rows = []
+    for i, q in enumerate(pts):
+        a = pts[max(i - 1, 0)]
+        b = pts[min(i + 1, len(pts) - 1)]
+        t = Vector((b.x - a.x, b.y - a.y, 0))
+        if t.length < 1e-6:
+            t = Vector((1, 0, 0))
+        t.normalize()
+        n = Vector((-t.y, t.x, 0))
+        rows.append([bm.verts.new(q + n * s + Vector((0, 0, z))) for s, z in ((-w, 0), (w, 0), (w, h), (-w, h))])
+    for i in range(len(rows) - 1):
+        for k in range(4):
+            kk = (k + 1) % 4
+            bm.faces.new((rows[i][k], rows[i + 1][k], rows[i + 1][kk], rows[i][kk]))
+    bm.faces.new(rows[0][::-1])
+    bm.faces.new(rows[-1])
+
+
+def _poly(bm, p):
+    """A slab over a polygon outline: top at z + h per vertex, bottom at z, triangulated."""
+    pts = [Vector(q) for q in p["pts"]]
+    if len(pts) > 1 and (pts[0] - pts[-1]).length < 1e-6:
+        pts = pts[:-1]
+    top = [bm.verts.new(q + Vector((0, 0, p["h"]))) for q in pts]
+    bot = [bm.verts.new(q) for q in pts]
+    caps = [bm.faces.new(top), bm.faces.new(bot[::-1])]
+    for i in range(len(pts)):
+        j = (i + 1) % len(pts)
+        bm.faces.new((bot[i], bot[j], top[j], top[i]))
+    bmesh.ops.triangulate(bm, faces=caps, quad_method="BEAUTY", ngon_method="BEAUTY")
+
+
 def make_mesh(prim, name):
     bm = bmesh.new()
     k = prim["kind"]
@@ -105,6 +145,10 @@ def make_mesh(prim, name):
         _arc(bm, prim)
     elif k == "gable":
         _gable(bm, prim)
+    elif k == "ribbon":
+        _ribbon(bm, prim)
+    elif k == "poly":
+        _poly(bm, prim)
     else:
         raise ValueError(f"unknown primitive {k}")
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
@@ -173,7 +217,7 @@ def shot_camera(s, cam_obj=None):
     cam.lens = s.get("lens_mm", 35.0)
     cam.sensor_width = s.get("sensor_mm", 36.0)
     cam.sensor_fit = "HORIZONTAL"
-    cam.clip_start, cam.clip_end = 0.1, 20000.0
+    cam.clip_start, cam.clip_end = 0.1, 100000.0
     cam_obj.location = pos
     cam_obj.rotation_euler = (look - pos).to_track_quat("-Z", "Y").to_euler()
     res = s.get("resolution", [1344, 768])
@@ -198,7 +242,7 @@ def build(spec_path, out):
     set_props(terrain, ap_id="terrain", ap_type="terrain", ap_category="terrain", ap_kit=None,
               ap_district=None, ap_piece="terrain")
     terrain.color = (*COLORS["terrain"], 1)
-    sea_size = spec["terrain"]["extent_m"] * 4
+    sea_size = max(spec["terrain"]["extent_m"] * 4, 100000.0)   # to the horizon of a high wide
     bm = bmesh.new()
     bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=sea_size / 2)
     sm = bpy.data.meshes.new("sea")
@@ -224,7 +268,34 @@ def build(spec_path, out):
         set_props(e, ap_id=s["id"], ap_type=s["type"], ap_category=s["category"], ap_kit=s.get("kit"),
                   ap_district=s.get("district"))
         col = COLORS.get(s["type"], (0.7, 0.7, 0.7))
+        # draped pieces (streets, lawns) are unique anyway: one merged mesh per slot and piece
+        merged = {}
         for p in s["pieces"]:
+            if p["prim"]["kind"] in MERGED:
+                merged.setdefault(p["piece"], []).append(p)
+        for piece, ps in merged.items():
+            bm = bmesh.new()
+            for p in ps:
+                n0 = len(bm.verts)
+                {"ribbon": _ribbon, "poly": _poly}[p["prim"]["kind"]](bm, p["prim"])
+                bm.verts.ensure_lookup_table()
+                off = Vector(p["loc"])
+                for v in bm.verts[n0:]:
+                    v.co += off
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+            me = bpy.data.meshes.new(f"{s['id']}.{piece}")
+            bm.to_mesh(me)
+            bm.free()
+            me.materials.append(mat)
+            o = bpy.data.objects.new(f"{s['id']}.{piece}", me)
+            o.parent = e
+            o["ap_piece"] = piece
+            o.color = (*COLORS.get(piece, col), 1)
+            coll.objects.link(o)
+            n_pieces += 1
+        for p in s["pieces"]:
+            if p["prim"]["kind"] in MERGED:
+                continue
             key = json.dumps(p["prim"], sort_keys=True)
             me = meshes.get(key)
             if me is None:
@@ -235,8 +306,10 @@ def build(spec_path, out):
             o.parent = e
             o.location = p["loc"]
             o.rotation_euler = (0, 0, math.radians(p["rot_z"]))
+            if "scale" in p:
+                o.scale = p["scale"]
             o["ap_piece"] = p["piece"]
-            o.color = (*(COLORS["pool"] if p["piece"] in WATER else COLORS.get(p["piece"], col)), 1)
+            o.color = (*(COLORS["pool"] if p["piece"] in WATER else COLORS.get(p["piece"], COLORS.get(p["piece"].split(":")[0], col))), 1)
             coll.objects.link(o)
             n_pieces += 1
     for s in spec.get("shots", []):

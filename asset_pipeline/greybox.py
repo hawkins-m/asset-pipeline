@@ -11,6 +11,12 @@ Primitives (origin at the bottom centre unless noted, sizes in metres):
     dome     r, seg              hemisphere standing on z = 0
     arc      r_in, r_out, a0, a1, h, seg   ring segment around the piece origin
                                            (a0 = 0, a1 = 360: closed annulus)
+    ribbon   pts [[x, y, z]...], w, h      strip along a polyline, draped (z per point,
+                                           relative to the slot): streets on terrain
+    poly     pts [[x, y, z]...], h         flat-topped slab over a polygon outline (squares,
+                                           parks); z per vertex, relative to the slot
+A piece may carry "scale": [sx, sy, sz]. Instanced massing (city housing) is one unit box
+scaled per piece, so thousands of buildings share one mesh.
 
 Kit pieces are named "<kit>:<piece>" and snap to the kit's module, so a kit has a small,
 fixed piece list (column base/shaft/capital, entablature, ...); curved pieces exist once
@@ -33,7 +39,10 @@ ROW_SKIP_M = 4.0     # extra clearance to a radial avenue when spreading ring ro
 CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rotunda": "building",
             "stoa": "structure", "plaza": "terrain", "pool": "structure", "avenue": "terrain",
             "canal": "terrain", "garden": "terrain", "terrace": "terrain", "radial": "terrain",
-            "terrain": "terrain", "sea": "terrain"}
+            "terrain": "terrain", "sea": "terrain",
+            # city mode (asset_pipeline/city.py)
+            "housing": "building", "houses": "building", "street": "terrain", "park": "terrain",
+            "market": "structure", "quay": "structure"}
 DEFAULT_KIT = Kit(id="default")
 
 
@@ -62,24 +71,45 @@ def grid_coords(t: TerrainSpec) -> tuple[np.ndarray, np.ndarray]:
     return np.meshgrid(s, s[::-1])
 
 
+def sea_axes(t: TerrainSpec) -> tuple[np.ndarray, np.ndarray]:
+    """Unit vectors: towards the sea, and along the coast (lateral)."""
+    u = np.array([math.cos(math.radians(t.sea_dir)), math.sin(math.radians(t.sea_dir))])
+    return u, np.array([-u[1], u[0]])
+
+
+def shore_at(t: TerrainSpec, lateral):
+    """Distance from the origin to the shoreline, towards the sea, at a lateral position:
+    the headland plus seeded bays and points (sum of three sines)."""
+    lateral = np.asarray(lateral, dtype=np.float64)
+    out = t.shore_m + t.headland_m * np.exp(-(lateral / t.headland_width_m) ** 2)
+    if t.coast_amp_m:
+        rng = np.random.default_rng(t.seed + 101)
+        for k, share in ((1.0, 0.6), (2.3, 0.28), (5.1, 0.12)):
+            out = out + t.coast_amp_m * share * np.sin(2 * math.pi * k * lateral / t.coast_wavelength_m
+                                                       + rng.uniform(0, 2 * math.pi))
+    return out
+
+
 def make_terrain(t: TerrainSpec) -> np.ndarray:
     """Fictional coastal terrain (float32 metres, rows north -> south): sea towards sea_dir,
-    a headland bulging out in front of the city, hills inland, the city a flat plateau."""
+    a headland (and with coast_amp_m, bays and points) on the shore, hills inland, and
+    unless city_radius_m is 0, the city a flat plateau."""
     x, y = grid_coords(t)
     rng = np.random.default_rng(t.seed)
-    u = np.array([math.cos(math.radians(t.sea_dir)), math.sin(math.radians(t.sea_dir))])
+    u, v = sea_axes(t)
     along = x * u[0] + y * u[1]                     # towards the sea
-    lateral = -x * u[1] + y * u[0]
-    shore = t.shore_m + t.headland_m * np.exp(-(lateral / t.headland_width_m) ** 2)
-    inland = shore - along                          # > 0 on land
+    lateral = x * v[0] + y * v[1]
+    inland = shore_at(t, lateral) - along           # > 0 on land
     n = t.resolution
     noise = (0.6 * _value_noise(n, 4, rng) + 0.3 * _value_noise(n, 9, rng)
              + 0.1 * _value_noise(n, 23, rng))
     land = (8 * (1 - np.exp(-np.maximum(inland, 0) / 30))        # low cliff at the shore
             + 0.03 * np.maximum(inland, 0)
-            + t.hill_height_m * _smoothstep(150, 900, inland) * (0.55 + 0.45 * noise))
+            + t.hill_height_m * _smoothstep(t.hill_from_m, t.hill_to_m, inland) * (0.55 + 0.45 * noise))
     sea = np.maximum(-0.08 * (-inland), -40.0)      # shelves down to -40 m
     h = np.where(inland > 0, land, sea)
+    if t.city_radius_m <= 0:
+        return h.astype(np.float32)
     r = np.hypot(x, y)
     w = 1 - _smoothstep(t.city_radius_m, t.city_radius_m + 90, r)
     return (h * (1 - w) + t.city_z * w).astype(np.float32)
@@ -113,6 +143,18 @@ class Heights:
         bot = self.h[i1, j0] * (1 - b) + self.h[i1, j1] * b
         return float(top * (1 - a) + bot * a)
 
+    def many(self, x, y) -> np.ndarray:
+        """Vectorised __call__ over arrays of points."""
+        n = self.h.shape[0]
+        fx = np.clip((np.asarray(x, float) / self.extent + 0.5) * (n - 1), 0, n - 1)
+        fy = np.clip((0.5 - np.asarray(y, float) / self.extent) * (n - 1), 0, n - 1)
+        i0, j0 = np.floor(fy).astype(int), np.floor(fx).astype(int)
+        i1, j1 = np.minimum(i0 + 1, n - 1), np.minimum(j0 + 1, n - 1)
+        a, b = fy - i0, fx - j0
+        top = self.h[i0, j0] * (1 - b) + self.h[i0, j1] * b
+        bot = self.h[i1, j0] * (1 - b) + self.h[i1, j1] * b
+        return top * (1 - a) + bot * a
+
 
 # --- Spec building --------------------------------------------------------------------------
 
@@ -129,15 +171,17 @@ class SlotBuilder:
                      "district": district, "loc": [round(v, 4) for v in loc], "rot_z": round(rot, 4),
                      "pieces": []}
 
-    def add(self, piece: str, prim: dict, loc, rot: float = 0.0) -> None:
+    def add(self, piece: str, prim: dict, loc, rot: float = 0.0, scale=None) -> None:
         """loc / rot in world coordinates."""
         ox, oy, oz = self.slot["loc"]
         lx, ly = _rot(loc[0] - ox, loc[1] - oy, -self.slot["rot_z"])
-        self.slot["pieces"].append({
-            "name": f"{self.slot['id']}.{piece}.{len(self.slot['pieces']):03d}",
-            "piece": piece, "prim": prim,
-            "loc": [round(lx, 4), round(ly, 4), round(loc[2] - oz, 4)],
-            "rot_z": round((rot - self.slot["rot_z"]) % 360, 4)})
+        p = {"name": f"{self.slot['id']}.{piece}.{len(self.slot['pieces']):03d}",
+             "piece": piece, "prim": prim,
+             "loc": [round(lx, 4), round(ly, 4), round(loc[2] - oz, 4)],
+             "rot_z": round((rot - self.slot["rot_z"]) % 360, 4)}
+        if scale is not None:
+            p["scale"] = [round(v, 3) for v in scale]
+        self.slot["pieces"].append(p)
 
     def add_local(self, piece: str, prim: dict, lx: float, ly: float, lz: float, lrot: float = 0.0) -> None:
         """loc / rot relative to the slot."""
@@ -152,6 +196,18 @@ def box(w, d, h):
 
 def cyl(r, h, seg=16):
     return {"kind": "cylinder", "r": round(r, 3), "h": round(h, 3), "seg": seg}
+
+
+def ribbon(pts, w, h=0.1):
+    """pts relative to the piece origin: [[x, y, z], ...]."""
+    return {"kind": "ribbon", "pts": [[round(c, 2) for c in p] for p in pts], "w": round(w, 2), "h": round(h, 2)}
+
+
+def poly(pts, h=0.1):
+    return {"kind": "poly", "pts": [[round(c, 2) for c in p] for p in pts], "h": round(h, 2)}
+
+
+UNIT_BOX = {"kind": "box", "w": 1.0, "d": 1.0, "h": 1.0}
 
 
 def arc(r_in, r_out, a0, a1, h, seg=None):
@@ -318,7 +374,8 @@ def district_at(layout: SiteLayout, x: float, y: float) -> str | None:
 
 
 def expand_rows(layout: SiteLayout) -> list[Plot]:
-    """Explicit plots plus the plots of every ring row (skipping radial avenues)."""
+    """Explicit plots plus the plots of every ring row (skipping radial avenues around the
+    same centre)."""
     plots = list(layout.plots)
     for row in layout.rows:
         half_w = row.size[0] / 2
@@ -326,6 +383,8 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
             a = row.angle_offset + 360 * i / row.count
             blocked = False
             for rad in layout.radials:
+                if tuple(rad.center) != tuple(row.center):
+                    continue
                 if rad.r_from <= row.radius <= rad.r_to:
                     # angular half-width the plot needs to clear the avenue
                     need = math.degrees((rad.width / 2 + half_w + ROW_SKIP_M) / row.radius)
@@ -335,6 +394,7 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
             if blocked:
                 continue
             x, y = _rot(row.radius, 0, a)
+            x, y = x + row.center[0], y + row.center[1]
             h = row.size[2]
             if row.height_jitter:
                 h *= 1 + _seeded(layout.terrain.seed, f"{row.id}-{i}").uniform(-1, 1) * row.height_jitter
@@ -346,6 +406,11 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
 
 def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
     """The greybox build spec (JSON-able). `heights` is the terrain (rows north -> south)."""
+    city_plan = None
+    if layout.city is not None:
+        from . import city
+        city_plan = city.plan(layout, heights)
+        layout = city_plan.layout          # plus the civic cores
     t = layout.terrain
     hs = Heights(heights, t.extent_m)
     kits = {k.id: k for k in layout.kits}
@@ -361,13 +426,16 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         return sb
 
     for ring in layout.rings:
-        z = hs(ring.radius, 0)
-        sb = new(f"ring-{ring.id}", ring.role, (0, 0, z), district=district_at(layout, ring.radius, 0))
+        cx, cy = ring.center
+        z = hs(cx + ring.radius, cy)
+        sb = new(f"ring-{ring.id}", ring.role, (cx, cy, z),
+                 district=ring.district or district_at(layout, cx + ring.radius, cy))
         sb.add_local(ring.role, arc(ring.radius - ring.width / 2, ring.radius + ring.width / 2, 0, 360, 0.1, 128),
                      0, 0, PAVING_LIFT)
     for rad in layout.radials:
         mid = (rad.r_from + rad.r_to) / 2
         x, y = _rot(mid, 0, rad.angle)
+        x, y = x + rad.center[0], y + rad.center[1]
         sb = new(f"radial-{rad.id}", "radial", (x, y, hs(x, y)), rad.angle - 90,
                  district=district_at(layout, x, y))
         sb.add_local("radial", box(rad.width, rad.r_to - rad.r_from, 0.1), 0, 0, RADIAL_LIFT)
@@ -398,9 +466,12 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         x, y = p.center
         sb = new(pid, p.type, (x, y, hs(x, y)), p.rot, p.kit, p.district or district_at(layout, x, y))
         {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda}[p.type](sb, p, kit)
+    if city_plan is not None:
+        city.add_slots(city_plan, new, hs)
     return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},
             "sea_level": layout.sea_level, "slots": slots,
-            "shots": [s.model_dump(mode="json") for s in layout.shots]}
+            "shots": [s.model_dump(mode="json") for s in layout.shots],
+            "city": city_plan.stats if city_plan is not None else None}
 
 
 def piece_counts(spec: dict) -> dict[str, int]:
