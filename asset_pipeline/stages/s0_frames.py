@@ -97,9 +97,8 @@ def visible(store: ProjectStore, shot: str) -> tuple[list[tuple[str, float]], li
 
 
 def _matches(m: Material, slot: dict) -> bool:
-    if slot.get("material"):              # tagged (city typologies, landmark ensembles)
-        return slot["material"] == m.id
-    return slot["type"] in m.types and (not m.districts or slot.get("district") in m.districts)
+    found = sw_site.material_of(slot, [m])
+    return found is not None
 
 
 def visible_materials(store: ProjectStore, shot: str) -> list[tuple[Material, float]]:

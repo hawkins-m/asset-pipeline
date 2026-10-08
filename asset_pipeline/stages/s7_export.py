@@ -58,6 +58,37 @@ def label(*parts: str) -> str:
     return "_".join(["AP"] + [re.sub(r"[^A-Za-z0-9-]+", "-", p) for p in parts if p])
 
 
+# Starting PBR values for a layout material, from words in its description (first match
+# wins, in this order): (tint, roughness, metallic). Only a start: tune them in Unreal
+# on MI_mat_<id>, and re-imports keep your values.
+MATERIAL_HINTS = [
+    ("verdigris", (0.25, 0.48, 0.40), 0.55, 0.6), ("copper", (0.55, 0.30, 0.20), 0.4, 1.0),
+    ("bronze", (0.22, 0.16, 0.11), 0.45, 1.0), ("glass", (0.04, 0.05, 0.06), 0.08, 0.0),
+    ("water", (0.05, 0.16, 0.22), 0.04, 0.0), ("terracotta", (0.55, 0.26, 0.15), 0.8, 0.0),
+    ("brick", (0.50, 0.25, 0.15), 0.85, 0.0), ("salmon", (0.72, 0.47, 0.36), 0.7, 0.0),
+    ("render", (0.80, 0.74, 0.64), 0.85, 0.0), ("ochre", (0.70, 0.52, 0.30), 0.75, 0.0),
+    ("tufa", (0.56, 0.49, 0.36), 0.85, 0.0),
+    ("travertine", (0.72, 0.64, 0.50), 0.6, 0.0), ("concrete", (0.56, 0.55, 0.52), 0.8, 0.0),
+    ("marble", (0.82, 0.81, 0.78), 0.25, 0.0), ("limestone", (0.78, 0.74, 0.64), 0.6, 0.0),
+    ("paving", (0.60, 0.58, 0.54), 0.7, 0.0)]
+GLOSS = {"polished": 0.6, "honed": 0.9, "rough": 1.2, "weathered": 1.1}   # roughness factors
+
+
+def material_pbr(words: str) -> dict:
+    """{tint, pbr: {Roughness, Metallic}} as a starting point for a layout material."""
+    w = words.lower()
+    tint, rough, metal = BUILDING_TINT, 0.75, 0.0
+    for key, t, r, m in MATERIAL_HINTS:
+        if key in w:
+            tint, rough, metal = t, r, m
+            break
+    for key, f in GLOSS.items():
+        if key in w:
+            rough *= f
+    return {"tint": [round(v, 3) for v in tint],
+            "pbr": {"Roughness": round(min(max(rough, 0.02), 1.0), 3), "Metallic": metal}}
+
+
 def _tint(slot_type: str, piece: str) -> list[float]:
     if piece in WATER:
         return list(TINTS["pool"] if piece != "sea" else TINTS["sea"])
@@ -82,8 +113,10 @@ def manifest(gb: dict, index: dict, layout=None, project: str = "") -> dict:
         district = s.get("district") or "site"
         tags = [f"ap:id={s['id']}", f"ap:type={s['type']}", "ap:source=pipeline"]
         tags += [f"ap:kit={s['kit']}"] * bool(s.get("kit")) + [f"ap:district={s['district']}"] * bool(s.get("district"))
+        mat = sw_site.material_of(s, layout.materials) if layout is not None else None
         slots.append({"id": s["id"], "type": s["type"], "category": s["category"], "kit": s.get("kit"),
-                      "district": s.get("district"), "label": label(district, s["id"]),
+                      "district": s.get("district"), "material": mat.id if mat else None,
+                      "label": label(district, s["id"]),
                       "folder": f"AP/{district}/{s['category']}", "tags": tags,
                       "transform": ue_coords.to_ue(s["matrix"]),
                       "components": [{"asset": a, "instances": inst} for a, inst in sorted(comps.items())]})
@@ -104,6 +137,7 @@ def manifest(gb: dict, index: dict, layout=None, project: str = "") -> dict:
                         "shots": [s["id"] for s in shots]},
            "map": f"/Game/AP/Maps/{name}"}
     if layout is not None:
+        out["materials"] = [{"id": m.id, "words": m.words, **material_pbr(m.words)} for m in layout.materials]
         t = layout.terrain
         lo, hi = t.z_range
         out["landscape"] = {

@@ -155,3 +155,17 @@ def test_backup_refuses_while_the_editor_has_the_project_open(ue_project, monkey
     with pytest.raises(RuntimeError, match="open"):
         ue.backup(store)
     assert ue.backup(store, force=True)["files"] > 0
+
+
+def test_manifest_carries_layout_materials_with_starting_pbr_and_slot_tags():
+    from asset_pipeline.schema import Material
+    layout = sw_site.starter_layout()
+    layout.materials = [Material(id="stone", words="polished white marble", types=["rotunda"]),
+                        Material(id="metal", words="dark patinated bronze")]
+    gb = json.loads(json.dumps(GB))
+    gb["slots"][0]["material"] = "metal"
+    m = s7_export.manifest(gb, INDEX, layout, "w")
+    mats = {x["id"]: x for x in m["materials"]}
+    assert mats["metal"]["pbr"]["Metallic"] == 1.0 and mats["stone"]["pbr"]["Roughness"] < 0.2   # polished
+    assert m["slots"][0]["material"] == "metal"                              # the slot's own tag wins
+    assert s7_export.material_pbr("rough unknown stuff")["pbr"]["Roughness"] == 0.9

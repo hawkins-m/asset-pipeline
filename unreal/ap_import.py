@@ -6,8 +6,11 @@ editor: `py /path/to/ap_import.py /path/to/args.json`. args.json:
      "reset_layout": false, "prune": false}
 
 What it builds (all under /Game/AP):
-    Materials/M_AP_PBR                       master material (base colour texture x tint,
-                                             normal texture, roughness, metallic)
+    Materials/M_AP_PBR                       master material: BaseColorTex x Tint;
+                                             RoughnessTex.G x Roughness x RoughnessMultiplier;
+                                             Metallic; NormalTex scaled by NormalStrength
+    Materials/Instances/MI_mat_<id>          one instance per layout material (stone, brick...),
+                                             applied to the slots tagged with it
     Library/<id>/SM_<id>, MI_<id>            one Nanite static mesh + material instance per asset
     Maps/<Name>                              the level:
         AP_<district>_<slot>   one actor per slot, an InstancedStaticMeshComponent
@@ -20,7 +23,11 @@ Ownership (the UE level is the layout's source of truth once imported):
   - actors are found again by their tags (ap:id=<slot>, ap:shot=<shot>);
   - an actor's transform is only set when it's created, or with reset_layout;
   - the pipeline owns, and rewrites on every import: meshes, the instances inside a slot,
-    materials, camera lens and the sequence's camera cuts;
+    camera lens and the sequence's camera cuts;
+  - material instances: every one exposes Tint, Roughness, RoughnessMultiplier, Metallic
+    and NormalStrength. The pipeline writes a parameter only while it still holds the
+    value the pipeline wrote last (tag ap:pbr:<name>): once you change it in Unreal, it's
+    yours and re-imports keep it;
   - tags not starting with "ap:" are kept;
   - pipeline actors missing from the manifest are reported, and deleted only with prune.
 """
@@ -36,7 +43,9 @@ LIB = "/Game/AP/Library"
 MATERIAL = "/Game/AP/Materials/M_AP_PBR"
 TMP = "/Game/AP/_import"
 CINE = "/Game/AP/Cinematics"
-MATERIAL_VERSION = "2"   # bump when the master graph changes: it's rebuilt in place
+MATERIAL_VERSION = "3"   # bump when the master graph changes: it's rebuilt in place
+MAT_INSTANCES = "/Game/AP/Materials/Instances"
+PBR_DEFAULTS = {"Roughness": 0.75, "RoughnessMultiplier": 1.0, "Metallic": 0.0, "NormalStrength": 1.0}
 
 eal = unreal.EditorAssetLibrary
 mel = unreal.MaterialEditingLibrary
@@ -93,14 +102,37 @@ def master_material():
     mel.connect_material_expressions(base, "RGB", mul, "A")
     mel.connect_material_expressions(tint, "", mul, "B")
     mel.connect_material_property(mul, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    rough = expr(unreal.MaterialExpressionScalarParameter, -500, 50, parameter_name="Roughness", default_value=0.75)
-    mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    metal = expr(unreal.MaterialExpressionScalarParameter, -500, 150, parameter_name="Metallic", default_value=0.0)
+    # roughness: texture (G, white by default) x Roughness x RoughnessMultiplier, clamped
+    rtex = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, 50, parameter_name="RoughnessTex",
+                texture=engine_asset("/Engine/EngineResources/WhiteSquareTexture"))
+    rough = expr(unreal.MaterialExpressionScalarParameter, -1300, 300, parameter_name="Roughness",
+                 default_value=PBR_DEFAULTS["Roughness"])
+    rmul = expr(unreal.MaterialExpressionScalarParameter, -1300, 400, parameter_name="RoughnessMultiplier",
+                default_value=PBR_DEFAULTS["RoughnessMultiplier"])
+    m1 = expr(unreal.MaterialExpressionMultiply, -900, 100)
+    mel.connect_material_expressions(rtex, "G", m1, "A")
+    mel.connect_material_expressions(rough, "", m1, "B")
+    m2 = expr(unreal.MaterialExpressionMultiply, -700, 150)
+    mel.connect_material_expressions(m1, "", m2, "A")
+    mel.connect_material_expressions(rmul, "", m2, "B")
+    sat = expr(unreal.MaterialExpressionSaturate, -500, 150)
+    mel.connect_material_expressions(m2, "", sat, "")
+    mel.connect_material_property(sat, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    metal = expr(unreal.MaterialExpressionScalarParameter, -500, 300, parameter_name="Metallic",
+                 default_value=PBR_DEFAULTS["Metallic"])
     mel.connect_material_property(metal, "", unreal.MaterialProperty.MP_METALLIC)
-    normal = expr(unreal.MaterialExpressionTextureSampleParameter2D, -900, 250, parameter_name="NormalTex",
+    # normal: lerp from flat (0, 0, 1) to the texture by NormalStrength (> 1 exaggerates)
+    normal = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, 550, parameter_name="NormalTex",
                   texture=engine_asset("/Engine/EngineMaterials/DefaultNormal"),
                   sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)
-    mel.connect_material_property(normal, "RGB", unreal.MaterialProperty.MP_NORMAL)
+    flat = expr(unreal.MaterialExpressionConstant3Vector, -900, 500, constant=unreal.LinearColor(0, 0, 1, 1))
+    nstr = expr(unreal.MaterialExpressionScalarParameter, -900, 750, parameter_name="NormalStrength",
+                default_value=PBR_DEFAULTS["NormalStrength"])
+    lerp = expr(unreal.MaterialExpressionLinearInterpolate, -500, 550)
+    mel.connect_material_expressions(flat, "", lerp, "A")
+    mel.connect_material_expressions(normal, "RGB", lerp, "B")
+    mel.connect_material_expressions(nstr, "", lerp, "Alpha")
+    mel.connect_material_property(lerp, "", unreal.MaterialProperty.MP_NORMAL)
     mel.recompile_material(m)
     eal.set_metadata_tag(m, "ap:version", MATERIAL_VERSION)
     eal.save_loaded_asset(m)
@@ -108,16 +140,62 @@ def master_material():
     return m
 
 
-def material_instance(asset, master):
-    aid = asset["id"]
-    path = f"{LIB}/{aid}/MI_{aid}"
+def _fmt(v):
+    return ",".join(f"{x:.4f}" for x in v) if isinstance(v, (list, tuple)) else f"{v:.4f}"
+
+
+def set_pbr(mi, values, report=None):
+    """Write the PBR parameters on an instance, each only while it still holds what the
+    pipeline wrote last time (a value changed in Unreal is the user's and is kept). Every
+    parameter is written once, so all of them show as overridden (editable) on the MI."""
+    kept = []
+    for name, v in values.items():
+        tag = f"ap:pbr:{name}"
+        last = eal.get_metadata_tag(mi, tag)
+        if name == "Tint":
+            c = mel.get_material_instance_vector_parameter_value(mi, name)
+            cur = _fmt([c.r, c.g, c.b])
+        else:
+            cur = _fmt(mel.get_material_instance_scalar_parameter_value(mi, name))
+        if last and cur != last:
+            kept.append(name)
+            continue
+        if name == "Tint":
+            mel.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(*v, 1.0))
+        else:
+            mel.set_material_instance_scalar_parameter_value(mi, name, float(v))
+        eal.set_metadata_tag(mi, tag, _fmt(v))
+    if kept and report is not None:
+        report["materials_kept"].append(f"{mi.get_name()}: {', '.join(kept)}")
+
+
+def _instance(path, master):
+    folder, name = path.rsplit("/", 1)
     mi = eal.load_asset(path) if eal.does_asset_exist(path) else tools.create_asset(
-        f"MI_{aid}", f"{LIB}/{aid}", unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        name, folder, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
     mel.set_material_instance_parent(mi, master)
-    mel.set_material_instance_vector_parameter_value(mi, "Tint", unreal.LinearColor(*asset["tint"], 1.0))
+    return mi
+
+
+def material_instance(asset, master, report=None):
+    aid = asset["id"]
+    mi = _instance(f"{LIB}/{aid}/MI_{aid}", master)
+    set_pbr(mi, {"Tint": asset["tint"], **PBR_DEFAULTS, **asset.get("pbr", {})}, report)
     mel.update_material_instance(mi)
     eal.save_loaded_asset(mi)
     return mi
+
+
+def layout_materials(man, master, report):
+    """One instance per layout material (MI_mat_<id>), for the slots tagged with it."""
+    out = {}
+    for m in man.get("materials", []):
+        mi = _instance(f"{MAT_INSTANCES}/MI_mat_{m['id']}", master)
+        set_pbr(mi, {"Tint": m["tint"], **PBR_DEFAULTS, **m.get("pbr", {})}, report)
+        mel.update_material_instance(mi)
+        eal.save_loaded_asset(mi)
+        out[m["id"]] = mi
+    return out
 
 
 # --- meshes ----------------------------------------------------------------------------------
@@ -235,7 +313,7 @@ def environment(eas, existing_env):
     return made
 
 
-def place_slots(man, meshes, eas, by_tag, args, report):
+def place_slots(man, meshes, eas, by_tag, args, report, mats=None):
     for s in man["slots"]:
         actor = by_tag.get(("ap:id", s["id"]))
         if actor is None:
@@ -257,6 +335,10 @@ def place_slots(man, meshes, eas, by_tag, args, report):
             ism.set_static_mesh(meshes[c["asset"]])
             ism.clear_instances()
             ism.add_instances([tr(t) for t in c["instances"]], False, False)
+            mat = (mats or {}).get(s.get("material"))
+            if mat is not None:       # the slot's material (stone, brick...) over the mesh's own
+                for i in range(ism.get_num_materials()):
+                    ism.set_material(i, mat)
         for name, comp in have.items():
             if name.startswith("ISM_") and name not in want:   # the slot no longer uses it
                 comp.clear_instances()
@@ -359,7 +441,7 @@ def main(args):
     root = os.path.dirname(args["manifest"])
     report = {"ok": False, "map": man["map"], "assets": {"imported": [], "skipped": []},
               "actors": {"created": [], "reset": [], "kept_transform": []}, "cameras": {"created": []},
-              "warnings": [], "environment": []}
+              "warnings": [], "environment": [], "materials_kept": []}
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     # the level is loaded first, so replacing a mesh updates every reference to it
@@ -370,8 +452,9 @@ def main(args):
     master = master_material()
     meshes = {}
     for a in man["assets"]:
-        meshes[a["id"]] = import_mesh(a, root, material_instance(a, master), report)
+        meshes[a["id"]] = import_mesh(a, root, material_instance(a, master, report), report)
     clean_tmp()
+    mats = layout_materials(man, master, report)
     by_tag = {}
     env = set()
     for a in eas.get_all_level_actors():
@@ -382,7 +465,7 @@ def main(args):
         if "ap:env" in tg:
             env.add(tg["ap:env"])
     report["environment"] = environment(eas, env)
-    place_slots(man, meshes, eas, by_tag, args, report)
+    place_slots(man, meshes, eas, by_tag, args, report, mats)
     cams = place_cameras(man, eas, by_tag, args, report)
     sequence(man, cams, report)
     known = {s["id"] for s in man["slots"]} | {s["id"] for s in man["shots"]}

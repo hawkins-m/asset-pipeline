@@ -283,6 +283,15 @@ def extract(store: ProjectStore) -> dict:
     return data
 
 
+def material_of(slot: dict, materials: list):
+    """The layout material a greybox slot uses: its own tag (city typologies, landmark
+    ensembles), else the first material listing its type (and district, if limited)."""
+    if slot.get("material"):
+        return next((m for m in materials if m.id == slot["material"]), None)
+    return next((m for m in materials if slot["type"] in m.types
+                 and (not m.districts or slot.get("district") in m.districts)), None)
+
+
 def geometry_sha(data: dict) -> str:
     """Hash of the slots alone (not the cameras): what every shot's passes depend on."""
     return hashlib.sha256(json.dumps(data["slots"], sort_keys=True).encode()).hexdigest()
