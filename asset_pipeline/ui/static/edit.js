@@ -120,6 +120,7 @@ const TIPS = {
     height_noise_scale_m: "City-wide scale of the height field, in metres: roughly the distance between a high and the next low. Smaller = choppier, larger = broad rises and dips across a district.",
     accent_chance: "City-wide chance (0 to 1) that a housing or mixed-use building of 3+ storeys within 90 m of an avenue crossing rises as an accent.",
     accent_storeys: "City-wide: storeys an accent building rises above its neighbours.",
+    corner_bonus: "City-wide: perimeter-block corners (the first and last building of each street edge with 2+ buildings) rise 1 to this many storeys above the rest. It marks the corners and adds height spread within a block. 0 = off.",
   },
 };
 const tipAttr = (section, key, mine) => {

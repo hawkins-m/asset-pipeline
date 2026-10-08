@@ -202,6 +202,7 @@ class Variation(BaseModel):
     height_noise_scale_m: float = Field(default=700.0, gt=0)  # distance between its highs and lows
     accent_chance: float = Field(default=0.0, ge=0, le=1)  # housing at an avenue crossing that rises
     accent_storeys: int = Field(default=3, ge=0)           # ... by this many storeys
+    corner_bonus: int = Field(default=0, ge=0)   # perimeter-block corners rise 1..this many storeys
 
 
 class RepetitionChecks(BaseModel):

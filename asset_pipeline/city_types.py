@@ -294,11 +294,11 @@ class Typer:
         return any(w in facade for w in COLUMN_FACADES) or float(self.rng.random()) < p
 
     def make(self, t: Typology, district, cx, cy, w, d, rot, block, avenue=False, run=None, last=None,
-             storeys=None) -> Building:
+             storeys=None, bonus: int = 0) -> Building:
         """A building of type t (local -Y faces the street). `last`: the previous building on
         the same frontage (its variant is avoided once a run gets long)."""
         c = self.c
-        st = storeys if storeys is not None else self._storeys(t, district, avenue, cx, cy)
+        st = storeys if storeys is not None else self._storeys(t, district, avenue, cx, cy) + bonus
         accent = False
         if (storeys is None and c.variation.accent_chance and t.family in ("housing", "mixed") and st >= 3
                 and self.near_crossing(cx, cy) and self.rng.random() < c.variation.accent_chance):
@@ -442,8 +442,11 @@ class Typer:
                     w = L_e / k - 0.4
                     if not self._ok(_rect(*ctr, w, dep, rot), P, avoid):
                         continue
+                    cb = self.c.variation.corner_bonus      # corners mark the block: a little taller
+                    corner = cb and k >= 2 and i in (0, k - 1)
                     last = self.add(self.make(t, district, float(ctr[0]), float(ctr[1]), w, dep, rot, bi,
-                                              avenue=on_av, run=(bi, ei), last=last))
+                                              avenue=on_av, run=(bi, ei), last=last,
+                                              bonus=int(self.rng.integers(1, cb + 1)) if corner else 0))
 
     def _edge_on_avenue(self, a, b) -> bool:
         if self.av_buf.is_empty:

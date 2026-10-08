@@ -173,6 +173,7 @@ ap site build my-project                            # then the greybox
   - `variation.height_noise` (storeys) and `height_noise_scale_m` set a smooth height
     field that drifts across each district;
   - `accent_chance` / `accent_storeys` raise the odd housing block at an avenue crossing.
+  - `corner_bonus` raises perimeter-block corners by 1 to that many storeys.
 - **Plot merging:** a single-building type (hall, cube, courtyard...) with a
   `merge_chance` may join its block with 1-3 neighbours into one large building, and the
   streets between them go. The district's `merge_chance` multiplies it (0 switches merging

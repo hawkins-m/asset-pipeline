@@ -413,6 +413,18 @@ reflects what was actually verified.
   how a value tuned in the editor is detected (metadata tag holds the pipeline's last
   write).
 
+- Height variation (2026-10-08): with storeys 4-10 and +-2 jitter, a perimeter block's
+  height spread (std / mean) lands around 0.21-0.30, even though it visibly runs from 4
+  to 10 storeys. A 0.3 minimum flags about a third of blocks; corner emphasis (+1-2
+  storeys) barely moves it. The district height field doesn't help within a block: it's
+  smooth over ~700 m. Treat ~0.2 as "varied" for mid-rise blocks.
+- Core blocks around a civic node are wedges (35-70% of their convex hull): a single
+  building centred on the bounding box falls outside. Centre it at the block's most
+  interior point (`polylabel`) and check type sizes against the inscribed circle.
+- Plot merging: STRtree neighbours include blocks across avenues (19-24 m); only join
+  blocks within street_w + 1 of each other. A local street is one long cut line across
+  several blocks: clip it to the merged outline rather than testing its midpoint.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

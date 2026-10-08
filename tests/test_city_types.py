@@ -186,6 +186,16 @@ def test_height_field_drifts_within_a_band_and_accents_rise_at_crossings(typed):
     assert P.stats["repetition"]["accents"] == len(acc)
 
 
+def test_corner_bonus_raises_perimeter_corners(typed):
+    from asset_pipeline.schema import Variation
+    L = typed.model_copy(deep=True)
+    L.city.variation = Variation(storeys_jitter=0, avenue_bonus=0, step_back_top=0)
+    h = heights(L)
+    base = city.plan(L, h).stats["repetition"]["height_cv_median"]
+    L.city.variation.corner_bonus = 2
+    assert city.plan(L, h).stats["repetition"]["height_cv_median"] > base
+
+
 def test_big_types_merge_neighbouring_blocks_and_drop_their_streets(typed):
     L = typed.model_copy(deep=True)
     for t in L.city.typologies:
