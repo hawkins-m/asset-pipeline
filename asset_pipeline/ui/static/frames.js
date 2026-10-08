@@ -45,7 +45,8 @@ function renderFramesNow() {
     const g = document.createElement("div"); g.className = "grid small";
     for (const [label, key] of [["greybox", r.preview], ["depth", r.depth], ["edges", r.canny]]) {
       const c = document.createElement("div"); c.className = "card";
-      c.innerHTML = `<a href="${fileUrl(key)}" target="_blank"><img loading="lazy" alt="" src="${fileUrl(key)}"></a><span class="label">${label}</span>`;
+      const u = fileUrl(key, `${fileVersion}-${r.rendered || ""}`);    // the pass's render time
+      c.innerHTML = `<a href="${u}" target="_blank"><img loading="lazy" alt="" src="${u}"></a><span class="label">${label}</span>`;
       g.append(c);
     }
     for (const b of [...r.batches].reverse())

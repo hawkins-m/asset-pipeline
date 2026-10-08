@@ -102,3 +102,9 @@ def test_regenerate_renders_stale_passes_first(world, client, monkeypatch):  # n
     calls.clear()
     _wait(client, client.post("/api/projects/w/shots/a/regenerate", json={"n": 1}).json()["id"])
     assert calls == [("render", ["a"]), ("generate", "a", 1)]
+
+
+def test_project_files_are_revalidated(world, client):  # noqa: F811
+    r = client.get("/files/w/shots/a/depth.png")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
+    assert client.get("/files/w/shots/a/depth.png", headers={"If-None-Match": r.headers["etag"]}).status_code == 304

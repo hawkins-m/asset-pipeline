@@ -17,7 +17,12 @@ async function api(path, body, method = "POST") {
   return j;
 }
 
-const fileUrl = key => `/files/${slug}/${key}`;
+// Every image URL carries a version, so a re-rendered pass, preview or plan always shows:
+// by default the time the last UI job finished (renders, builds, generations all run as
+// jobs); callers pass a finer one where they know it (a pass's render time). The server
+// also marks files no-cache, so renders run from the CLI show on the next refresh.
+let fileVersion = 0;
+const fileUrl = (key, v) => `/files/${slug}/${key}?v=${encodeURIComponent(v ?? fileVersion)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
 function card(key, {label, onSelect, selected} = {}) {
@@ -169,6 +174,7 @@ async function load() {
   [data, plans, refs, reviewData, siteData, framesData, catalogData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
     api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`)]);
+  fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));
   render();
 }
 

@@ -38,8 +38,8 @@ function renderSite() {
     const g = document.createElement("div"); g.className = "grid small";
     for (const [name, key] of Object.entries(r.passes)) {
       const c = document.createElement("div"); c.className = "card";
-      c.innerHTML = `<a href="${fileUrl(key)}?t=${encodeURIComponent(r.rendered || "")}" target="_blank">
-        <img loading="lazy" alt="" src="${fileUrl(key)}?t=${encodeURIComponent(r.rendered || "")}"></a><span class="label">${name}</span>`;
+      const u = fileUrl(key, `${fileVersion}-${r.rendered || ""}`);
+      c.innerHTML = `<a href="${u}" target="_blank"><img loading="lazy" alt="" src="${u}"></a><span class="label">${name}</span>`;
       g.append(c);
     }
     if (!Object.keys(r.passes).length) g.innerHTML = `<span class="empty">No passes yet.</span>`;

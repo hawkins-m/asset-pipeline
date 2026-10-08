@@ -256,7 +256,7 @@ function renderReport() {
   const planJobs = activeJobs("site.plan");
   box.innerHTML = `<div class="unit-head"><span class="title">Plan report</span>
       <button type="button" class="replan">${planJobs.length ? "Planning…" : "Re-plan (no Blender, ~3 s)"}</button>
-      ${catalogData.plan_image ? `<a href="${fileUrl(catalogData.plan_image)}?t=${catalogData.plan_mtime}" target="_blank">plan image</a>` : ""}</div>
+      ${catalogData.plan_image ? `<a href="${fileUrl(catalogData.plan_image, catalogData.plan_mtime)}" target="_blank">plan image</a>` : ""}</div>
     <p class="hint">Saved catalog edits apply after a re-plan; rebuild the greybox (above) to see them in the shots.</p>
     ${r.buildings ? `<p>${r.buildings} buildings${rep ? `; by footprint: ${Object.entries(rep.share).slice(0, 10)
       .map(([k, v]) => `${esc(k)} ${(v * 100).toFixed(0)}%`).join(", ")}` : ""}</p>` : ""}

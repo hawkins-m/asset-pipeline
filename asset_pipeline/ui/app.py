@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -663,12 +664,19 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         return j.public()
 
     @app.get("/files/{slug}/{path:path}")
-    def files(slug: str, path: str):
+    def files(slug: str, path: str, request: Request):
         store = _store(slug)
         target = (store.root / path).resolve()
         if not target.is_relative_to(store.root.resolve()) or not target.is_file():
             raise HTTPException(404, "not found")
-        return FileResponse(target)
+        # revalidate every time: a re-rendered pass or preview keeps its name, so a cached
+        # copy would go stale. An unchanged file answers 304 (ETag from mtime and size).
+        st = target.stat()
+        etag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        if etag in request.headers.get("if-none-match", ""):
+            return Response(status_code=304, headers=headers)
+        return FileResponse(target, headers=headers)
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
