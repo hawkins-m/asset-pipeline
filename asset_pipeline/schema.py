@@ -127,6 +127,7 @@ class District(BaseModel):
     palette: dict[str, float] = Field(default_factory=dict)   # material id -> weight
     columns: Literal["none", "rare", "accent", "accent_on_civic_only"] = "accent"
     height_bias: int = 0                  # storeys added to every building here
+    merge_chance: float = Field(default=1.0, ge=0)   # x each typology's merge_chance here (0 = never)
     user_fields: list[str] = Field(default_factory=list)      # fields edited in the UI
 
 
@@ -175,6 +176,9 @@ class Typology(BaseModel):
     material: str | None = None           # pinned material (else the district palette)
     ref: str | None = None                # landmark reference image (Redux masked to its slots)
     ref_strength: float = Field(default=0.12, ge=0, le=2)
+    # chance (0-1) that a block given this type merges with 1-3 neighbouring blocks into one
+    # large building (single-building forms only), times the district's merge_chance
+    merge_chance: float = Field(default=0.0, ge=0, le=1)
     # where the generator puts it: auto (from form / place), block (assigned to city blocks),
     # corridor (across a green valley or along the promenade), shore (steps into the sea),
     # pier_end (the harbour's pier head), node_gate (where an avenue leaves a civic core),
@@ -193,6 +197,11 @@ class Variation(BaseModel):
     storeys_jitter: int = 1               # +- storeys around the typology's pick
     avenue_bonus: int = 1                 # +1 on avenue frontage
     step_back_top: float = 0.35           # share of 4+ storey buildings with a set-back top storey
+    # a smooth height field drifting across each district (organized randomness, not rings)
+    height_noise: float = Field(default=0.0, ge=0)        # +- storeys at the field's extremes
+    height_noise_scale_m: float = Field(default=700.0, gt=0)  # distance between its highs and lows
+    accent_chance: float = Field(default=0.0, ge=0, le=1)  # housing at an avenue crossing that rises
+    accent_storeys: int = Field(default=3, ge=0)           # ... by this many storeys
 
 
 class RepetitionChecks(BaseModel):

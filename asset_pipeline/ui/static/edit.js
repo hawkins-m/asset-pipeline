@@ -39,7 +39,8 @@ const SECTIONS = {
   districts: {title: "Districts", hint: "Per district: identity (one line, goes into prompts), typology mix per density band, material palette, column policy and height bias. Hover a field for what it does.",
     fields: [["id", "id", "text"], ["notes", "identity", "area"], ["mix.core", "mix: core", "map"], ["mix.middle", "mix: middle", "map"],
       ["mix.edge", "mix: edge", "map"], ["palette", "palette (material: weight)", "map"],
-      ["columns", "columns", "select", ["none", "rare", "accent", "accent_on_civic_only"]], ["height_bias", "height bias (storeys)", "num"]]},
+      ["columns", "columns", "select", ["none", "rare", "accent", "accent_on_civic_only"]], ["height_bias", "height bias (storeys)", "num"],
+      ["merge_chance", "merge chance (x)", "num"]]},
   materials: {title: "Materials", hint: "Per material: precise words (named in prompts by screen coverage) and an optional reference image applied masked to its slots. Hover a field for what it does.",
     fields: [["id", "id", "text"], ["words", "words", "area"], ["types", "slot types (untagged slots)", "list"],
       ["districts", "only districts", "list"], ["ref", "reference image", "opttext"], ["ref_strength", "ref strength", "num"]]},
@@ -49,7 +50,7 @@ const SECTIONS = {
       ["storeys", "storeys (min, max)", "pair"], ["place", "place", "list"], ["prompt", "prompt words", "area"],
       ["desc", "asset description", "area"], ["roofs", "roofs", "list"], ["facades", "facades", "list"], ["ground", "ground floor", "list"],
       ["columns", "columns", "select", ["none", "accent", "order"]], ["max_share", "max share", "optnum"],
-      ["max_count", "max count", "optnum"], ["material", "pinned material", "opttext"], ["ref", "landmark reference", "opttext"],
+      ["max_count", "max count", "optnum"], ["merge_chance", "merge chance", "num"], ["material", "pinned material", "opttext"], ["ref", "landmark reference", "opttext"],
       ["ref_strength", "ref strength", "num"]]},
 };
 
@@ -65,6 +66,7 @@ const TIPS = {
     palette: "Material weights for this district's buildings. Format material: weight; relative weights, no unit. One material is picked per typology per tile (tile_m, 400 m). Typologies with a pinned material ignore this.",
     columns: "Column policy (per district). none: no columns. rare: about 10% of accent-type buildings. accent: about 30%, and always when the facade is a colonnade or pilasters. accent_on_civic_only: accents on civic buildings only. Typologies with columns = order always get them.",
     height_bias: "Storeys added to every building in this district (per district). Can be negative. Unit: storeys of 3.4 m (city storey_m).",
+    merge_chance: "Multiplies each typology's merge chance in this district (per district). 1 = as the typology says, 0 = never merge here, 2 = twice as often (a chance can't pass 1).",
   },
   materials: {
     id: "Material id (per material). District palettes and pinned typology materials refer to it.",
@@ -89,7 +91,8 @@ const TIPS = {
     facades: "Facade variants, picked per building, never the same three in a row. A name containing 'arcade' recesses the ground floor 3.5 m. loggia_top sets the top storey back. Names containing colonnade or pilasters count as columns. Other names are labels only.",
     ground: "Ground-floor uses, picked per building. shops, cafe and market are preferred on avenue frontage. Labels only: they don't change the massing.",
     columns: "Columns. none: never. accent: per the district's column policy. order: always, as for full colonnades and temples.",
-    max_share: "Cap per district: the share (0 to 1) of a district's buildings, by count, this type may reach. Checked once the district has more than 20 buildings. Empty = no cap.",
+    max_share: "Cap per district: the share (0 to 1) of a district's built footprint this type may reach (the plan report measures it the same way). Checked once the district has more than 20 buildings. Empty = no cap.",
+    merge_chance: "Chance (0 to 1, per typology) that a block given this type merges with 1-3 neighbouring blocks of the same district into one large building, up to 1.5x / 2x / 2.5x its size range. The streets between them go. Single-building forms only (hall, cube, courtyard, drum...), not fill forms. Multiplied by the district's merge chance.",
     max_count: "City-wide cap on placements: blocks or line features, not individual buildings. Empty = no cap.",
     material: "Pinned material id (city-wide for this type). Overrides the district palette. For a landmark, its words are named first in prompts.",
     ref: "Landmark reference image (project-relative path). Applied as Redux masked to this type's slots only, and makes the type a landmark: always named first in prompts.",
@@ -113,6 +116,10 @@ const TIPS = {
     storeys_jitter: "City-wide: random storeys added or removed per building (plus or minus this many).",
     avenue_bonus: "City-wide: storeys added to perimeter and row buildings whose frontage is on an avenue.",
     step_back_top: "City-wide: chance (0 to 1) that a building of 4+ storeys and over 9 m deep sets its top storey back. Always for loggia_top facades.",
+    height_noise: "City-wide strength of the height field, in storeys: buildings at the field's highs gain up to this many, at its lows lose as many. The field is smooth and drifts across each district (its own pattern per district), so heights vary by place rather than in rings around the nodes. 0 = off.",
+    height_noise_scale_m: "City-wide scale of the height field, in metres: roughly the distance between a high and the next low. Smaller = choppier, larger = broad rises and dips across a district.",
+    accent_chance: "City-wide chance (0 to 1) that a housing or mixed-use building of 3+ storeys within 90 m of an avenue crossing rises as an accent.",
+    accent_storeys: "City-wide: storeys an accent building rises above its neighbours.",
   },
 };
 const tipAttr = (section, key, mine) => {

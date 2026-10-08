@@ -190,20 +190,49 @@ def render(store: ProjectStore, shots: list[str] | None = None) -> dict[str, dic
     return results
 
 
+PREVIEW_LENS_MM = 32.0
+
+
+def preview_cameras(layout, heights=None, distance_frac: float = 0.42, elevation_deg: float = 32) -> list[dict]:
+    """Four aerial cameras (from the N, E, S, W). A city layout is framed whole: they aim at
+    the centre of the city's bounds, far enough back that its diagonal fits the lens.
+    Otherwise they circle the origin at distance_frac of the terrain."""
+    t = layout.terrain
+    el = math.radians(elevation_deg)
+    if layout.city is not None:
+        x0, y0, x1, y1 = layout.city.bounds
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        half = math.hypot(x1 - x0, y1 - y0) / 2
+        fov = 2 * math.atan(18.0 / PREVIEW_LENS_MM)            # horizontal, 36 mm sensor
+        dist = half / math.tan(fov / 2) * 1.05
+        cz = float(heights(cx, cy)) if heights is not None else t.city_z
+    else:
+        cx = cy = 0.0
+        dist, cz = t.extent_m * distance_frac, t.city_z
+    cams = []
+    for name, ang in (("north", 90), ("east", 0), ("south", 270), ("west", 180)):
+        a = math.radians(ang)
+        pos = [cx + dist * math.cos(el) * math.cos(a), cy + dist * math.cos(el) * math.sin(a),
+               cz + dist * math.sin(el)]
+        cams.append({"id": f"site-{name}", "pos": pos, "look_at": [cx, cy, cz], "lens_mm": PREVIEW_LENS_MM,
+                     "resolution": [1344, 768]})
+    return cams
+
+
 def preview_site(store: ProjectStore, distance_frac: float = 0.42, elevation_deg: float = 32) -> list[Path]:
-    """Four aerial previews (from the N, E, S, W) of the whole greybox."""
+    """Four aerial previews (from the N, E, S, W) of the whole greybox (the whole city in
+    city mode)."""
     if sw_site.stale(store):
         sw_site.extract(store)
     gb = sw_site.load_greybox(store)
     layout = sw_site.load_layout(store)
-    t = layout.terrain
-    dist = t.extent_m * distance_frac
-    cams = []
-    for name, ang in (("north", 90), ("east", 0), ("south", 270), ("west", 180)):
-        a, el = math.radians(ang), math.radians(elevation_deg)
-        pos = [dist * math.cos(el) * math.cos(a), dist * math.cos(el) * math.sin(a), t.city_z + dist * math.sin(el)]
-        cams.append({"id": f"site-{name}", "pos": pos, "look_at": [0, 0, t.city_z], "lens_mm": 32,
-                     "resolution": [1344, 768]})
+    heights = None
+    png = sw_site.site_dir(store) / "terrain.png"
+    if png.is_file():
+        from .. import greybox
+        h = greybox.from_png16(np.array(Image.open(png)), layout.terrain.z_range)
+        heights = greybox.Heights(h, layout.terrain.extent_m)
+    cams = preview_cameras(layout, heights, distance_frac, elevation_deg)
     out = sw_site.site_dir(store) / "preview"
     _run(store, out, colors_for([s["id"] for s in gb["slots"]]), ["preview"],
          virtual=cams, shots=[c["id"] for c in cams], what="site preview")

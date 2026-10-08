@@ -166,3 +166,58 @@ def test_typology_fields_roundtrip_in_layout_json(typed):
     t = Typology.model_validate(typed.city.typologies[0].model_dump())
     assert t == typed.city.typologies[0]
     assert math.isfinite(np.mean([1]))
+
+
+def test_height_field_drifts_within_a_band_and_accents_rise_at_crossings(typed):
+    from asset_pipeline.schema import Variation
+    L = typed.model_copy(deep=True)
+    L.city.variation = Variation(storeys_jitter=0, avenue_bonus=0, height_noise=2.5, height_noise_scale_m=400,
+                                 accent_chance=1.0, accent_storeys=4)
+    P = city.plan(L, heights(L))
+    courts = [b for b in P.typed if b.typology == "courts" and not b.accent]
+    # same typology, no jitter: storeys still spread, by place (the field), beyond the 4-6 range
+    assert max(b.storeys for b in courts) - min(b.storeys for b in courts) >= 4
+    acc = [b for b in P.typed if b.accent]
+    assert acc and all(b.family in ("housing", "mixed") for b in acc)
+    T = city_types.Typer(P, city.Fields(L, heights(L)), np.random.default_rng(0), [])
+    assert all(T.near_crossing(b.x, b.y) for b in acc)
+    a, b = T.height_field("a", 0, 0), T.height_field("a", 1, 1)
+    assert abs(a - b) < 0.05 and T.height_field("a", 0, 0) != T.height_field("b", 0, 0)   # smooth; per district
+    assert P.stats["repetition"]["accents"] == len(acc)
+
+
+def test_big_types_merge_neighbouring_blocks_and_drop_their_streets(typed):
+    L = typed.model_copy(deep=True)
+    for t in L.city.typologies:
+        if t.id == "hall":
+            t.merge_chance, t.max_count, t.width, t.depth = 1.0, 3, (16, 22), (16, 22)
+    for d in L.districts:
+        d.mix["core"] = {"hall": 5, "courts": 1}
+    h = heights(L)
+    P = city.plan(L, h)
+    merged = [b for b in P.typed if b.merged > 1]
+    assert merged and all(b.typology == "hall" and 2 <= b.merged <= 4 for b in merged)
+    assert max(p.w * p.d for b in merged for p in b.parts if p.role == "mass") > 22 * 22   # past the 22 x 22 range
+    for d in L.districts:            # a district can switch merging off
+        d.merge_chance = 0.0
+    assert not [b for b in city.plan(L, h).typed if b.merged > 1]
+    # no street is left running through a merged building
+    streets = [w.line for w in P.ways if w.kind == "street"]
+    for b in merged:
+        for p in b.parts:
+            if p.role == "mass":
+                foot = city_types._rect(p.x, p.y, p.w - 2, p.d - 2, p.rot)
+                assert not any(ln.intersects(foot) for ln in streets)
+
+
+def test_aerial_previews_frame_the_whole_city():
+    from asset_pipeline.stages import sw_shots
+    L = small_city()
+    cams = sw_shots.preview_cameras(L)
+    x0, y0, x1, y1 = L.city.bounds
+    for c in cams:
+        assert c["look_at"][:2] == [(x0 + x1) / 2, (y0 + y1) / 2]
+        p, t = np.array(c["pos"]), np.array(c["look_at"])
+        half = math.hypot(x1 - x0, y1 - y0) / 2
+        # the city's half-diagonal fits half the horizontal field of view
+        assert half / np.linalg.norm(p - t) <= math.tan(math.atan(18 / c["lens_mm"])) + 1e-6

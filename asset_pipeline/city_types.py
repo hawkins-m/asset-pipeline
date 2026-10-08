@@ -10,12 +10,16 @@ Assignment, per block (city.plan has already cut the blocks, parks and markets):
   3. A type is dropped where its `place` doesn't fit the block, where it doesn't fit the
      block's size, or once it reaches its cap. A type already used on nearby blocks is
      damped (REPEAT_DAMP per neighbour), so neighbours differ.
-  4. Massing by `form`. Fill forms (perimeter, row, bar, stepped, crescent, small courtyard
+  4. Big single-building types may merge the block with 1-3 neighbours across their local
+     streets (typology merge_chance x district merge_chance): one large building, and the
+     streets between them go.
+  5. Massing by `form`. Fill forms (perimeter, row, bar, stepped, crescent, small courtyard
      houses) fill the block themselves. Any other form is one building, and the rest of the
      block gets the strongest fill-type housing along the edges it leaves free.
 
 Every building picks its storeys (typology range +- jitter, + district bias, + 1 on an
-avenue), roof, facade and ground-floor use, re-picking when it would extend a run of
+avenue, + a smooth height field that drifts across its district, + now and then an accent
+at an avenue crossing), roof, facade and ground-floor use, re-picking when it would extend a run of
 identical neighbours along one frontage. The variants that change the silhouette are
 modelled, since the depth pass is what the frames follow: arcades as a recessed ground floor,
 set-back top storeys, roof gardens and pergolas as low masses on the roof, pitched roofs,
@@ -24,11 +28,13 @@ vaults and domes as real shapes.
 Parts are scaled unit primitives (box, gable, vault, cylinder, dome), so the greybox and
 the engine import share one mesh per primitive across the city.
 """
+import hashlib
 import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 import numpy as np
+from shapely import STRtree
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
@@ -90,6 +96,8 @@ class Building:
     block: int = -1
     run: tuple | None = None          # (block, edge): frontage it sits on, in order
     material: str | None = None
+    merged: int = 1                   # blocks this building stands on (plot merging)
+    accent: bool = False              # raised as an accent at an avenue crossing
     parts: list[Part] = field(default_factory=list)
 
 
@@ -152,6 +160,10 @@ class Typer:
         self.green = unary_union([g for g in green_lines]) if green_lines else None
         self.avoid = Polygon()                       # line features: no buildings on them
         self.out: list[Building] = []
+        self.cross_xy = np.array([[p.x, p.y] for p in self.crossings]) if self.crossings else np.zeros((0, 2))
+        self._fields: dict = {}                      # district -> height noise grid
+        self.done: set[int] = set()                  # blocks assigned or merged into another
+        self.tree = None                             # STRtree of the plan's blocks (merging)
 
     # --- zones and weights -------------------------------------------------------------
 
@@ -198,9 +210,10 @@ class Typer:
                 continue
             if t.max_count is not None and self.placed[k] >= t.max_count:
                 continue
-            if t.max_share is not None and district:
+            if t.max_share is not None and district:   # by footprint, as the report measures
                 n = sum(self.by_district[district].values())
-                if n > 20 and self.by_district[district][k] / n >= t.max_share:
+                ft = sum(self.foot[district].values())
+                if n > 20 and ft and self.foot[district][k] / ft >= t.max_share:
                     continue
             out[k] = v
         return out
@@ -214,10 +227,12 @@ class Typer:
     def _remember(self, x, y, k):
         self.grid[(int(x // NEIGHBOUR_R), int(y // NEIGHBOUR_R))].append((x, y, k))
 
-    def _fits(self, t: Typology, L: float, S: float) -> bool:
+    def _fits(self, t: Typology, L: float, S: float, r_in: float = math.inf) -> bool:
+        """Roughly: does the type fit a block with this oriented box (L x S) and inscribed
+        circle radius r_in? (Wedge-shaped blocks have a large box but a thin interior.)"""
         if self._is_fill(t):
             return S >= 2 * t.depth[0] * 0.6 or t.form in ("row", "bar", "stepped")
-        return t.width[0] <= L - 6 and t.depth[0] <= S - 6
+        return t.width[0] <= L - 6 and t.depth[0] <= S - 6 and min(t.width[0], t.depth[0]) <= 2 * r_in - 2
 
     # --- per building ------------------------------------------------------------------
 
@@ -227,18 +242,44 @@ class Typer:
         opts = [p for p in pool if p != avoid] or pool
         return opts[int(self.rng.integers(len(opts)))]
 
-    def _storeys(self, t: Typology, district, avenue: bool) -> int:
+    def height_field(self, district, x: float, y: float) -> float:
+        """Smooth noise in [-1, 1] that drifts across a district: its own seeded field per
+        district, with highs and lows about height_noise_scale_m apart."""
+        v = self.c.variation
+        x0, y0, x1, y1 = self.c.bounds
+        side = max(x1 - x0, y1 - y0)
+        g = self._fields.get(district)
+        if g is None:
+            from .greybox import _value_noise
+            seed = int(hashlib.sha256(f"{self.c.seed}:{district}".encode()).hexdigest()[:8], 16)
+            cells = max(2, int(math.ceil(side / v.height_noise_scale_m)))
+            g = self._fields[district] = _value_noise(max(65, cells * 8 + 1), cells, np.random.default_rng(seed))
+        n = g.shape[0]
+        i = int(np.clip((y1 - y) / side * (n - 1), 0, n - 1))
+        j = int(np.clip((x - x0) / side * (n - 1), 0, n - 1))
+        return float(g[i, j])
+
+    def near_crossing(self, x: float, y: float) -> bool:
+        if not len(self.cross_xy):
+            return False
+        return float(np.min(np.hypot(self.cross_xy[:, 0] - x, self.cross_xy[:, 1] - y))) < CROSSING_M
+
+    def _storeys(self, t: Typology, district, avenue: bool, x: float | None = None, y: float | None = None) -> int:
+        v = self.c.variation
         lo, hi = t.storeys
         s = int(self.rng.integers(lo, hi + 1))
-        j = self.c.variation.storeys_jitter
+        j = v.storeys_jitter
         if j:
             s += int(self.rng.integers(-j, j + 1))
         rule = self.districts.get(district)
         s += rule.height_bias if rule else 0
         if avenue:
-            s += self.c.variation.avenue_bonus
+            s += v.avenue_bonus
+        if v.height_noise and x is not None and hi >= 2:
+            s += int(round(v.height_noise * self.height_field(district, x, y)))
         floor = 1 if hi >= 1 else 0
-        return int(np.clip(s, max(floor, lo - 1 if lo > 1 else floor), hi + 2))
+        top = hi + max(2, j) + int(math.ceil(v.height_noise))
+        return int(np.clip(s, max(floor, lo - 1 if lo > 1 else floor), top))
 
     def _columns(self, t: Typology, district, facade: str) -> bool:
         rule = self.districts.get(district)
@@ -257,7 +298,12 @@ class Typer:
         """A building of type t (local -Y faces the street). `last`: the previous building on
         the same frontage (its variant is avoided once a run gets long)."""
         c = self.c
-        st = storeys if storeys is not None else self._storeys(t, district, avenue)
+        st = storeys if storeys is not None else self._storeys(t, district, avenue, cx, cy)
+        accent = False
+        if (storeys is None and c.variation.accent_chance and t.family in ("housing", "mixed") and st >= 3
+                and self.near_crossing(cx, cy) and self.rng.random() < c.variation.accent_chance):
+            st += c.variation.accent_storeys      # a taller marker where avenues cross
+            accent = True
         roof, facade = self._pick(t.roofs), self._pick(t.facades)
         ground = self._pick([g for g in t.ground if g in ("shops", "cafe", "market")] if avenue else t.ground) \
             or self._pick(t.ground)
@@ -277,7 +323,7 @@ class Typer:
         z0, slack = float(zs.min()) - 0.3, float(zs.max() - zs.min()) + 0.3
         h = st * c.storey_m
         b = Building(t.id, t.family, district, cx, cy, rot, st, h + slack, w * d, roof, facade, ground,
-                     self._columns(t, district, facade), block, run)
+                     self._columns(t, district, facade), block, run, accent=accent)
         P = b.parts
         loc = lambda lx, ly: (cx + lx * math.cos(math.radians(rot)) - ly * math.sin(math.radians(rot)),  # noqa: E731
                               cy + lx * math.sin(math.radians(rot)) + ly * math.cos(math.radians(rot)))
@@ -437,7 +483,7 @@ class Typer:
         length = min(float(self.rng.uniform(*t.width)), L - 12)
         if length < t.width[0] * 0.6:
             return
-        st = self._storeys(t, district, False)
+        st = self._storeys(t, district, False, *c)
         gap = max(2.0 * st * self.c.storey_m * 0.6, 22.0)
         n = max(1, int((S - 10 + gap) // (dep + gap)))
         off0 = -(n - 1) * (dep + gap) / 2
@@ -470,7 +516,7 @@ class Typer:
                 ctr = c0 + (i + w / 2) * C._dir(along) + j * C._dir(down)
                 if not self._ok(_rect(*ctr, w, strip_d, along), P, avoid):
                     continue
-                top = self._storeys(t, district, False)
+                top = self._storeys(t, district, False, float(ctr[0]), float(ctr[1]))
                 b0 = None
                 for k in range(n_steps):
                     q = ctr + (-strip_d / 2 + step_d * (k + 0.5)) * C._dir(down)
@@ -502,7 +548,7 @@ class Typer:
         seg = 18.0
         k = max(3, int(length / seg))
         back = towards + 180
-        st = self._storeys(t, district, False)
+        st = self._storeys(t, district, False, cx, cy)
         last = None
         for i in range(k):
             a = back - span / 2 + span * (i + 0.5) / k
@@ -560,12 +606,18 @@ class Typer:
         b.foot = w * d - (w - 2 * wing) * (d - 2 * wing)
         return b
 
-    def single(self, t: Typology, P: Polygon, district, bi: int) -> Polygon | None:
+    def single(self, t: Typology, P: Polygon, district, bi: int, merged: int = 1) -> Polygon | None:
         """One building of a non-fill form, centred in the block (towers at the corner nearest
-        a crossing). Returns its footprint (buffered: the clearance the fill keeps)."""
+        a crossing). Returns its footprint (buffered: the clearance the fill keeps). On merged
+        blocks it grows past the typology's range (up to 1 + 0.5 per extra block)."""
         c, ang, L, S = _obb(P)
-        w = float(np.clip(self.rng.uniform(*t.width), t.width[0], L - 8))
-        d = float(np.clip(self.rng.uniform(*t.depth), t.depth[0], S - 8))
+        grow = 1 + 0.5 * (merged - 1)
+        if merged > 1:
+            w = float(np.clip(0.75 * L, t.width[0], min(L - 8, t.width[1] * grow)))
+            d = float(np.clip(0.75 * S, t.depth[0], min(S - 8, t.depth[1] * grow)))
+        else:
+            w = float(np.clip(self.rng.uniform(*t.width), t.width[0], L - 8))
+            d = float(np.clip(self.rng.uniform(*t.depth), t.depth[0], S - 8))
         if t.form in ("drum", "cube", "tower", "podium_tower"):
             w = d = min(w, d) if t.form != "drum" else min(w, S - 8)
             if t.form == "drum":
@@ -576,11 +628,32 @@ class Typer:
             towards = np.array([p.x, p.y]) - c
             if np.linalg.norm(towards) > 1:
                 ctr = c + towards / np.linalg.norm(towards) * max(0.0, min(L, S) / 2 - w)
-        foot = _rect(*ctr, w, d, ang)
-        if not P.buffer(1.0).contains(foot) or (not self.avoid.is_empty and foot.intersects(self.avoid)):
+        fits = lambda c, w, d, a: (P.buffer(1.0).contains(_rect(*c, w, d, a))   # noqa: E731
+                                   and (self.avoid.is_empty or not _rect(*c, w, d, a).intersects(self.avoid)))
+        # wedge-shaped and merged blocks: try the most interior point too, both ways round,
+        # and shrink (down to the typology's minimum) until it fits
+        from shapely.ops import polylabel
+        inner = polylabel(P, tolerance=1.0)
+        centres = [ctr] + ([np.array([inner.x, inner.y])] if t.form not in ("tower", "podium_tower") else [])
+        found = None
+        for f in (1.0, 0.9, 0.8, 0.7, 0.6, 0.5):
+            w2, d2 = max(t.width[0], w * f), max(t.depth[0], d * f)
+            for c0 in centres:
+                for a in (ang, ang + 90):
+                    if fits(c0, w2, d2, a):
+                        found = (c0, w2, d2, a)
+                        break
+                if found:
+                    break
+            if found:
+                break
+        if found is None:
             return None
+        ctr, w, d, ang = found
+        foot = _rect(*ctr, w, d, ang)
         x, y = float(ctr[0]), float(ctr[1])
         b = self.make(t, district, x, y, w, d, ang, bi)
+        b.merged = merged
         z0 = min(p.z for p in b.parts) if b.parts else float(self.f.z(x, y))
         top = z0 + b.h
         if t.form in ("courtyard", "u_shape", "l_shape"):
@@ -647,7 +720,9 @@ class Typer:
         zones = self.zones(P, d)
         w = self.weights(district, band, zones)
         _, _, L, S = _obb(P)
-        w = {k: v for k, v in w.items() if self._fits(self.types[k], L, S)}
+        from shapely.ops import polylabel
+        r_in = P.exterior.distance(polylabel(P, tolerance=2.0))
+        w = {k: v for k, v in w.items() if self._fits(self.types[k], L, S, r_in)}
         if not w:
             return
         near = Counter(self._near(cx, cy))
@@ -658,6 +733,12 @@ class Typer:
         t = self.types[k]
         self.placed[k] += 1
         self._remember(cx, cy, k)
+        self.done.add(bi)
+        merged = 1
+        if not self._is_fill(t) and t.form != "open" and t.merge_chance > 0:
+            rule = self.districts.get(district)
+            if self.rng.random() < t.merge_chance * (rule.merge_chance if rule else 1.0):
+                P, merged = self.merge(P, bi, district)
         if self._is_fill(t):
             if not self.fill(t, P, district, bi) and t.form == "crescent":
                 self._fill_rest(w, P, district, bi, None, exclude=k)
@@ -665,8 +746,41 @@ class Typer:
         if t.form == "open":
             self.open_space(t, P, district, bi)
             return
-        foot = self.single(t, P, district, bi)
+        foot = self.single(t, P, district, bi, merged)
         self._fill_rest(w, P, district, bi, foot, exclude=k)
+
+    def merge(self, P: Polygon, bi: int, district) -> tuple[Polygon, int]:
+        """Join the block with 1-3 neighbours of the same district across their local
+        streets (blocks not assigned yet); the streets between them are dropped."""
+        if self.tree is None:
+            return P, 1
+        gap = self.c.street_w / 2 + 1.0
+        want = int(self.rng.integers(1, 4))
+        near = [int(j) for j in self.tree.query(P.buffer(self.c.street_w + 3))
+                if int(j) != bi and int(j) not in self.done]
+        near = [j for j in near if self.P.blocks[j].distance(P) <= self.c.street_w + 1     # across a local street
+                and C.nearest_node(self.c, *self.P.blocks[j].centroid.coords[0]) == district]
+        near.sort(key=lambda j: self.P.blocks[j].distance(P))
+        group = near[:want]
+        if not group:
+            return P, 1
+        joined = unary_union([q.buffer(gap, join_style="mitre") for q in [P] + [self.P.blocks[j] for j in group]]) \
+            .buffer(-gap, join_style="mitre")
+        if not isinstance(joined, Polygon) or joined.is_empty:
+            return P, 1
+        self.done.update(group)
+        cut = joined.buffer(0.5)
+        ways = []
+        for w in self.P.ways:            # the streets between the merged blocks go
+            if w.kind != "street" or not w.line.intersects(cut):
+                ways.append(w)
+                continue
+            rest = w.line.difference(cut)
+            for k, seg in enumerate(getattr(rest, "geoms", [rest])):
+                if isinstance(seg, LineString) and seg.length > 15:
+                    ways.append(C.Way(f"{w.id}m{k}", w.kind, seg, w.width, w.district))
+        self.P.ways = ways
+        return joined, 1 + len(group)
 
     def _fill_rest(self, w, P, district, bi, avoid, exclude):
         fills = {k: v for k, v in w.items() if k != exclude and self._is_fill(self.types[k])
@@ -891,11 +1005,16 @@ def wanted(layout: SiteLayout) -> dict[str, float]:
 
 
 def mass(P, f, rng, green_lines, keep_block) -> list[Building]:
-    """Typologies for every block of the plan that `keep_block(i, block)` keeps (None: the
-    block stays empty). Line features first, so blocks avoid them."""
+    """Typologies for every block of the plan that `keep_block(i, block)` keeps (False: the
+    block stays empty). Line features first, so blocks avoid them. A block merged into a
+    neighbour's large building is skipped."""
     T = Typer(P, f, rng, green_lines)
+    T.tree = STRtree(P.blocks) if P.blocks else None
     T.features(green_lines, wanted(P.layout))
     for i, b in enumerate(P.blocks):
+        if i in T.done:
+            continue
+        T.done.add(i)          # parks and empty blocks can't be merged into a neighbour either
         district = keep_block(i, b)
         if district is not False:
             T.block(b, i, district)
@@ -1006,6 +1125,9 @@ def report(P, buildings: list[Building]) -> dict:
             "identical_runs_over_max": runs, "longest_identical_run": worst,
             "flat_blocks": flat, "blocks_checked": len(cvs),
             "column_share": round(col, 3),
+            "merged_buildings": sum(1 for b in built if b.merged > 1),
+            "accents": sum(1 for b in built if b.accent),
+            "height_cv_median": round(float(np.median(cvs)), 3) if cvs else None,
             "roofs": dict(Counter(b.roof for b in built if b.roof).most_common()),
             "facades": dict(Counter(b.facade for b in built if b.facade).most_common()),
             "ground": dict(Counter(b.ground for b in built if b.ground).most_common()),

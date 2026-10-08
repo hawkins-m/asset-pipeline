@@ -169,6 +169,14 @@ ap site build my-project                            # then the greybox
   the silhouette are modelled, because the depth pass is what the frames follow:
   recessed arcades, set-back top storeys, roof gardens, pergolas, pitched roofs, vaults
   and domes.
+- **Heights** vary by place, not in rings around the nodes:
+  - `variation.height_noise` (storeys) and `height_noise_scale_m` set a smooth height
+    field that drifts across each district;
+  - `accent_chance` / `accent_storeys` raise the odd housing block at an avenue crossing.
+- **Plot merging:** a single-building type (hall, cube, courtyard...) with a
+  `merge_chance` may join its block with 1-3 neighbours into one large building, and the
+  streets between them go. The district's `merge_chance` multiplies it (0 switches merging
+  off there).
 - **The report** (`ap site plan`, the UI's *Plan report*) checks the catalog's `checks`:
   - type shares by footprint, city-wide and per district;
   - district diversity;
@@ -221,7 +229,7 @@ per district.
 
 | Change | Re-plan | Rebuild | Passes | Frames |
 |---|---|---|---|---|
-| District mix, palette, columns, height bias; typology form, size, storeys, place, roofs, facades, caps; zones; variation | yes | yes | yes | yes |
+| District mix, palette, columns, height bias, merge chance; typology form, size, storeys, place, roofs, facades, caps, merge chance; zones; variation (incl. height field, accents) | yes | yes | yes | yes |
 | Repetition checks | yes (report only) | – | – | – |
 | District identity line; material words or slot types; typology prompt words; material or landmark reference and strength | – | – | – | yes (prompt / refs only) |
 | Typology description | – | – | – | – (used by the asset library) |
