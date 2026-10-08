@@ -184,11 +184,7 @@ and two curved colonnades.
 Next, in order:
 1. **Frame review (the user)** of typology frames for every shot; then lock the rotunda
    design (decided after the typology frames).
-2. **Step 4: asset library from the object-ID pass** (`s1_library`):
-   - greybox types keyed by slot type, counts from the greybox;
-   - props deduplicated across the starred frames;
-   - the classical kit piece list;
-   - then stages 2–6 run on the library.
+2. **Phase 3: asset library** from the typology catalog (see "Phase 3 plan" below).
 3. **Step 5 with real assets:** cleanup GLBs and textures in the manifest instead of
    stand-ins. The master material gets ORM/roughness textures.
 4. **Vegetation scatter** (baked points → ISMs per zone).
@@ -196,6 +192,102 @@ Next, in order:
 Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.
 - Whether a moodboard-derived anchor helps beyond the style text.
+
+## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07, not started)
+
+Goal: turn the catalog, the greybox and the starred frames into a library of assets.
+Stages 2–6 then build them, and the UE manifest uses them instead of the stand-ins.
+Nothing here runs until the user has reviewed typology frames for every shot and locked
+the landmark designs.
+
+**The core problem: thousands of buildings, not one each.** A fill typology (perimeter
+blocks, townhouses, bars...) has hundreds to thousands of instances with procedural
+massing. Image-to-3D gives one closed object per image, which can't be stretched over
+varied footprints without distortion. So the library has four tiers, each built
+differently:
+
+| Tier | What | From | How it reaches the scene |
+|---|---|---|---|
+| A. Landmarks and kit monuments | Typologies with a reference image, plus the kit monuments (temple, stoa, the rotunda ensemble) | catalog `desc` + landmark ref + starred frames | One asset each (hero or game usage), full stages 2–6; replaces its slot's stand-in at its greybox transform |
+| B. Singular civic and infrastructure | Typologies with a small `max_count` or a single-building form (hall, cube, drum, cavea, tower, gate, aqueduct bay, lighthouse...) | catalog `desc` + district material words | One to three variants per typology, game usage; scaled to each instance's footprint only within +-15%, otherwise the greybox massing stays |
+| C. Fill typologies (housing and mixed) | perimeter, row, bar, stepped, crescent, courtyard houses | catalog `desc` + `facades` / `roofs` pools + palette materials | **Facade kits, not whole buildings**: per typology x material, a few modular bays (ground arcade bay, upper bay, top or loggia bay, corner) and the roof pieces, tiled onto the greybox massing by a Blender pass. Wides keep textured massing. |
+| D. Props and vegetation | benches, planters, lamps, pergolas, awnings, stalls; trees by species | starred frames (SAM inside the id-pass regions), deduplicated | Stages 2–6 as for scenes-mode props; scattered later (vegetation scatter step) |
+
+Step order, each a reviewable milestone:
+
+1. **Library plan and coverage report** (CPU only, no generation): `ap library plan`
+   writes `site/library.json`.
+   - **Entries:** one per tier A/B asset, per tier C (typology x material) kit, and
+     one placeholder per tier D noun.
+   - **Coverage:** each entry's screen coverage per shot tier, from the id passes (slots
+     carry `typology` and `material` tags).
+   - **Ordering:** what shows large in medium and tight shots goes first; what only wides
+     see stays massing.
+   - **Counts:** instances come from the greybox.
+2. **Descriptions** (the requirement "every library asset has an editable description
+   that drives its reference sheets"):
+   - Each entry gets `description_auto`: the typology's `desc`, plus its material's
+     words, plus the district identity only when the entry is district-specific. Short,
+     like the frame prompts.
+   - The user's `description` overrides it, with *yours / auto* badges and *Reset to
+     auto*, as for shot prompts.
+   - Stage 2 builds its sheet prompt from the effective description.
+   - A catalog edit refreshes `description_auto` but never the user's text.
+3. **Visual sources from starred frames.**
+   - For each tier A/B entry, crop the starred frames where its slots appear: the id-pass
+     mask gives the exact pixels.
+   - Show the crops in the Library tab; the user stars one or two per entry.
+   - Starred crops go in as Redux references for that entry's sheets, so the asset
+     matches the approved look.
+   - Mood (tight) shots never seed assets, as now (`asset_sources`).
+4. **Reference sheets** (stage 2, unchanged code path).
+   - `site/library.json` is an `AssetPlan`-compatible plan named `library`. Each entry
+     carries `name`, `description`, `dimensions` (from the catalog size ranges and the
+     greybox bbox), `kit`, `usage` and `include`.
+   - Tier C bays share a `kit` per typology x material, so a kit sheet draws matching
+     bays.
+   - Tier A/B are object sheets.
+   - Start with tier A and two tier B types to check the look before spending GPU time.
+5. **Views, review and 3D** (stages 3–5), unchanged.
+   - Tier A: hero usage once the multi-view path is good enough; until then single-image
+     TRELLIS, as now.
+6. **Cleanup and placement** (stage 6, plus new placement data).
+   - The cleanup report already warns on flat cards and proportions far from the plan:
+     check them against the catalog size ranges.
+   - Pivots go at the footprint centre, front facing -Y (the greybox convention), so
+     the asset takes the slot's transform as is.
+7. **Facade-kit pass for tier C** (new Blender script, the riskiest step: pilot on two
+   typologies first).
+   - Per building: split each massing face into storeys and bays; place ground, middle,
+     top and corner bays from the typology x material kit; keep roofs from the massing
+     (gardens, pergolas and vaults are already modelled there).
+   - Output stays instanced: one mesh per bay type.
+   - **Fallback**, if TRELLIS bays don't tile cleanly: facade textures instead of
+     geometry. Flux orthographic elevations per typology x material, turned into PBR
+     maps and applied by UV on the massing.
+8. **Manifest with real assets.** `ap export` maps each slot to its library asset(s)
+   instead of the stand-in mesh:
+   - tier A/B: per slot;
+   - tier C: per bay instance.
+
+   Layout materials stay as the per-slot `MI_mat_<id>` overrides. The master material
+   gets ORM / normal textures from the assets, with the PBR parameters (tint, roughness
+   multiplier, metallic, normal strength) left tunable in Unreal.
+
+**UI:** a Library tab that:
+- lists entries by tier and priority;
+- edits descriptions (*yours / auto*), usage and include;
+- stars crops;
+- generates sheets per entry or tier;
+- reuses Review for views and 3D.
+
+**Open questions for the user, before step 4:**
+- Is the facade-kit approach for tier C acceptable, or are textured massing plus
+  hero/civic assets enough for the planned shots?
+- How many variants per tier B typology (default 1, or 2 for the most visible)?
+- Landmark usage: wait for the hero path, or single-image TRELLIS now?
+- GPU budget: sheets take about 55 s each and run on GPU 1 alongside the frames; TRELLIS
+  runs on GPU 0.
 
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a

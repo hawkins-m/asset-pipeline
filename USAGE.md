@@ -184,6 +184,57 @@ variation are editable and saved to `site/layout.json`. Fields you changed are m
 *yours*; imported or generated ones are *auto*. Saved edits apply after *Re-plan*, and
 show in the shots after *Rebuild greybox*.
 
+## Editor workflow (UI)
+
+From a catalog edit to new frames. Each step only redoes what the previous one changed.
+Hover any field in the editors for what it does, its unit, and whether it's city-wide or
+per district.
+
+1. **Edit and Save** a section in Site · Shots (districts, typology catalog, materials,
+   zones, checks, variation).
+   - Saved to `site/layout.json` and validated: an unknown typology or material name is
+     refused and nothing is saved.
+   - The fields you changed are marked *yours*.
+   - Nothing else changes yet. Unsaved edits survive the page refreshing while jobs run;
+     *Discard changes* drops them.
+2. **Re-plan** (*Plan report*, about 3 s, no Blender).
+   - Rewrites `site/city_plan.png` and the report (`site/city.json`): type shares,
+     diversity, runs, columns, warnings.
+   - Iterate steps 1–2 until the report and the plan image look right; this is the cheap
+     loop.
+3. **Rebuild greybox** (Site · Shots, about 30 s on the CPU).
+   - Replaces `site/greybox.blend`; the previous one is kept as `greybox.prev.blend`.
+   - If the .blend was edited by hand in Blender, it asks before replacing it.
+   - Every shot's passes become stale, because the geometry changed.
+4. **Render passes:** *Render all passes* (about 20 s per shot at city scale), or one
+   shot's *Render passes*.
+5. **Generate frames** (Frames tab, about 40 s per frame on GPU 1; ComfyUI must be
+   running):
+   - *Regenerate this shot* re-renders that shot's passes if they're stale, then makes
+     new frames;
+   - *+ N* adds frames to a shot whose passes are current;
+   - *Generate for shots without frames* covers the rest.
+
+   Star the frames that set the look.
+
+**Which steps a change needs:**
+
+| Change | Re-plan | Rebuild | Passes | Frames |
+|---|---|---|---|---|
+| District mix, palette, columns, height bias; typology form, size, storeys, place, roofs, facades, caps; zones; variation | yes | yes | yes | yes |
+| Repetition checks | yes (report only) | – | – | – |
+| District identity line; material words or slot types; typology prompt words; material or landmark reference and strength | – | – | – | yes (prompt / refs only) |
+| Typology description | – | – | – | – (used by the asset library) |
+| Shot prompt append / override | – | – | – | yes |
+| Shot camera (lens, type, nudges): *Save camera* writes it into the .blend | – | – | that shot | that shot |
+| Moving geometry in Blender by hand | – | *Re-read .blend* instead | all (the geometry changed) | yes |
+| Moving one camera in Blender by hand | – | *Re-read .blend* | that shot | that shot |
+
+The same steps from the command line: `ap site plan`, `ap site build`,
+`ap shots render [SHOT...]`, `ap frames generate SHOT -n 4`.
+`ap site catalog export my-project snapshot.yaml` saves the catalog as YAML, e.g. before a
+big edit; commit the project's own repo to keep the history.
+
 ## Concept frames per shot
 
 Each shot's frames are generated onto its greybox passes. The structure comes from the
