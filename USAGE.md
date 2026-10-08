@@ -141,12 +141,72 @@ Warnings flag a camera that sees no geometry, flat depth, untagged meshes, or pa
 that disagree. Passes go stale whenever the greybox changes. The UI's **Site · Shots**
 tab does all of this with thumbnails.
 
+## City mode: typology catalog
+
+A city layout (`ap site init --city`) can carry a **typology catalog**: building types,
+district rules and repetition checks. Without one, the city uses three plain housing types.
+Draft it as YAML (comments allowed), import it, then edit it in the UI:
+
+```
+ap site catalog import my-project typologies.yaml   # merged into site/layout.json
+ap site catalog export my-project out.yaml          # back to YAML
+ap site plan my-project                             # plan image + report, no Blender (~3 s)
+ap site build my-project                            # then the greybox
+```
+
+- **Typologies:** `family`, `form` (the greybox massing: perimeter, row, bar, stepped,
+  crescent, courtyard, hall, drum, cavea, tower, ...), size and storey ranges, `place`
+  (core, avenue, crossing, waterfront, hillside, corridor, edge, node_ring), `prompt` (the
+  words a frame uses when it's on screen), `desc` (the asset description that drives its
+  reference sheets), pools of roofs, facades and ground-floor uses, `columns`, caps
+  (`max_share`, `max_count`), an optional pinned `material` and a landmark reference
+  image (`ref`, Redux masked to that typology's slots).
+- **Districts:** `identity` (one line for prompts), `mix` per density band
+  (core / middle / edge: `typology: weight`), material `palette`, `columns` policy,
+  `height_bias`. **Overlays** add types per zone; on a hillside they can turn housing into
+  terraces.
+- **Per building** (seeded): storeys, roof, facade and ground floor. Variants that change
+  the silhouette are modelled, because the depth pass is what the frames follow:
+  recessed arcades, set-back top storeys, roof gardens, pergolas, pitched roofs, vaults
+  and domes.
+- **The report** (`ap site plan`, the UI's *Plan report*) checks the catalog's `checks`:
+  - type shares by footprint, city-wide and per district;
+  - district diversity;
+  - types per urban tile;
+  - identical neighbours in a row;
+  - height spread per block;
+  - column share.
+
+  The generator itself backs off a type as it nears its cap; what's left are warnings.
+
+**In the UI** (Site · Shots): districts, typologies, materials, zones, checks and
+variation are editable and saved to `site/layout.json`. Fields you changed are marked
+*yours*; imported or generated ones are *auto*. Saved edits apply after *Re-plan*, and
+show in the shots after *Rebuild greybox*.
+
 ## Concept frames per shot
 
 Each shot's frames are generated onto its greybox passes. The structure comes from the
 depth and edge passes (ControlNet Union Pro 2.0), and the look from the project's style
 anchor. The prompt is built from what the camera sees (the ID pass), the visible
 districts' `notes` and the shot's `notes`; `ap frames show --prompt` prints it.
+The prompt stays short. Detail lives in the structured fields, and only what's on screen
+goes in:
+- the shot's note;
+- up to 3 typology phrases, plus any visible landmark (named first, with its material);
+- up to 2 materials covering at least 3% of the frame;
+- the focus district's identity line.
+
+**Per-shot edits (Frames tab, "Prompt and camera"):**
+- **Prompt:** see the auto prompt, *append* to it, or *override* it; *Reset to auto* clears
+  both.
+- **Camera:** lens, shot type, and position/aim nudges in metres in the camera's own frame
+  (right, up, forward).
+- **Storage:** edits are saved in `site/layout.json` beside the auto values, so re-placing
+  the auto shots (`ap site plan --shots`) keeps them, and each field shows *yours* or
+  *auto*.
+- **Saving a camera** writes it into the .blend. Only that shot's passes go stale.
+- **Regenerate this shot** re-renders its passes if needed, then makes new frames.
 
 ```
 ap style text my-project "honed pale stone, bronze, deep shade, lush planting, photoreal"
@@ -221,8 +281,16 @@ or through an Unreal MCP server.
 - **What a re-import changes:**
   - It never moves an actor you moved (`--reset-layout` puts everything back).
   - It keeps your own tags.
-  - It rewrites the pipeline's parts: meshes, the instances inside a slot, materials,
-    lenses and camera cuts.
+  - It rewrites the pipeline's parts: meshes, the instances inside a slot, lenses and
+    camera cuts.
+  - **Materials:** every material instance exposes `Tint`, `Roughness`,
+    `RoughnessMultiplier`, `Metallic` and `NormalStrength` (plus `RoughnessTex` /
+    `NormalTex`).
+    - Each layout material gets its own instance, `/Game/AP/Materials/Instances/MI_mat_<id>`,
+      applied to the slots tagged with it. Tune stone, brick and so on there; it changes
+      everywhere the material is used.
+    - Starting values come from the material's words (polished, honed, bronze...).
+    - A parameter you change in Unreal is yours: re-imports keep it.
   - Pipeline actors that left the manifest are reported (`--prune` deletes them).
 - **Terrain** comes in as a Nanite mesh. For a real Landscape, use Landscape mode →
   Import from File with `export/terrain/heightmap.png` and the `landscape` values in

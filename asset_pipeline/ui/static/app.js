@@ -1,6 +1,7 @@
 // Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
 // from it. Stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
+const URL_ARGS = new URLSearchParams(location.search);
 let slug = null, data = null, plans = [], refs = [], reviewData = null, siteData = null, framesData = null,
   selectedScene = null, polling = null;
 
@@ -43,7 +44,8 @@ const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive
   "plan.refine": "box refinement", "refs.generate": "reference sheets", "views.cut": "cutting views",
   "3d.trellis": "3D (TRELLIS)", "cleanup": "cleanup (Blender)", "site.build": "greybox build",
   "site.extract": "reading the .blend", "site.preview": "aerial previews", "shots.render": "shot passes",
-  "frames.generate": "concept frames", "style.draft": "style text draft"};
+  "frames.generate": "concept frames", "style.draft": "style text draft", "site.plan": "city plan",
+  "shots.camera": "moving a camera"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
 
@@ -150,6 +152,7 @@ function render() {
   }
 
   renderSite();
+  renderCatalog();
   renderFrames();
   renderMoodboard();
   renderPlan();
@@ -163,9 +166,9 @@ function render() {
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; return; }
-  [data, plans, refs, reviewData, siteData, framesData] = await Promise.all([api(`/api/projects/${slug}`),
+  [data, plans, refs, reviewData, siteData, framesData, catalogData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
-    api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`)]);
+    api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`)]);
   render();
 }
 
@@ -173,7 +176,7 @@ async function loadProjects(pick) {
   const list = await api("/api/projects");
   const sel = $("#project");
   sel.innerHTML = list.map(s => `<option>${esc(s)}</option>`).join("");
-  slug = pick || localStorage.getItem("ap.project") || list[0] || null;
+  slug = pick || URL_ARGS.get("project") || localStorage.getItem("ap.project") || list[0] || null;
   if (slug && !list.includes(slug)) slug = list[0] || null;
   if (slug) sel.value = slug;
   await load();
@@ -185,7 +188,10 @@ function showTab(tab) {
   localStorage.setItem("ap.tab", tab);
 }
 document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
-showTab(["site", "frames", "plan", "refs", "review"].includes(localStorage.getItem("ap.tab")) ? localStorage.getItem("ap.tab") : "style");
+{ // ?project=<slug>&tab=<tab> (links) wins over the last one used
+  const t = URL_ARGS.get("tab") || localStorage.getItem("ap.tab");
+  showTab(["site", "frames", "plan", "refs", "review"].includes(t) ? t : "style");
+}
 
 $("#project").onchange = e => {
   if (!confirmDiscard()) { e.target.value = slug; return; }

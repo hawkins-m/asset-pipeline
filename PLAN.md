@@ -171,9 +171,19 @@ the whole city; mediums frame one node; tight shots are mood/material only and n
 assets. Materials are named precisely per slot type (`SiteLayout.materials`), with an
 optional moodboard reference applied as Redux masked to that material's slots.
 
+Typology catalog (2026-10-07): the city's blocks get 20-30 catalog typologies by district
+mix, density band and zone, with per-building variation modelled in the greybox and an
+anti-repetition report (`city_types.py`, `catalog.py`). Prompts are short and built from
+structured fields. A landmark typology carries a reference image masked to its slots.
+Shot prompts and cameras, district notes, materials, the catalog and the mix are editable
+in the UI (yours vs auto). The UE master material exposes tint, roughness (x multiplier),
+metallic and normal strength on every instance, and one instance per layout material.
+The rotunda is a landmark ensemble: an open octagon with a low dome, a lagoon in front,
+and two curved colonnades.
+
 Next, in order:
-1. **Frame review (the user)** of the city-scale frames: pick the rotunda design (not
-   locked yet) and judge the density and the look.
+1. **Frame review (the user)** of typology frames for every shot; then lock the rotunda
+   design (decided after the typology frames).
 2. **Step 4: asset library from the object-ID pass** (`s1_library`):
    - greybox types keyed by slot type, counts from the greybox;
    - props deduplicated across the starred frames;

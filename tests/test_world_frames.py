@@ -170,7 +170,8 @@ def world(tmp_path, monkeypatch):
         "shots": [shot], "untagged": [], "fixed": [], "blend_sha256": "sha1"})
     d = sw_shots.shot_dir(store, "a")
     d.mkdir(parents=True)
-    write_json(d / "meta.json", {"shot": shot, "greybox_sha256": "sha1"})
+    write_json(d / "meta.json", {"shot": shot, "greybox_sha256": "sha1", "rendered": "2026-01-01T00:00:00",
+                                  "warnings": []})
     write_json(d / "ids.json", {"shot": "a", "size": [64, 32], "sky_frac": 0.1, "slots": {
         "rot": {"frac": 0.5}, "v1": {"frac": 0.2}, "t": {"frac": 0.2}}})
     Image.new("L", (64, 32), 128).save(d / "depth.png")

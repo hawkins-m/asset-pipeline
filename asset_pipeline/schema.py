@@ -344,6 +344,7 @@ class CitySpec(BaseModel):
     overlays: dict[str, Overlay] = Field(default_factory=dict)  # waterfront | hillside | corridor | crossing | node_ring
     variation: Variation = Field(default_factory=Variation)
     checks: RepetitionChecks = Field(default_factory=RepetitionChecks)
+    user_fields: list[str] = Field(default_factory=list)   # catalog sections edited in the UI
 
 
 Tier = Literal["wide", "medium", "tight"]

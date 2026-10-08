@@ -312,10 +312,13 @@ def stale(store: ProjectStore) -> bool:
 
 
 def add_shot(store: ProjectStore, shot: ShotSpec) -> dict:
-    """Add or replace a shot camera in the .blend, and in the layout (so a rebuild keeps it)."""
+    """Add or replace a shot camera in the .blend, and in the layout (so a rebuild keeps it).
+    The layout keeps the auto values and the user's edits apart; the .blend gets the camera
+    with the edits applied."""
     layout = load_layout(store)
     layout.shots = [s for s in layout.shots if s.id != shot.id] + [shot]
     save_layout(store, layout)
+    shot = shot.effective()
     b = blend_path(store)
     if not b.is_file():
         raise FileNotFoundError(f"no {b} (run `ap site build`)")
@@ -327,6 +330,38 @@ def add_shot(store: ProjectStore, shot: ShotSpec) -> dict:
     if not was_edited:
         _record(store)
     return extract(store)
+
+
+def shot_spec(store: ProjectStore, shot: str) -> ShotSpec:
+    """The layout's spec for a shot; a camera that exists only in the .blend (added by hand)
+    is adopted into the layout from its current position."""
+    layout = load_layout(store)
+    spec = next((s for s in layout.shots if s.id == shot), None)
+    if spec is not None:
+        return spec
+    cam = next((s for s in load_greybox(store)["shots"] if s["id"] == shot), None)
+    if cam is None:
+        raise KeyError(f"no shot {shot}")
+    m = np.array(cam["matrix"], float)
+    pos = m[:3, 3]
+    look = pos - m[:3, 2] * 100.0          # a Blender camera looks down its local -Z
+    spec = ShotSpec(id=shot, tier=cam["tier"], pos=tuple(pos), look_at=tuple(look), lens_mm=cam["lens_mm"],
+                    sensor_mm=cam["sensor_mm"], resolution=tuple(cam["resolution"]), district=cam.get("district"),
+                    notes=cam.get("notes", ""))
+    layout.shots.append(spec)
+    save_layout(store, layout)
+    return spec
+
+
+def update_shot(store: ProjectStore, shot: str, **fields) -> ShotSpec:
+    """Save user edits (prompt_append, prompt_override, nudges, lens / tier overrides)."""
+    spec = shot_spec(store, shot)
+    layout = load_layout(store)
+    spec = spec.model_copy(update=fields)
+    ShotSpec.model_validate(spec.model_dump())
+    layout.shots = [spec if s.id == shot else s for s in layout.shots]
+    save_layout(store, layout)
+    return spec
 
 
 def summary(store: ProjectStore) -> dict:

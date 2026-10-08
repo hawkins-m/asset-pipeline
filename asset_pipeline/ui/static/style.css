@@ -133,3 +133,24 @@ button.stop:disabled { opacity: .6; }
 .result { border: 1px solid var(--line); border-radius: 6px; padding: 8px; display: grid; gap: 4px; font-size: 13px; }
 .result model-viewer { width: 100%; height: 220px; background: var(--bg); border-radius: 4px; }
 .result .error { color: var(--danger); }
+
+/* World mode editing: yours vs auto */
+#catalog { display: grid; gap: 16px; }
+#catalog[hidden] { display: none; }
+.rows { display: grid; gap: 10px; }
+.row-card { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; display: flex; flex-wrap: wrap;
+            gap: 8px 12px; align-items: end; margin: 0; }
+.row-card legend { font-weight: 600; font-size: 13px; }
+.row-card label { min-width: 9em; }
+.row-card .f-area, .row-card .f-map { flex: 1 1 22em; }
+.row-card .f-list { flex: 1 1 14em; }
+.row-card textarea { width: 100%; }
+.row-card.has-mine { border-color: var(--accent); }
+label.mine, .row-card label.mine { border-left: 3px solid var(--accent); padding-left: 6px; }
+.mine-tag { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 4px; }
+.auto-tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.shot-edit { margin: 4px 0 10px; }
+.shot-edit summary { cursor: pointer; color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.shot-edit .col { max-width: 900px; margin-top: 8px; }
+.shot-edit .camera input[type=number] { width: 6em; }
+.auto-prompt { margin: 2px 0; color: var(--text); font-size: 13px; background: var(--bg); padding: 6px 8px; border-radius: 6px; }

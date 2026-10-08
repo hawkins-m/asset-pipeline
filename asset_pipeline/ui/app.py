@@ -5,16 +5,17 @@ All state is on disk (project.json, review.json); the server holds only job stat
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .. import config, review, vlm
 from ..comfy.client import ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
-from ..schema import AssetPlan
+from .. import catalog as cat
+from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, Typology, Variation
 from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
@@ -98,6 +99,40 @@ class FramesReq(BaseModel):
     n: int = 4
     refs: list[str] = []          # approved frames added as Redux references
     ref_strength: float = 0.08
+
+
+class PromptReq(BaseModel):
+    append: str = ""
+    override: str | None = None     # empty / None: no override
+
+
+class CameraReq(BaseModel):
+    nudge_pos: tuple[float, float, float] = (0.0, 0.0, 0.0)     # right, up, forward (m)
+    nudge_target: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    lens_override: float | None = None
+    tier_override: Literal["wide", "medium", "tight"] | None = None
+
+
+class RegenReq(BaseModel):
+    n: int = 4
+    refs: list[str] = []
+    ref_strength: float = 0.08
+
+
+# catalog sections editable in the UI: (validator, list of id'd rows?)
+CATALOG = {"districts": (TypeAdapter(list[District]), True), "materials": (TypeAdapter(list[Material]), True),
+           "typologies": (TypeAdapter(list[Typology]), True), "overlays": (TypeAdapter(dict[str, Overlay]), False),
+           "checks": (TypeAdapter(RepetitionChecks), False), "variation": (TypeAdapter(Variation), False)}
+
+
+def _shot_edit(store: ProjectStore, shot: str) -> dict:
+    """The user's edits to a shot next to the auto values (for the mine / auto badges)."""
+    spec = next((s for s in sw_site.load_layout(store).shots if s.id == shot), None)
+    if spec is None:
+        return {"in_layout": False}
+    return {"in_layout": True, "lens_auto": spec.lens_mm, "lens_override": spec.lens_override,
+            "tier_auto": spec.tier, "tier_override": spec.tier_override, "nudge_pos": list(spec.nudge_pos),
+            "nudge_target": list(spec.nudge_target), "camera_edited": spec.camera_edited()}
 
 
 class DraftReq(BaseModel):
@@ -472,11 +507,12 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         for r in sw_shots.status(store):
             d = f"{sw_shots.SHOTS}/{r['id']}"
             try:
-                prompt = s0_frames.prompt_for(store, r["id"])
+                parts = s0_frames.prompt_parts(store, r["id"])
             except FileNotFoundError:
-                prompt = None
+                parts = None
             out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
-                            "prompt": prompt, "batches": s0_frames.batches(store, r["id"]),
+                            "prompt": parts["prompt"] if parts else None, "prompt_parts": parts,
+                            "edit": _shot_edit(store, r["id"]), "batches": s0_frames.batches(store, r["id"]),
                             "mood": r["tier"] in s0_frames.MOOD_TIERS})
         return {"shots": out, "settings": s0_frames.settings(store).model_dump()}
 
@@ -499,6 +535,118 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                           .relative_to(store.root)) for s in todo]
         tag = {"shot": req.shot} if req.shot else {"missing": True}
         return jobs.submit("frames.generate", slug, fn, lane="comfy", tag=tag).public()
+
+    # --- per-shot edits (prompt, camera) and regenerate ------------------------------------
+
+    @app.put("/api/projects/{slug}/shots/{shot}/prompt")
+    def shot_prompt(slug: str, shot: str, req: PromptReq):
+        store = _store(slug)
+        try:
+            sw_site.update_shot(store, shot, prompt_append=req.append.strip(),
+                                prompt_override=(req.override or "").strip() or None)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        try:
+            return s0_frames.prompt_parts(store, shot)
+        except FileNotFoundError:
+            return {}
+
+    @app.put("/api/projects/{slug}/shots/{shot}/camera")
+    def shot_camera(slug: str, shot: str, req: CameraReq):
+        """Save the camera edits and write the camera into the .blend (a CPU job); the
+        shot's passes go stale, the others stay valid."""
+        store = _store(slug)
+        try:
+            spec = sw_site.update_shot(store, shot, nudge_pos=req.nudge_pos, nudge_target=req.nudge_target,
+                                       lens_override=req.lens_override or None, tier_override=req.tier_override)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        except ValidationError as e:
+            raise HTTPException(400, str(e))
+        return jobs.submit("shots.camera", slug, lambda: len(sw_site.add_shot(store, spec)["shots"]),
+                           lane="cpu", tag={"shot": shot}).public()
+
+    @app.post("/api/projects/{slug}/shots/{shot}/regenerate")
+    def shot_regenerate(slug: str, shot: str, req: RegenReq):
+        """Re-render the shot's passes if they're missing or stale, then n new frames."""
+        store = _store(slug)
+        rows = {r["id"]: r for r in sw_shots.status(store)}
+        if shot not in rows:
+            raise HTTPException(404, f"no shot {shot}")
+
+        def run():
+            r = {x["id"]: x for x in sw_shots.status(store)}[shot]
+            if not r["rendered"] or r["stale"]:
+                sw_shots.render(store, [shot])
+            return str(s0_frames.generate(store, shot, n=req.n, refs=req.refs, ref_strength=req.ref_strength)
+                       .relative_to(store.root))
+        return jobs.submit("frames.generate", slug, run, lane="comfy", tag={"shot": shot}).public()
+
+    # --- city catalog: districts, materials, typologies, overlays, checks -----------------
+
+    @app.get("/api/projects/{slug}/catalog")
+    def catalog_get(slug: str):
+        store = _store(slug)
+        if not (sw_site.site_dir(store) / "layout.json").is_file():
+            return {"city": False}
+        L = sw_site.load_layout(store)
+        stats = read_json(sw_site.site_dir(store) / "city.json", default=None) or {}
+        plan_png = sw_site.site_dir(store) / "city_plan.png"
+        return {"city": L.city is not None,
+                "districts": [d.model_dump(mode="json") for d in L.districts],
+                "materials": [m.model_dump(mode="json") for m in L.materials],
+                "typologies": [t.model_dump(mode="json") for t in L.city.typologies] if L.city else [],
+                "overlays": {k: o.model_dump(mode="json") for k, o in L.city.overlays.items()} if L.city else {},
+                "checks": L.city.checks.model_dump(mode="json") if L.city else None,
+                "variation": L.city.variation.model_dump(mode="json") if L.city else None,
+                "section_edits": L.city.user_fields if L.city else [],
+                "report": {"warnings": stats.get("warnings", []), "repetition": stats.get("repetition"),
+                           "footprint_share": stats.get("footprint_share"), "buildings": stats.get("buildings")},
+                "plan_image": f"{sw_site.SITE}/city_plan.png" if plan_png.is_file() else None,
+                "plan_mtime": plan_png.stat().st_mtime if plan_png.is_file() else None}
+
+    @app.put("/api/projects/{slug}/catalog/{section}")
+    def catalog_put(slug: str, section: str, body: dict | list = Body(...)):
+        store = _store(slug)
+        if section not in CATALOG:
+            raise HTTPException(404, f"no catalog section {section}")
+        L = sw_site.load_layout(store)
+        if L.city is None and section not in ("districts", "materials"):
+            raise HTTPException(400, "the layout has no city spec")
+        adapter, rows = CATALOG[section]
+        try:
+            new = adapter.validate_python(body)
+        except ValidationError as e:
+            raise HTTPException(400, str(e))
+        if rows:
+            ids = [x.id for x in new]
+            if len(set(ids)) != len(ids) or not all(ids):
+                raise HTTPException(400, f"{section}: every row needs a unique id")
+            old = L.districts if section == "districts" else L.materials if section == "materials" \
+                else L.city.typologies
+            new = cat.mark_user_edits(old, new)
+            if section == "districts":
+                L.districts = new
+            elif section == "materials":
+                L.materials = new
+            else:
+                L.city.typologies = new
+        else:
+            setattr(L.city, section, new)
+            if section not in L.city.user_fields:
+                L.city.user_fields = sorted(L.city.user_fields + [section])
+        if L.city is not None:
+            try:
+                cat.check(L)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        sw_site.save_layout(store, L)
+        return {"saved": section}
+
+    @app.post("/api/projects/{slug}/site/plan")
+    def site_plan(slug: str):
+        store = _store(slug)
+        return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

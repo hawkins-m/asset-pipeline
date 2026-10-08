@@ -386,6 +386,33 @@ reflects what was actually verified.
   slabs), because a near-top-down depth pass is almost flat. Not yet tried: per-tier
   control settings (more depth, or canny) for raised and aerial shots.
 
+## Typology catalog (city mode) findings (2026-10-07)
+- Shares must be measured by footprint, not by building count: a row of narrow
+  townhouses counted as 56% of "buildings" while covering 22% of the ground.
+- With only the district mixes, 2-3 types took 40-60% of a district. Two fixes brought it
+  near the 22%/40% caps:
+  - weights back off (x0.15) once a type nears its cap, by footprint;
+  - the fill around a single civic building is a weighted pick, not the strongest type.
+
+  Diversity per district then went from 0.7-1.5 to 1.5-1.9 (Shannon).
+- A 5 x 3 km city with 33 typologies: ~9.4k buildings, plan 2.5 s, 785 slots, greybox
+  build 30 s.
+- A typology with one roof and one facade can only vary by storeys. At its minimum storey
+  count it must step up, or identical runs of 6-9 appear.
+- Prompts are not regional: a landmark's material words (a warm stone colour) turned the
+  whole raised frame that colour, not just the landmark. Only the masked Redux reference
+  stays local. Prefer the masked ref plus neutral district words for colour that must stay
+  on one building.
+- Eye-level from ~120 m, a lagoon in front of a landmark is a sliver in the depth pass;
+  Flux then invents a rectangular pool. Raised shots show it.
+- `pkill -f` / `pgrep -f` on a command line match the calling shell (see above): stop
+  servers by PID (`ss -ltnp`).
+- UE 5.8 Python: `MaterialExpressionSaturate`, `Constant3Vector` (`constant`) and
+  `LinearInterpolate` ("A", "B", "Alpha") build in the commandlet with `-nullrhi`;
+  `get_material_instance_*_parameter_value` reads the instance's current value, which is
+  how a value tuned in the editor is detected (metadata tag holds the pipeline's last
+  write).
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

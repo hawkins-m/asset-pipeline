@@ -1,7 +1,9 @@
 // World mode frames (per shot, onto the greybox passes) and the moodboard (Style tab).
 let draftApplied = Number(sessionStorage.getItem("ap.draftApplied") || 0);
 
-function renderFrames() {
+function renderFrames() { keepFocus(renderFramesNow); }
+
+function renderFramesNow() {
   const f = framesData, list = $("#frames-list"); list.replaceChildren();
   const s = f.settings;
   $("#frames-settings").textContent = `${s.model === "union" ? "Union Pro 2.0" : "depth LoRA"}: depth ${s.depth_strength}` +
@@ -20,14 +22,26 @@ function renderFrames() {
         <span class="hint">${ok ? "" : "passes missing or stale: render them in Site · Shots"}</span>
         <label class="hint">ref <select class="ref"><option value="">none</option>${approved.filter(k => !k.startsWith(`frames/${r.id}/`))
           .map(k => `<option>${esc(k)}</option>`).join("")}</select></label>
-        <button type="button" class="secondary more" ${ok ? "" : "disabled"}>+ ${+$("#frames-n").value || 4}</button></div>
+        <button type="button" class="secondary more" ${ok ? "" : "disabled"}>+ ${+$("#frames-n").value || 4}</button>
+        <button type="button" class="regen" title="re-render this shot's passes if the greybox or its camera changed, then generate">Regenerate this shot</button></div>
       ${r.prompt ? `<p class="hint prompt">${esc(r.prompt)}</p>` : ""}`;
-    const jobs = activeJobs("frames.generate", {shot: r.id});
-    if (jobs.length) { const m = $(".more", el); m.disabled = true; m.textContent = "Generating…"; m.after(stopButton(jobs)); }
+    const jobs = activeJobs("frames.generate", {shot: r.id}), cam = activeJobs("shots.camera", {shot: r.id});
+    if (jobs.length) {
+      for (const b of [$(".more", el), $(".regen", el)]) { b.disabled = true; b.textContent = "Generating…"; }
+      $(".regen", el).after(stopButton(jobs));
+    }
+    if (cam.length) { const b = $(".regen", el); b.disabled = true; b.textContent = "Moving camera…"; }
     $(".more", el).onclick = () => {
       const ref = $(".ref", el).value;
       framesAction({shot: r.id, refs: ref ? [ref] : []});
     };
+    $(".regen", el).onclick = async () => {
+      const ref = $(".ref", el).value;
+      try { await api(`/api/projects/${slug}/shots/${r.id}/regenerate`, {n: +$("#frames-n").value || 4, refs: ref ? [ref] : []}); }
+      catch (err) { alert(err.message); }
+      await load();
+    };
+    el.append(shotEditPanel(r));
     const g = document.createElement("div"); g.className = "grid small";
     for (const [label, key] of [["greybox", r.preview], ["depth", r.depth], ["edges", r.canny]]) {
       const c = document.createElement("div"); c.className = "card";

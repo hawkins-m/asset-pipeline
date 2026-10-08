@@ -543,7 +543,7 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         city.add_slots(city_plan, new, hs)
     return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},
             "sea_level": layout.sea_level, "slots": slots,
-            "shots": [s.model_dump(mode="json") for s in layout.shots],
+            "shots": [s.effective().model_dump(mode="json") for s in layout.shots],   # with the user's nudges
             "city": city_plan.stats if city_plan is not None else None}
 
 
