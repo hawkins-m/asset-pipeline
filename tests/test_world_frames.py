@@ -183,7 +183,7 @@ def world(tmp_path, monkeypatch):
 
 def test_prompt_names_what_the_camera_sees_and_the_focus_district_first(world):
     p = s0_frames.prompt_for(world, "a")
-    assert p.startswith("eye-level view, looking down the avenue, showing a domed rotunda")
+    assert p.startswith("looking down the avenue, showing a domed rotunda")       # the note replaces the tier
     assert p.index("domed rotunda") < p.index("courtyard villas") and "the landscape" not in p
     assert p.index("brick and concrete") < p.index("white marble")   # shot's district first
 
@@ -236,7 +236,8 @@ def test_materials_replace_district_notes_and_their_refs_are_masked(world, monke
     Image.new("RGB", (8, 8), "white").save(world.root / "moodboard/marble.png")
     _with_materials(world, ref="moodboard/marble.png")
     p = s0_frames.prompt_for(world, "a")
-    assert "polished white marble" in p and "lime render" in p and "brick and concrete" not in p
+    assert "polished white marble" in p and "lime render" in p
+    assert "brick and concrete" in p and "white marble, bronze" not in p   # one identity line: the shot's district
     assert p.index("marble") < p.index("lime render")            # by coverage
     m = s0_frames.material_mask(world, "a", sw_site.load_layout(world).materials[0])
     assert m[:, :32].all() and not m[:, 32:].any()               # exactly the rotunda's pixels
@@ -320,3 +321,56 @@ def test_moodboard_import_and_style_draft(world, tmp_path):
     assert world.load().anchor is None                             # a draft isn't saved
     s0_style.set_style_text(world, d.style_text)
     assert world.load().anchor.style_text == d.style_text and world.load().anchor.images == []
+
+
+def test_prompt_append_and_override_are_the_users_and_reset_to_auto(world):
+    auto = s0_frames.prompt_for(world, "a")
+    layout = sw_site.load_layout(world)
+    layout.shots[0].prompt_append = "golden hour, long shadows"
+    sw_site.save_layout(world, layout)
+    pp = s0_frames.prompt_parts(world, "a")
+    assert pp["auto"] == auto and pp["prompt"] == f"{auto}, golden hour, long shadows" and pp["source"] == "append"
+    layout.shots[0].prompt_override = "a quiet street at dawn"
+    sw_site.save_layout(world, layout)
+    assert s0_frames.prompt_parts(world, "a")["prompt"] == "a quiet street at dawn"
+    layout.shots[0].prompt_override, layout.shots[0].prompt_append = None, ""
+    sw_site.save_layout(world, layout)
+    assert s0_frames.prompt_parts(world, "a") | {} == {"auto": auto, "append": "", "override": None,
+                                                       "prompt": auto, "source": "auto"}
+
+
+def test_landmark_reference_is_masked_to_its_ensemble_and_named_first(world, monkeypatch):
+    from asset_pipeline.schema import CitySpec, Typology
+    (world.root / "moodboard").mkdir()
+    Image.new("RGB", (8, 8), "orange").save(world.root / "moodboard/landmark.jpg")
+    _with_materials(world)
+    layout = sw_site.load_layout(world)
+    layout.materials.append(Material(id="warm", words="rose granite"))
+    layout.city = CitySpec(typologies=[Typology(id="rotunda", prompt="an open arched rotunda", material="warm",
+                                                ref="moodboard/landmark.jpg", ref_strength=0.12)])
+    sw_site.save_layout(world, layout)
+    gb = json.loads((world.root / "site/greybox.json").read_text())
+    gb["slots"][0] |= {"typology": "rotunda", "material": "warm"}
+    write_json(world.root / "site/greybox.json", gb)
+    p = s0_frames.prompt_for(world, "a")
+    assert "showing an open arched rotunda" in p and p.index("rose granite") < p.index("lime render")
+    fake = FakeBackend()
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    out = s0_frames.generate(world, "a", n=1)
+    (r,) = fake.requests[0].regional
+    assert r.image.name == "landmark.jpg" and r.strength == 0.12
+    m = np.array(Image.open(r.mask)) > 0
+    assert m[:, :32].all() and not m[:, 32:].any()               # the ensemble's pixels only
+    assert json.loads((out / "meta.json").read_text())["prompt_source"] == "auto"
+
+
+def test_a_camera_edit_stales_only_that_shot():
+    shot = lambda i, m: {"id": i, "matrix": m, "lens_mm": 35, "sensor_mm": 36, "resolution": [64, 32]}  # noqa: E731
+    gb = {"blend_sha256": "new", "geometry_sha256": "g1", "shots": [shot("a", EYE), shot("b", EYE)]}
+    meta = lambda i: {"shot": shot(i, EYE), "greybox_sha256": "old", "geometry_sha256": "g1"}  # noqa: E731
+    moved = [r[:] for r in EYE]
+    moved[0][3] = 5.0
+    gb["shots"][1] = shot("b", moved)
+    assert not sw_shots.is_stale(meta("a"), gb, "a") and sw_shots.is_stale(meta("b"), gb, "b")
+    assert sw_shots.is_stale(meta("a"), gb | {"geometry_sha256": "g2"}, "a")       # geometry changed
+    assert sw_shots.is_stale({"shot": shot("a", EYE), "greybox_sha256": "old"}, gb, "a")   # legacy meta

@@ -10,7 +10,7 @@
   - terrain grid and sea plane;
   - one camera per shot.
   Tags (custom properties) are the contract with extract and the hand edits:
-    slot:   ap_id, ap_type, ap_category, ap_kit, ap_district
+    slot:   ap_id, ap_type, ap_category, ap_kit, ap_district, ap_material, ap_typology
     piece:  ap_piece
     camera: ap_shot, ap_tier, ap_district, ap_notes, ap_res_x, ap_res_y
 --extract: tagged objects -> JSON (slots with world matrix, bbox, pieces; shots).
@@ -89,6 +89,37 @@ def _gable(bm, p):
         bm.faces.new([v[i] for i in f])
 
 
+def _extrude_xz(bm, outline, d):
+    """A prism from an outline in the XZ plane (counter-clockwise seen from -Y), d thick
+    along Y, centred on y = 0. Concave outlines are fine (the caps are triangulated)."""
+    front = [bm.verts.new((x, -d / 2, z)) for x, z in outline]
+    back = [bm.verts.new((x, d / 2, z)) for x, z in outline]
+    caps = [bm.faces.new(front), bm.faces.new(back[::-1])]
+    n = len(outline)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((front[j], front[i], back[i], back[j]))
+    bmesh.ops.triangulate(bm, faces=caps, quad_method="BEAUTY", ngon_method="BEAUTY")
+
+
+def _vault(bm, p):
+    w, d, h, seg = p["w"], p["d"], p["h"], p.get("seg", 12)
+    pts = [(w / 2 * math.cos(math.pi * i / seg), h * math.sin(math.pi * i / seg)) for i in range(seg + 1)]
+    _extrude_xz(bm, pts, d)
+
+
+def _archwall(bm, p):
+    """A wall w wide, h tall, d thick with an arched opening (span wide, springing at
+    `spring`) in its middle: the outline runs up the opening and over the arch."""
+    w, d, h, r, spring = p["w"], p["d"], p["h"], p["span"] / 2, p["spring"]
+    seg = 16
+    arch = [(r * math.cos(math.pi * i / seg), spring + r * math.sin(math.pi * i / seg)) for i in range(seg + 1)]
+    # counter-clockwise: along the bottom, up the left jamb, over the arch, down the right
+    # jamb, on to the right edge, back along the top
+    outline = [(-w / 2, 0), (-r, 0)] + arch[::-1] + [(r, 0), (w / 2, 0), (w / 2, h), (-w / 2, h)]
+    _extrude_xz(bm, outline, d)
+
+
 def _ribbon(bm, p):
     """A strip of width w along a draped polyline, h thick (top faces up)."""
     pts = [Vector(q) for q in p["pts"]]
@@ -145,6 +176,10 @@ def make_mesh(prim, name):
         _arc(bm, prim)
     elif k == "gable":
         _gable(bm, prim)
+    elif k == "vault":
+        _vault(bm, prim)
+    elif k == "archwall":
+        _archwall(bm, prim)
     elif k == "ribbon":
         _ribbon(bm, prim)
     elif k == "poly":
@@ -266,7 +301,7 @@ def build(spec_path, out):
         e.rotation_euler = (0, 0, math.radians(s["rot_z"]))
         coll.objects.link(e)
         set_props(e, ap_id=s["id"], ap_type=s["type"], ap_category=s["category"], ap_kit=s.get("kit"),
-                  ap_district=s.get("district"))
+                  ap_district=s.get("district"), ap_material=s.get("material"), ap_typology=s.get("typology"))
         col = COLORS.get(s["type"], (0.7, 0.7, 0.7))
         # draped pieces (streets, lawns) are unique anyway: one merged mesh per slot and piece
         merged = {}
@@ -358,6 +393,8 @@ def extract(out):
         slots.append({"id": sid, "type": str(o.get("ap_type", "mass")) or "mass",
                       "category": str(o.get("ap_category", "other")) or "other",
                       "kit": str(o.get("ap_kit", "")) or None, "district": str(o.get("ap_district", "")) or None,
+                      "material": str(o.get("ap_material", "")) or None,
+                      "typology": str(o.get("ap_typology", "")) or None,
                       "matrix": rows(o.matrix_world), "bbox": [[round(v, 4) for v in lo], [round(v, 4) for v in hi]],
                       "pieces": pieces})
     def has_slot(o):

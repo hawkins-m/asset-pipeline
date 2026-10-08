@@ -108,16 +108,26 @@ class AssetPlan(BaseModel):
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
-BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa"]
+BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa", "colonnade"]
+
+
+DensityBand = Literal["core", "middle", "edge"]
 
 
 class District(BaseModel):
-    """A part of the city with its own material notes (fed to the concept-frame prompt)."""
+    """A part of the city: its identity line (fed to the concept-frame prompt) and, in city
+    mode, its typology mix, material palette, column policy and height bias."""
     id: str
     name: str = ""
-    notes: str = ""                       # materials, palette, character
+    notes: str = ""                       # identity: character, materials, palette (one line)
     radius: Vec2 = (0.0, 1e9)             # ring band from the centre
     sector: Vec2 = (0.0, 360.0)           # angle range (may wrap: (300, 60))
+    # city mode: typology -> weight per density band (core >= 0.6, middle >= 0.4, edge)
+    mix: dict[DensityBand, dict[str, float]] = Field(default_factory=dict)
+    palette: dict[str, float] = Field(default_factory=dict)   # material id -> weight
+    columns: Literal["none", "rare", "accent", "accent_on_civic_only"] = "accent"
+    height_bias: int = 0                  # storeys added to every building here
+    user_fields: list[str] = Field(default_factory=list)      # fields edited in the UI
 
 
 class Material(BaseModel):
@@ -131,6 +141,69 @@ class Material(BaseModel):
     districts: list[str] = Field(default_factory=list)  # only these districts (empty = all)
     ref: str | None = None                # project-relative reference image
     ref_strength: float = Field(default=0.15, ge=0, le=2)
+    user_fields: list[str] = Field(default_factory=list)
+
+
+Family = Literal["civic", "housing", "mixed", "infrastructure", "public_realm"]
+Form = Literal["perimeter", "courtyard", "bar", "l_shape", "u_shape", "stepped", "tower", "podium_tower",
+               "crescent", "row", "hall", "drum", "cavea", "cube", "arcade_line", "pavilion", "open"]
+Place = Literal["core", "avenue", "interior", "crossing", "waterfront", "hillside", "corridor", "edge",
+                "node_ring"]
+
+
+class Typology(BaseModel):
+    """A building type of the city-mode catalog. `form` is the greybox massing (what the
+    depth pass hands to the frames); `prompt` the few words a frame prompt uses when it is
+    on screen; `desc` the asset description that drives its reference sheets. Each
+    building picks a roof, facade and ground-floor use from the pools (seeded)."""
+    id: str
+    name: str = ""
+    family: Family = "housing"
+    form: Form = "perimeter"
+    width: Vec2 | None = None             # footprint range, m (per house for `row`)
+    depth: Vec2 | None = None
+    storeys: tuple[int, int] = (1, 1)
+    place: list[Place] = Field(default_factory=list)
+    prompt: str = ""
+    desc: str = ""
+    roofs: list[str] = Field(default_factory=list)
+    facades: list[str] = Field(default_factory=list)
+    ground: list[str] = Field(default_factory=list)
+    columns: Literal["none", "accent", "order"] = "none"
+    max_share: float | None = None        # of a district's buildings
+    max_count: int | None = None          # city-wide
+    material: str | None = None           # pinned material (else the district palette)
+    ref: str | None = None                # landmark reference image (Redux masked to its slots)
+    ref_strength: float = Field(default=0.12, ge=0, le=2)
+    # where the generator puts it: auto (from form / place), block (assigned to city blocks),
+    # corridor (across a green valley or along the promenade), shore (steps into the sea),
+    # pier_end (the harbour's pier head), node_gate (where an avenue leaves a civic core),
+    # kit (a kit monument the civic cores place: rotunda, temple, stoa)
+    site: Literal["auto", "block", "corridor", "shore", "pier_end", "node_gate", "kit"] = "auto"
+    user_fields: list[str] = Field(default_factory=list)
+
+
+class Overlay(BaseModel):
+    """Extra typologies wherever a zone applies (waterfront, hillside, corridor...)."""
+    adds: dict[str, float] = Field(default_factory=dict)
+    replaces_housing_with: str | None = None
+
+
+class Variation(BaseModel):
+    storeys_jitter: int = 1               # +- storeys around the typology's pick
+    avenue_bonus: int = 1                 # +1 on avenue frontage
+    step_back_top: float = 0.35           # share of 4+ storey buildings with a set-back top storey
+
+
+class RepetitionChecks(BaseModel):
+    """Thresholds of the anti-repetition report (warnings, like the housing share)."""
+    max_typology_share_city: float = 0.22
+    max_typology_share_district: float = 0.40
+    min_types_per_urban_tile: int = 4
+    max_identical_run: int = 3
+    min_height_cv_block: float = 0.15
+    max_column_share: float = 0.10
+    district_diversity_min: float = 1.6
 
 
 class Kit(BaseModel):
@@ -164,7 +237,7 @@ class Plaza(BaseModel):
     id: str
     center: Vec2 = (0.0, 0.0)
     radius: float = Field(gt=0)
-    type: Literal["paved", "pool"] = "paved"
+    type: Literal["paved", "pool", "lagoon"] = "paved"   # lagoon: water nearly to the edge
     district: str | None = None
 
 
@@ -175,9 +248,11 @@ class Plot(BaseModel):
     center: Vec2 = (0.0, 0.0)
     rot: float = 0.0                      # degrees; the front (-Y) faces rot - 90
     size: Vec3 = (20.0, 20.0, 12.0)       # width, depth, height (rotunda: drum diameter, -, total)
-    arc: tuple[float, float, float] | None = None  # stoa: (radius, angle_from, angle_to)
+    arc: tuple[float, float, float] | None = None  # stoa / colonnade: (radius, angle_from, angle_to)
     kit: str | None = None
     district: str | None = None
+    material: str | None = None           # tags the slot (else layout materials match by type)
+    typology: str | None = None           # catalog entry it belongs to (a landmark ensemble)
 
 
 class RingRow(BaseModel):
@@ -264,12 +339,23 @@ class CitySpec(BaseModel):
     markets: int = Field(default=4, ge=0) # market squares at avenue crossings
     trees: bool = True                    # street and park trees (stand-ins for the scatter)
     tile_m: float = 400.0                 # housing and streets grouped into slots per tile
+    # typology catalog (empty: the legacy three housing types)
+    typologies: list[Typology] = Field(default_factory=list)
+    overlays: dict[str, Overlay] = Field(default_factory=dict)  # waterfront | hillside | corridor | crossing | node_ring
+    variation: Variation = Field(default_factory=Variation)
+    checks: RepetitionChecks = Field(default_factory=RepetitionChecks)
+
+
+Tier = Literal["wide", "medium", "tight"]
 
 
 class ShotSpec(BaseModel):
-    """A camera as authored in the layout; the .blend's cameras are the truth after build."""
+    """A camera as authored in the layout; the .blend's cameras are the truth after build.
+    pos / look_at / lens_mm / tier are the auto (or authored) values; the user's edits are
+    kept apart in the fields below, so re-placing the auto shots keeps them and the UI can
+    show which is which. `effective()` applies them."""
     id: str
-    tier: Literal["wide", "medium", "tight"] = "medium"
+    tier: Tier = "medium"
     pos: Vec3
     look_at: Vec3
     lens_mm: float = 35.0
@@ -277,6 +363,34 @@ class ShotSpec(BaseModel):
     resolution: tuple[int, int] = (1344, 768)
     district: str | None = None
     notes: str = ""
+    # user edits
+    prompt_append: str = ""               # added to the auto prompt
+    prompt_override: str | None = None    # replaces the auto prompt entirely
+    nudge_pos: Vec3 = (0.0, 0.0, 0.0)     # metres in the camera's frame: right, up, forward
+    nudge_target: Vec3 = (0.0, 0.0, 0.0)
+    lens_override: float | None = Field(default=None, gt=0)
+    tier_override: Tier | None = None
+
+    def camera_edited(self) -> bool:
+        return (any(self.nudge_pos) or any(self.nudge_target) or self.lens_override is not None
+                or self.tier_override is not None)
+
+    def effective(self) -> "ShotSpec":
+        """The camera with the user's nudges, lens and tier applied."""
+        import numpy as np
+        p, t = np.array(self.pos, float), np.array(self.look_at, float)
+        fwd = t - p
+        fwd /= max(float(np.linalg.norm(fwd)), 1e-9)
+        right = np.cross(fwd, [0.0, 0.0, 1.0])
+        if np.linalg.norm(right) < 1e-6:          # looking straight down
+            right = np.array([1.0, 0.0, 0.0])
+        right /= np.linalg.norm(right)
+        up = np.cross(right, fwd)
+        move = lambda n: right * n[0] + up * n[1] + fwd * n[2]  # noqa: E731
+        return self.model_copy(update={
+            "pos": tuple(round(float(v), 3) for v in p + move(self.nudge_pos)),
+            "look_at": tuple(round(float(v), 3) for v in t + move(self.nudge_target)),
+            "lens_mm": self.lens_override or self.lens_mm, "tier": self.tier_override or self.tier})
 
 
 class SiteLayout(BaseModel):
@@ -311,6 +425,8 @@ class Slot(BaseModel):
     category: Category
     kit: str | None = None
     district: str | None = None
+    material: str | None = None           # material id the slot is tagged with (city typologies)
+    typology: str | None = None           # catalog typology (city buildings, landmark ensembles)
     matrix: list[list[float]]             # 4x4 world
     bbox: list[list[float]]               # [[x, y, z] min, [x, y, z] max], world
     pieces: list[Piece] = Field(default_factory=list)

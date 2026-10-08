@@ -62,10 +62,10 @@ def test_kit_pieces_repeat_exactly():
     prims: dict[str, set] = {}
     for s in spec["slots"]:
         for p in s["pieces"]:
-            if p["piece"].startswith("k:"):
+            if p["piece"].split(":")[0] in ("k",) or p["piece"].startswith("k-d"):
                 prims.setdefault(p["piece"], set()).add(json.dumps(p["prim"], sort_keys=True))
     assert prims and all(len(v) == 1 for v in prims.values()), {k: len(v) for k, v in prims.items()}
-    assert "k:ring-entablature-r20" in prims         # rotunda peristyle snapped to the kit radius
+    assert any(k.startswith("k-d") and "column-shaft" in k for k in prims)   # the rotunda's own order
     assert "k:stoa-entablature-r80" in prims
 
 
@@ -74,7 +74,8 @@ def test_pieces_are_stored_relative_to_their_slot():
     rot = next(s for s in spec["slots"] if s["id"] == "rotunda")
     shafts = [p for p in rot["pieces"] if "column-shaft" in p["piece"]]
     radii = {round(math.hypot(p["loc"][0], p["loc"][1]), 2) for p in shafts}
-    assert radii == {20.0} and len(shafts) == round(2 * math.pi * 20 / 4)
+    assert len(radii) == 1 and len(shafts) == 16          # paired columns at the octagon's 8 corners
+    assert 15 < radii.pop() < 20                          # just outside the 15 m corner radius
     stoa = next(s for s in spec["slots"] if s["id"] == "stoa-a")
     # back to world: rotate by the slot's rot_z, add its loc -> columns on the r=80 arc
     for p in [p for p in stoa["pieces"] if "column-shaft" in p["piece"]]:

@@ -103,6 +103,7 @@ class CityPlan:
     markets: list[tuple[Polygon, list[Box]]] = field(default_factory=list)
     piers: list[Box] = field(default_factory=list)
     trees: list[tuple[float, float, float, float, float]] = field(default_factory=list)  # x y z width height
+    typed: list = field(default_factory=list)  # city_types.Building, when the layout has a typology catalog
     stats: dict = field(default_factory=dict)
 
 
@@ -227,10 +228,7 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
             L.rings.append(Ring(id=f"{nd.id}-garden", center=c, radius=r["garden"], width=0.08 * nd.radius,
                                 role="garden", district=nd.id))
         if nd.monument == "rotunda":
-            diam = float(np.clip(0.42 * pr, 24, 44))
-            L.plots.append(Plot(id=f"{nd.id}-rotunda", type="rotunda", center=c, size=(diam, diam, diam * 1.05),
-                                kit=kit.id, district=nd.id))
-            radii.add(round(diam / 2 + kit.module_m))
+            radii |= rotunda_ensemble(L, nd, pr, f, kit)
         elif nd.monument == "temple":
             L.plots.append(Plot(id=f"{nd.id}-temple", type="temple", center=c, rot=nd.rot,
                                 size=(0.3 * pr + 12, 0.5 * pr + 18, 18), kit=kit.id, district=nd.id))
@@ -252,6 +250,33 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
                                     width=L.city.avenue_w, r_from=pr, r_to=r["core"]))
     kit.ring_radii = sorted(radii)
     return L
+
+
+def rotunda_ensemble(L: SiteLayout, nd: CivicNode, pr: float, f: Fields, kit: Kit) -> set[float]:
+    """The rotunda as a landmark ensemble in its plaza: the open domed rotunda set back
+    inland, a reflecting lagoon in front of it (towards the sea, where the node's eye-level
+    shot stands) and two curved colonnades on one arc around the lagoon, flanking the
+    rotunda. Returns the ring radii the curved kit pieces need."""
+    t = next((t for t in (L.city.typologies if L.city else []) if t.id == "rotunda"), None)
+    mat = t.material if t else None
+    c = np.array(nd.center, float)
+    diam = float(np.clip(0.42 * pr, 24, 44))
+    rc = c - f.u * 0.3 * pr                      # the rotunda, set back from the lagoon
+    lc = c + f.u * 0.28 * pr                     # the lagoon's centre
+    R = float(np.linalg.norm(rc - lc))           # the colonnades' arc runs through the rotunda
+    lag_r = R - diam / 2 - 7
+    L.plots.append(Plot(id=f"{nd.id}-rotunda", type="rotunda", center=tuple(rc), size=(diam, diam, diam * 1.15),
+                        kit=kit.id, district=nd.id, material=mat, typology="rotunda"))
+    L.plazas.append(Plaza(id=f"{nd.id}-lagoon", center=tuple(lc), radius=lag_r, type="lagoon", district=nd.id))
+    back = math.degrees(math.atan2(*(rc - lc)[::-1]))
+    gap = math.degrees((diam / 2 + 6) / R)
+    for k, (a0, a1) in enumerate(((back + gap, back + 85), (back - 85, back - gap))):
+        L.plots.append(Plot(id=f"{nd.id}-colonnade-{k}", type="colonnade", center=tuple(lc), arc=(R, a0, a1),
+                            kit=kit.id, district=nd.id, material=mat, typology="rotunda"))
+    return {round(R), round(R) + COLONNADE_ROW_M}
+
+
+COLONNADE_ROW_M = 5          # a landmark colonnade is two rows of columns this far apart
 
 
 # --- ways --------------------------------------------------------------------------------------
@@ -588,18 +613,28 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     market_cut = unary_union([m[0].buffer(4) for m in P.markets if m]) if P.markets else Polygon()
 
     # massing, or parks; the city frays out below the threshold
-    for b in P.blocks:
+    def keep(i, b):
         cx, cy = b.centroid.coords[0]
         d = float(f.density(cx, cy))
         if d < c.urban_threshold and rng.random() > d / c.urban_threshold * 0.4:
-            continue
+            return False
         if rng.random() < c.park_share * (1.6 - d):
             P.parks.append(b)
-            continue
-        dist = nearest_node(c, cx, cy)
-        for bx in mass_block(b, f, c, rng, dist):
-            if market_cut.is_empty or not market_cut.contains(Point(bx.x, bx.y)):
-                P.buildings.append(bx)
+            return False
+        return nearest_node(c, cx, cy)
+
+    if c.typologies:   # the catalog: typologies per block, line features, variation
+        from . import city_types
+        P.typed = [b for b in city_types.mass(P, f, rng, green_lines, keep)
+                   if market_cut.is_empty or not market_cut.contains(Point(b.x, b.y))]
+    else:
+        for i, b in enumerate(P.blocks):
+            dist = keep(i, b)
+            if dist is False:
+                continue
+            for bx in mass_block(b, f, c, rng, dist):
+                if market_cut.is_empty or not market_cut.contains(Point(bx.x, bx.y)):
+                    P.buildings.append(bx)
     for nd in c.nodes:
         if nd.role == "harbour":
             P.piers += piers(L, f, nd)
@@ -650,6 +685,10 @@ def stats(P: CityPlan) -> dict:
         a = b.w * b.d
         foot["housing"] += a
         floor["housing"] += a * max(1, round(b.h / P.layout.city.storey_m))
+    for b in P.typed:        # catalog buildings: housing and mixed use count as housing
+        key = "housing" if b.family in ("housing", "mixed") else "civic"
+        foot[key] += b.foot
+        floor[key] += b.foot * max(1, b.storeys)
     for pl in expand_rows(P.layout):
         if pl.type == "rotunda":
             a = math.pi * (pl.size[0] / 2) ** 2
@@ -677,13 +716,19 @@ def stats(P: CityPlan) -> dict:
         warn.append(f"housing is {share['housing']:.0%} of the built footprint (want >= 60%)")
     if share["monument"] > 0.03:
         warn.append(f"monuments are {share['monument']:.1%} of the built footprint (want <= 3%)")
-    allb = [b for b in P.buildings]
+    allb = [b for b in P.buildings] + [b for b in P.typed if b.storeys > 0]
     hs = np.array([b.h for b in allb]) if allb else np.zeros(1)
     xs = [p for b in P.blocks for p in b.bounds]
     foot = {k: float(v) for k, v in foot.items()}
     floor = {k: float(v) for k, v in floor.items()}
-    return {"buildings": len(allb), "housing_blocks": sum(1 for b in allb if b.kind == "housing"),
-            "houses": sum(1 for b in allb if b.kind == "houses"), "blocks": len(P.blocks),
+    out_rep = None
+    if P.typed:
+        from . import city_types
+        out_rep = city_types.report(P, P.typed)
+        warn += out_rep["warnings"]
+    return {"buildings": len(allb), "housing_blocks": sum(1 for b in allb if getattr(b, "kind", "") == "housing"),
+            "houses": sum(1 for b in allb if getattr(b, "kind", "") == "houses"), "blocks": len(P.blocks),
+            "repetition": out_rep,
             "streets": sum(1 for w in P.ways if w.kind == "street"),
             "avenues": sum(1 for w in P.ways if w.kind in ("avenue", "arterial", "promenade", "ring")),
             "parks": len(P.parks), "park_area_ha": round(sum(p.area for p in P.parks) / 1e4, 1),
@@ -732,6 +777,22 @@ def add_slots(P: CityPlan, new, hs) -> None:
         ribbon_piece(sb, w.kind, list(w.line.coords), w.width, 0.12)
     for b in P.buildings:
         group(b.kind, b.x, b.y, b, b.district)
+    typed: dict[tuple, list] = {}
+    for b in P.typed:
+        typed.setdefault((b.typology, tile(b.x, b.y), b.material), []).append(b)
+    fam = {t.id: t.family for t in c.typologies}
+    for (typ, key, mat), bs in sorted(typed.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "")):
+        ds = [b.district for b in bs if b.district]
+        district = max(set(ds), key=ds.count) if ds else None
+        cx = float(np.mean([b.x for b in bs]))
+        cy = float(np.mean([b.y for b in bs]))
+        sid = f"{typ}-{key}" + (f"-{mat}" if mat and sum(1 for k in typed if k[:2] == (typ, key)) > 1 else "")
+        sb = new(sid, typ, (cx, cy, float(hs(cx, cy))), district=district,
+                 category="structure" if fam.get(typ) == "public_realm" else "building", material=mat, typology=typ)
+        for b in bs:
+            for pt in b.parts:
+                prim, scale = unit_prim(pt)
+                sb.add(f"{typ}:{pt.role}", prim, (pt.x, pt.y, pt.z), pt.rot, scale)
     for pk in P.parks:
         m = pk.representative_point()
         group("park", m.x, m.y, pk, nearest_node(c, m.x, m.y))
@@ -773,6 +834,20 @@ def add_slots(P: CityPlan, new, hs) -> None:
 
 
 TREE = {"kind": "cylinder", "r": 0.5, "h": 1.0, "seg": 8}
+UNIT = {"box": {"kind": "box", "w": 1.0, "d": 1.0, "h": 1.0},
+        "gable": {"kind": "gable", "w": 1.0, "d": 1.0, "h": 1.0},
+        "vault": {"kind": "vault", "w": 1.0, "d": 1.0, "h": 1.0, "seg": 12},
+        "cyl": {"kind": "cylinder", "r": 0.5, "h": 1.0, "seg": 24},
+        "dome": {"kind": "dome", "r": 0.5, "seg": 24}}
+
+
+def unit_prim(pt) -> tuple[dict, list | None]:
+    """A catalog part as (primitive, scale): unit primitives scaled, others as given."""
+    if isinstance(pt.prim, dict):
+        return pt.prim, None
+    if pt.prim == "dome":                 # the unit dome is r 0.5, 0.5 tall
+        return UNIT["dome"], [pt.w, pt.d, pt.h * 2]
+    return UNIT[pt.prim], [pt.w, pt.d, pt.h]
 
 
 def _xy(it) -> tuple[float, float]:
@@ -830,6 +905,15 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
         u, v = _dir(b.rot) * b.w / 2, _dir(b.rot + 90) * b.d / 2
         pts = [np.array([b.x, b.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
         d.polygon([to(*p) for p in pts], fill=PLAN_COLORS[b.kind])
+    if P.typed:
+        from .city_types import FAMILY_COLORS
+        for b in P.typed:
+            for pt in b.parts:
+                if not isinstance(pt.prim, str) or pt.role not in ("mass", "ground", "podium", "base", "step"):
+                    continue
+                u, v = _dir(pt.rot) * pt.w / 2, _dir(pt.rot + 90) * pt.d / 2
+                pts = [np.array([pt.x, pt.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+                d.polygon([to(*p) for p in pts], fill=FAMILY_COLORS.get(b.family, PLAN_COLORS["housing"]))
     for sq, stalls in P.markets:
         fill(sq, PLAN_COLORS["market"])
     for b in P.piers:
@@ -891,7 +975,7 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
     z = max(float(hs(*p)) + 150, zc + dist * math.tan(math.radians(18)))
     out.append(ShotSpec(id="wide-hills", tier="wide", pos=(*p, z), look_at=(*(C + u * 300), zc),
                         lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
-                        notes="the whole city from the hills behind it, spreading down to the sea"))
+                        notes="the whole city from the hills, spreading down to the sea"))
     # from the sea
     s0 = float(f._shore(float(C @ v)))
     p = (s0 + 1800) * u + float(C @ v) * v
@@ -899,12 +983,12 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
     out.append(ShotSpec(id="wide-sea", tier="wide", pos=(*p, zc + dist * math.tan(math.radians(13))),
                         look_at=(*(C - u * 600), zc + 20),
                         lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
-                        notes="the whole coastal city from the sea, rising up the hills"))
+                        notes="the coastal city seen from the sea, rising up the hills"))
     main = max(c.nodes, key=lambda n: n.weight * n.radius)
     m = np.array(main.center)
     p = m + u * 1500
     out.append(ShotSpec(id="wide-aerial", tier="wide", pos=(*p, float(hs(*m)) + 2300), look_at=(*(m - u * 300), float(hs(*m))),
-                        lens_mm=24.0, notes="high aerial over the city's radial plan, its avenues spiralling out"))
+                        lens_mm=24.0, notes="high aerial view of the city's radial plan"))
     for nd in c.nodes:
         r = _rings(nd)
         cz = float(hs(*nd.center))
@@ -915,16 +999,16 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
         target_h = 14.0 if nd.monument else 6.0
         out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
                             look_at=(*nd.center, cz + target_h), lens_mm=24.0, district=nd.id,
-                            notes=f"eye level on the ring avenue of the {nd.role} node, looking to its centre"))
+                            notes=f"eye-level view across the {nd.role} plaza"))
         p = np.array(nd.center) + (nd.radius * 1.15) * _dir(a + 25)
         out.append(ShotSpec(id=f"med-{nd.id}-high", tier="medium", pos=(*p, float(hs(*p)) + 55),
                             look_at=(*nd.center, cz), lens_mm=24.0, district=nd.id,
-                            notes=f"raised view of the whole circular {nd.role} node and the streets around it"))
+                            notes=f"raised view over the {nd.role} quarter"))
         if nd.monument:
-            rr = next(max(pl.size[0], pl.size[1]) / 2 for pl in civic_layout(layout, f).plots
-                      if pl.id == f"{nd.id}-{nd.monument}")
-            p = np.array(nd.center) + (rr + 26) * _dir(a + 8)
+            mon = next(pl for pl in civic_layout(layout, f).plots if pl.id == f"{nd.id}-{nd.monument}")
+            rr = max(mon.size[0], mon.size[1]) / 2
+            p = np.array(mon.center) + (rr + 26) * _dir(a + 8)
             out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, cz + 1.7),
-                                look_at=(*nd.center, cz + rr * 0.45), lens_mm=50.0, district=nd.id,
-                                notes=f"the {nd.monument}'s colonnade up close, depth of field"))
+                                look_at=(*mon.center, cz + rr * 0.45), lens_mm=50.0, district=nd.id,
+                                notes=f"the {nd.monument} up close, shallow depth of field"))
     return out

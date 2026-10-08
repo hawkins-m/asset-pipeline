@@ -37,7 +37,10 @@ from . import sw_shots, sw_site
 
 FRAMES = "frames"
 MIN_COVERAGE = 0.01          # slot types under this share of the frame aren't named
-MAX_MATERIALS = 3            # materials named in a prompt, largest coverage first
+MAX_MATERIALS = 2            # materials named in a prompt, largest coverage first
+MATERIAL_COVERAGE = 0.03     # a material must cover this share of the frame to be named
+MAX_TYPES = 3                # building types named in a prompt, largest coverage first
+GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring"}  # implied by materials
 MOOD_TIERS = ("tight",)      # frames of these shots set mood/material, never assets
 TIER = {"wide": "wide establishing view", "medium": "eye-level view", "tight": "close-up detail view"}
 # What each greybox slot type is, for the prompt (plural forms: types usually repeat).
@@ -51,7 +54,7 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
               "street": "narrow streets", "park": "parks, gardens and tree-lined green corridors",
               "market": "a market square with stalls", "quay": "harbour piers"}
-SUFFIX = "cinematic environment concept art, one coherent city, consistent architecture"
+SUFFIX = "cinematic architectural concept art"
 
 
 def frames_dir(store: ProjectStore, shot: str) -> Path:
@@ -72,7 +75,9 @@ def _shot_meta(store: ProjectStore, shot: str) -> dict:
 
 
 def visible(store: ProjectStore, shot: str) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
-    """(slot type, coverage) and (district, coverage) seen by the shot, largest first."""
+    """(slot type, coverage) and (district, coverage) seen by the shot, largest first. A
+    slot that belongs to a catalog typology counts as that typology (a landmark ensemble's
+    colonnades and lagoon count as the landmark)."""
     ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None)
     if not ids:
         raise FileNotFoundError(f"shot {shot} has no id pass (ap shots render)")
@@ -83,7 +88,8 @@ def visible(store: ProjectStore, shot: str) -> tuple[list[tuple[str, float]], li
         s = slots.get(sid)
         if not s:
             continue
-        types[s["type"]] = types.get(s["type"], 0) + v["frac"]
+        key = s.get("typology") or s["type"]
+        types[key] = types.get(key, 0) + v["frac"]
         if s["district"]:
             districts[s["district"]] = districts.get(s["district"], 0) + v["frac"]
     order = lambda d: sorted(d.items(), key=lambda kv: -kv[1])  # noqa: E731
@@ -91,6 +97,8 @@ def visible(store: ProjectStore, shot: str) -> tuple[list[tuple[str, float]], li
 
 
 def _matches(m: Material, slot: dict) -> bool:
+    if slot.get("material"):              # tagged (city typologies, landmark ensembles)
+        return slot["material"] == m.id
     return slot["type"] in m.types and (not m.districts or slot.get("district") in m.districts)
 
 
@@ -127,6 +135,34 @@ def material_mask(store: ProjectStore, shot: str, material: Material) -> np.ndar
     return np.isin(sw_shots._key(rgb), np.array(keys, np.int64))
 
 
+def typology_mask(store: ProjectStore, shot: str, typology: str) -> np.ndarray:
+    """Boolean mask of the pixels of the slots that belong to a typology (id pass)."""
+    d = sw_shots.shot_dir(store, shot)
+    ids = read_json(d / "ids.json")
+    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
+    keys = [(v["color"][0] << 16) | (v["color"][1] << 8) | v["color"][2] for sid, v in ids["slots"].items()
+            if sid in slots and (slots[sid].get("typology") or slots[sid]["type"]) == typology]
+    rgb = np.array(Image.open(d / "ids.png").convert("RGB"))
+    return np.isin(sw_shots._key(rgb), np.array(keys, np.int64))
+
+
+def landmark_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef]:
+    """Masked Redux refs for the visible catalog typologies that have a reference image
+    (landmarks): the reference shapes that building only."""
+    layout = sw_site.load_layout(store)
+    cat = {t.id: t for t in (layout.city.typologies if layout.city else []) if t.ref and t.ref_strength > 0}
+    types, _ = visible(store, shot)
+    refs = []
+    for k, f in types:
+        t = cat.get(k)
+        if t is None or f < MIN_COVERAGE:
+            continue
+        mask = out / f"mask_typology_{k}.png"
+        Image.fromarray(typology_mask(store, shot, k).astype(np.uint8) * 255).save(mask)
+        refs.append(RegionalRef(image=store.root / review.rel(store, t.ref), mask=mask, strength=t.ref_strength))
+    return refs
+
+
 def regional_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef]:
     """Masked Redux refs for the visible materials that have a reference image; the masks
     are written into `out`."""
@@ -141,29 +177,64 @@ def regional_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef
     return refs
 
 
-def prompt_for(store: ProjectStore, shot: str) -> str:
+def auto_prompt(store: ProjectStore, shot: str) -> str:
+    """The prompt built from what the camera sees, kept short: tier and the shot's notes,
+    the largest few building types (catalog phrases), the largest few materials, and one
+    district identity line (the shot's own district, else the largest on screen)."""
     meta = _shot_meta(store, shot)
     s = meta["shot"]
     types, districts = visible(store, shot)
     layout = sw_site.load_layout(store)
     notes = {d.id: d.notes for d in layout.districts if d.notes}
-    parts = [TIER.get(s["tier"], "view")]
-    if s.get("notes"):
-        parts.append(s["notes"])
-    seen = [TYPE_WORDS.get(t, t) for t, f in types if f >= MIN_COVERAGE and t not in ("terrain",)]
+    cat = {t.id: t for t in (layout.city.typologies if layout.city else [])}
+    parts = [s["notes"]] if s.get("notes") else [TIER.get(s["tier"], "view")]
+    # landmarks (catalog types with a reference image) on screen are always named, first
+    shown = [t for t, f in types if f >= MIN_COVERAGE and t not in GROUND_TYPES]
+    marks = [t for t in shown if t in cat and cat[t].ref]
+    shown = (marks + [t for t in shown if t not in marks])[:max(MAX_TYPES, len(marks))]
+    seen = [(cat[t].prompt if t in cat and cat[t].prompt else TYPE_WORDS.get(t, t.replace("_", " "))) for t in shown]
     if seen:
         parts.append("showing " + ", ".join(dict.fromkeys(seen)))
-    mats = [m.words for m, f in visible_materials(store, shot) if f >= MIN_COVERAGE][:MAX_MATERIALS]
-    if not layout.materials:
-        # the focus district first (if set), then the others by coverage; at most two
-        ds = [d for d, f in districts if f >= MIN_COVERAGE]
-        if s.get("district") in notes:
-            ds = [s["district"]] + [d for d in ds if d != s["district"]]
-        mats = [notes[d] for d in ds if d in notes][:2]
+    by_id = {m.id: m for m in layout.materials}
+    mark_mats = [by_id[cat[t].material] for t in marks if cat[t].material in by_id]
+    mats = [m.words for m in mark_mats]
+    mats += [m.words for m, f in visible_materials(store, shot)
+             if f >= MATERIAL_COVERAGE and m not in mark_mats][:max(0, MAX_MATERIALS - len(mats))]
+    ds = [d for d, f in districts if f >= MIN_COVERAGE]
+    if s.get("district") in notes:
+        ds = [s["district"]] + [d for d in ds if d != s["district"]]
+    ds = [d for d in ds if d in notes]
+    if not layout.materials:     # no materials: the districts' notes carry them (at most two)
+        mats = [notes[d] for d in ds][:2]
+    elif ds:
+        parts.append(notes[ds[0]])
     if mats:
         parts.append("; ".join(mats))
     parts.append(SUFFIX)
     return ", ".join(p.strip().rstrip(".") for p in parts if p.strip())
+
+
+def _shot_spec(store: ProjectStore, shot: str):
+    return next((s for s in sw_site.load_layout(store).shots if s.id == shot), None)
+
+
+def prompt_parts(store: ProjectStore, shot: str) -> dict:
+    """The auto prompt, the user's append / override, and the prompt actually used."""
+    auto = auto_prompt(store, shot)
+    spec = _shot_spec(store, shot)
+    append = spec.prompt_append.strip() if spec else ""
+    override = (spec.prompt_override or "").strip() if spec else ""
+    if override:
+        used, source = override, "override"
+    elif append:
+        used, source = f"{auto}, {append}", "append"
+    else:
+        used, source = auto, "auto"
+    return {"auto": auto, "append": append, "override": override or None, "prompt": used, "source": source}
+
+
+def prompt_for(store: ProjectStore, shot: str) -> str:
+    return prompt_parts(store, shot)["prompt"]
 
 
 def settings(store: ProjectStore) -> FrameSettings:
@@ -190,10 +261,11 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     with `ref_strength` more total strength. material_refs: apply the visible materials'
     reference images, masked to their slots (False: wording only)."""
     meta = _shot_meta(store, shot)
-    if meta["greybox_sha256"] != sw_site.load_greybox(store)["blend_sha256"]:
-        raise ValueError(f"shot {shot}'s passes are stale (the greybox changed): ap shots render first")
+    if sw_shots.is_stale(meta, sw_site.load_greybox(store), shot):
+        raise ValueError(f"shot {shot}'s passes are stale (the greybox or its camera changed): ap shots render first")
     project = store.load()
     fs = fs or settings(store)
+    source = "given" if prompt else prompt_parts(store, shot)["source"]
     prompt = prompt or prompt_for(store, shot)
     anchor = project.anchor
     ref_paths = [store.root / review.rel(store, r) for r in refs or []]
@@ -205,7 +277,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     backend = backend_for("frames", project)
     out = out or _next_batch(frames_dir(store, shot))
     out.mkdir(parents=True, exist_ok=True)
-    regional = regional_refs(store, shot, out) if material_refs and fs.model == "union" else []
+    regional = (regional_refs(store, shot, out) + landmark_refs(store, shot, out)
+                if material_refs and fs.model == "union" else [])
     t, results = time.time(), []
     try:
         for i in range(n):  # one image per request: each gets its own seed, VRAM stays flat
@@ -219,11 +292,12 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
                             "edge_match": edge_match(final, sw_shots.shot_dir(store, shot) / "canny.png")})
     finally:  # a canceled run keeps the frames already made
         write_json(out / "meta.json", {
-            "shot": shot, "prompt": prompt, "settings": fs.model_dump(mode="json"),
+            "shot": shot, "prompt": prompt, "prompt_source": source, "settings": fs.model_dump(mode="json"),
             "anchor": anchor.model_dump(mode="json") if anchor else None, "refs": refs or [],
             "material_refs": [{"image": review.rel(store, r.image), "mask": r.mask.name, "strength": r.strength}
                               for r in regional],
-            "greybox_sha256": meta["greybox_sha256"], "size": [w, h], "backend": backend.name,
+            "greybox_sha256": meta["greybox_sha256"], "geometry_sha256": meta.get("geometry_sha256"),
+            "size": [w, h], "backend": backend.name,
             "frames": results, "complete": len(results) == n})
         store.log_run({"stage": "frames.generate", "shot": shot, "dir": str(out), "n": len(results),
                        "model": fs.model, "seconds": round(time.time() - t, 1)})

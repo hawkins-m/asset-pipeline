@@ -326,13 +326,40 @@ def cmd_site_plan(a) -> None:
     if a.shots:
         print("shots:", ", ".join(s.id for s in sw_site.set_city_shots(store)), "(rebuild to apply)")
     st = sw_site.plan_city(store)
-    print(f"{sw_site.site_dir(store) / 'city_plan.png'}: {st['buildings']} buildings ({st['housing_blocks']} in "
-          f"blocks/terraces, {st['houses']} houses), {st['blocks']} blocks, {st['streets']} streets, "
+    kinds = (f"{len(st['repetition']['typologies'])} typologies" if st.get("repetition") else
+             f"{st['housing_blocks']} in blocks/terraces, {st['houses']} houses")
+    print(f"{sw_site.site_dir(store) / 'city_plan.png'}: {st['buildings']} buildings ({kinds}), "
+          f"{st['blocks']} blocks, {st['streets']} streets, "
           f"{st['parks']} parks ({st['park_area_ha']} ha), {st['markets']} markets, {st['trees']} trees")
     print("footprint share:", ", ".join(f"{k} {v:.1%}" for k, v in st["footprint_share"].items()),
           f"; heights median {st['height_m']['median']} m, p90 {st['height_m']['p90']} m; extent {st['extent_m']} m")
+    r = st.get("repetition")
+    if r:
+        print("typologies by footprint:", ", ".join(f"{k} {v:.0%}" for k, v in list(r["share"].items())[:8]),
+              f"(+{max(0, len(r['share']) - 8)} more)")
+        print("district diversity:", ", ".join(f"{k} {v}" for k, v in r["diversity"].items()),
+              f"; columns on {r['column_share']:.0%}; longest identical run {r['longest_identical_run']}; "
+              f"{r['thin_tiles']}/{r['urban_tiles']} urban tiles under the type minimum")
     for w in st["warnings"]:
         print("warning:", w)
+
+
+def cmd_site_catalog(a) -> None:
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    if a.what == "import":
+        if not a.file:
+            raise SystemExit("ap site catalog import PROJECT FILE.yaml")
+        L = sw_site.import_catalog(store, Path(a.file))
+        print(f"{len(L.city.typologies)} typologies, {len(L.districts)} districts, {len(L.materials)} materials "
+              f"in {sw_site.site_dir(store) / 'layout.json'}. Next: ap site plan {a.project}")
+    else:
+        text = sw_site.export_catalog(store)
+        if a.file:
+            Path(a.file).write_text(text)
+            print(a.file)
+        else:
+            print(text)
 
 
 def cmd_site_build(a) -> None:
@@ -770,6 +797,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--shots", action="store_true", help="also replace the layout's shots with the auto-placed ones")
     p.set_defaults(fn=cmd_site_plan)
+    p = sisub.add_parser("catalog", help="city mode: import / export the typology catalog (YAML)")
+    p.add_argument("what", choices=["import", "export"])
+    p.add_argument("project")
+    p.add_argument("file", nargs="?", help="YAML to import (export: write here instead of stdout)")
+    p.set_defaults(fn=cmd_site_catalog)
     p = sisub.add_parser("build", help="layout.json -> terrain + greybox.blend + greybox.json (Blender, CPU)")
     p.add_argument("project")
     p.add_argument("--force", action="store_true", help="replace a hand-edited greybox.blend")

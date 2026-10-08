@@ -181,6 +181,7 @@ def render(store: ProjectStore, shots: list[str] | None = None) -> dict[str, dic
     for sid in ids:
         r = post(store, by_id[sid], colors)
         meta = {"shot": by_id[sid], "greybox_sha256": gb["blend_sha256"],
+                "geometry_sha256": gb.get("geometry_sha256"),
                 "rendered": time.strftime("%Y-%m-%dT%H:%M:%S"), "passes": list(PASSES), **r}
         write_json(shot_dir(store, sid) / "meta.json", meta)
         results[sid] = meta
@@ -209,6 +210,21 @@ def preview_site(store: ProjectStore, distance_frac: float = 0.42, elevation_deg
     return [out / c["id"] / "preview.png" for c in cams]
 
 
+CAMERA_KEYS = ("matrix", "lens_mm", "sensor_mm", "resolution")
+
+
+def is_stale(meta: dict, gb: dict, shot: str) -> bool:
+    """Passes no longer match: the greybox's geometry changed, or this shot's camera did.
+    (Editing one camera in the .blend leaves the other shots' passes valid.) Passes from
+    before geometry hashes existed compare the whole .blend."""
+    if meta.get("geometry_sha256") and gb.get("geometry_sha256"):
+        if meta["geometry_sha256"] != gb["geometry_sha256"]:
+            return True
+        cur = next((s for s in gb["shots"] if s["id"] == shot), None)
+        return cur is None or any(cur.get(k) != meta["shot"].get(k) for k in CAMERA_KEYS)
+    return meta["greybox_sha256"] != gb["blend_sha256"]
+
+
 def status(store: ProjectStore) -> list[dict]:
     """Every shot with whether its passes exist and match the current greybox."""
     gb = sw_site.load_greybox(store)
@@ -218,7 +234,7 @@ def status(store: ProjectStore) -> list[dict]:
         rows.append({"id": s["id"], "tier": s["tier"], "lens_mm": s["lens_mm"],
                      "resolution": s["resolution"], "district": s["district"],
                      "rendered": meta["rendered"] if meta else None,
-                     "stale": bool(meta and meta["greybox_sha256"] != gb["blend_sha256"]),
+                     "stale": bool(meta and is_stale(meta, gb, s["id"])),
                      "warnings": meta["warnings"] if meta else []})
     return rows
 

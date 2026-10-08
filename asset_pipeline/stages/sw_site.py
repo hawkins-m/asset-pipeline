@@ -126,12 +126,37 @@ def plan_city(store: ProjectStore) -> dict:
     return P.stats
 
 
+USER_SHOT_FIELDS = ("prompt_append", "prompt_override", "nudge_pos", "nudge_target", "lens_override",
+                    "tier_override")
+
+
 def set_city_shots(store: ProjectStore) -> list[ShotSpec]:
-    """Replace the layout's shots with the auto-placed city shots (rebuild to apply)."""
+    """Replace the layout's shots with the auto-placed city shots (rebuild to apply). The
+    user's edits to a shot (prompt, nudges, lens, tier) carry over by id."""
     layout = load_layout(store)
-    layout.shots = city_shots(layout)
+    old = {s.id: s for s in layout.shots}
+    shots = city_shots(layout)
+    for s in shots:
+        if s.id in old:
+            for k in USER_SHOT_FIELDS:
+                setattr(s, k, getattr(old[s.id], k))
+    layout.shots = shots
     save_layout(store, layout)
     return layout.shots
+
+
+def import_catalog(store: ProjectStore, path: Path) -> SiteLayout:
+    """Merge a typology catalog YAML (typologies, districts, materials, overlays, checks)
+    into site/layout.json."""
+    from .. import catalog
+    layout = catalog.apply(load_layout(store), catalog.load(path))
+    save_layout(store, layout)
+    return layout
+
+
+def export_catalog(store: ProjectStore) -> str:
+    from .. import catalog
+    return catalog.dump(load_layout(store))
 
 
 def init(store: ProjectStore, layout_file: Path | None = None, force: bool = False,
@@ -253,8 +278,14 @@ def extract(store: ProjectStore) -> dict:
     data["slots"] = [Slot.model_validate(s).model_dump(mode="json") for s in data["slots"]]
     data["shots"] = [Shot.model_validate(s).model_dump(mode="json") for s in data["shots"]]
     data["blend_sha256"] = _sha(b)
+    data["geometry_sha256"] = geometry_sha(data)
     write_json(site_dir(store) / "greybox.json", data)
     return data
+
+
+def geometry_sha(data: dict) -> str:
+    """Hash of the slots alone (not the cameras): what every shot's passes depend on."""
+    return hashlib.sha256(json.dumps(data["slots"], sort_keys=True).encode()).hexdigest()
 
 
 def load_greybox(store: ProjectStore) -> dict:

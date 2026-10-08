@@ -46,11 +46,35 @@ def test_plan_is_deterministic_housing_dominates_and_density_falls_off():
     far = [bx.h for bx in a.buildings if min(math.dist((bx.x, bx.y), n.center) for n in L.city.nodes) > 600]
     assert near and far and np.median(near) > np.median(far) + 3
     # every node's civic core is in the kit system, centred on the node
-    assert {p.id for p in a.layout.plazas} == {"a-plaza", "b-plaza"}
-    assert next(p for p in a.layout.plots if p.type == "rotunda").center == (-300, -250)
+    assert {p.id for p in a.layout.plazas} == {"a-plaza", "a-lagoon", "b-plaza"}
     # no building inside a civic core
     core = city._rings(L.city.nodes[0])["core"]
     assert all(math.dist((bx.x, bx.y), L.city.nodes[0].center) > core - 20 for bx in a.buildings)
+
+
+def test_rotunda_is_an_ensemble_set_back_behind_a_lagoon_between_two_colonnades():
+    L = small_city()
+    P = city.plan(L, heights(L))
+    plots = {p.id: p for p in P.layout.plots}
+    rot, lagoon = plots["a-rotunda"], next(p for p in P.layout.plazas if p.id == "a-lagoon")
+    assert lagoon.type == "lagoon"
+    # the sea is to the south: the rotunda stands inland of the node centre, the lagoon seaward
+    assert rot.center[1] > -250 > lagoon.center[1]
+    wings = [plots["a-colonnade-0"], plots["a-colonnade-1"]]
+    for w in wings:     # one arc around the lagoon, running through the rotunda
+        assert w.type == "colonnade" and w.center == lagoon.center
+        assert w.arc[0] == pytest.approx(math.dist(rot.center, lagoon.center))
+    # the lagoon's edge stops short of the rotunda
+    assert math.dist(rot.center, lagoon.center) - lagoon.radius > rot.size[0] / 2 + 5
+    spec = greybox.build_spec(L, heights(L))
+    s = next(s for s in spec["slots"] if s["id"] == "a-rotunda")
+    arches = [p for p in s["pieces"] if p["prim"]["kind"] == "archwall"]
+    assert len(arches) == 8 and all(p["prim"]["spring"] > 0.6 * p["prim"]["span"] for p in arches)
+    dome = next(p for p in s["pieces"] if p["piece"] == "dome")
+    assert dome["scale"][2] <= 1.0                                  # never taller than a half sphere
+    columns = [p for p in s["pieces"] if "column-shaft" in p["piece"]]
+    assert len(columns) == 16                                       # paired at the 8 corners
+    assert {x["type"] for x in spec["slots"] if x["id"].startswith("a-colonnade")} == {"colonnade"}
 
 
 def test_pads_level_each_node_and_grade_into_the_terrain():
