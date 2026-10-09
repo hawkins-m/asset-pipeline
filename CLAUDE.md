@@ -437,6 +437,25 @@ reflects what was actually verified.
     the parent block's slope). Terraces must follow the strip's own axis, or a 40 m
     terrace won't fit a 15 m strip, and the block stays empty.
   - A street cut can cross a block in several pieces: give each piece its own id.
+  - **Arched walls were solid until 2026-10-08.** A notched outline (arches cut from the
+    bottom edge) made by `bm.faces.new` + triangulate came out with overlapping triangles
+    over the openings: the front faces covered twice the wall's own area, and every arch
+    (rotunda sides, gates, aqueducts, arcades) was a solid wall in all passes. Build such
+    walls from convex pieces (piers plus a comb of trapezoids over each arch);
+    `tests/test_world.py::test_arched_walls_have_open_arches_in_blender` checks the area.
+  - Depth only shows detail near the camera: a 6 m arcade walk at 35 m is under 2% of the
+    shot's inverse-depth range (invisible), and canny needs an 8% relative depth step. An
+    arcade reads at 5-20 m: look along it, not across a court at it.
+  - Anchor A/B (6 moodboard scene images, total 0.05, plus two masked references): about
+    310 s per frame vs 117 s without the anchor (vs ~48 s with no references at all).
+    The anchor added ornament and palms and lowered the edge match (0.15 vs 0.40, same
+    seed): left off.
+  - Palms came from the words, not the trees: "sunlit coast" with sandy stone gave palms in
+    every market frame, even with no palm-like silhouettes. "clear central-Italian light"
+    plus "no palm trees" removed them on the same seeds, with olives in the planters
+    instead. Flux's T5 handles that short negation.
+  - Check what a frame shows before using it as a reference: the user's match numbers and
+    descriptions for two frames were swapped. Go by the description.
 
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
