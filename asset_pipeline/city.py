@@ -738,10 +738,12 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     for sb in supers:
         P.blocks += subdivide(sb, f, c, rng, streets)
     for i, s in enumerate(streets):
-        for ln in (s.geoms if hasattr(s, "geoms") else [s]):
+        geoms = list(s.geoms) if hasattr(s, "geoms") else [s]
+        for g, ln in enumerate(geoms):        # a cut can cross a block in several pieces
             if isinstance(ln, LineString) and ln.length > 15:
                 m = ln.interpolate(0.5, normalized=True)
-                P.ways += split_by_grade(f, ln, f"st{i}", "street", c.street_w, nearest_node(c, m.x, m.y))
+                P.ways += split_by_grade(f, ln, f"st{i}" if len(geoms) == 1 else f"st{i}g{g}", "street", c.street_w,
+                                         nearest_node(c, m.x, m.y))
 
     # markets: avenue crossings at middling density, spread out; and each market node
     avs = [w for w in P.ways if w.kind in ("avenue", "arterial")]

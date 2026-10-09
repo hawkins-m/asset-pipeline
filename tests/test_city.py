@@ -207,3 +207,10 @@ def test_quad_centre_and_rare_stoas():
     assert arc["prim"]["n"] >= 3 and 0.85 < arc["scale"][0] < 1.15
     plain = next(s for s in spec["slots"] if s["id"].startswith("a-civic-"))
     assert not [p for p in plain["pieces"] if "pier" in p["piece"]]
+
+
+def test_way_ids_are_unique():
+    L = hill_city()
+    P = city.plan(L, heights(L))
+    ids = [w.id for w in P.ways]
+    assert len(ids) == len(set(ids))
