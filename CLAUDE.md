@@ -425,6 +425,19 @@ reflects what was actually verified.
   blocks within street_w + 1 of each other. A local street is one long cut line across
   several blocks: clip it to the merged outline rather than testing its midpoint.
 
+- Frame review round 2 (2026-10-08):
+  - Style drift (frames reading as suburban California, North African or Middle Eastern)
+    came from the words: "warm ochre / pale rose render", terracotta pitched roofs as the
+    default roof, "citrus", "canvas awnings", and lollipop street trees (read as palms).
+    Flux has no negative prompt here, so name what you want instead: travertine, marble,
+    flat roofs with crisp cornices, umbrella pines, cypresses, olives.
+  - A hill node levelled as one 220 m pad (the default pad) reads as a flat ring city;
+    level only the summit plaza and let the slope stay.
+  - Contour strips on a hill come out a few degrees off the local slope (the cut follows
+    the parent block's slope). Terraces must follow the strip's own axis, or a 40 m
+    terrace won't fit a 15 m strip, and the block stays empty.
+  - A street cut can cross a block in several pieces: give each piece its own id.
+
 ## TRELLIS.2 (stage 5) status
 - Install with `scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify`.
   The env goes to `$AP_ROOT/envs/trellis2` and weights to `$AP_ROOT/models/TRELLIS.2-4B`.

@@ -174,6 +174,17 @@ ap site build my-project                            # then the greybox
     field that drifts across each district;
   - `accent_chance` / `accent_storeys` raise the odd housing block at an avenue crossing.
   - `corner_bonus` raises perimeter-block corners by 1 to that many storeys.
+- **Civic nodes** (`city.nodes` in `site/layout.json`):
+  - `layout: organic` makes a hill town: the monument stands on the summit, and only that
+    plaza is levelled. Winding lanes and stone stairs follow the slope, and blocks become
+    terrace strips along the contours. There are no rings. `seed` re-rolls its lanes. The
+    report checks that its buildings are within 20 m of a lane, street or stair.
+  - `centre: quad` makes an arcaded courtyard (four cloister ranges around a court with a
+    channel pool); the node's medium shot stands inside it.
+  - `stoa_share` (0–1) and `civic_ring` (`arcade` / `plain` / `none`) make colonnades
+    rare where they would frame every shot.
+  - `ap site plan PROJECT --shot ID` re-places only the named auto shots; the others keep
+    their cameras.
 - **Plot merging:** a single-building type (hall, cube, courtyard...) with a
   `merge_chance` may join its block with 1-3 neighbours into one large building, and the
   streets between them go. The district's `merge_chance` multiplies it (0 switches merging
@@ -257,9 +268,18 @@ goes in:
 - up to 2 materials covering at least 3% of the frame;
 - the focus district's identity line.
 
+**Frame roles** (a selector and a note on each frame card, or
+`ap frames role PROJECT FRAME design-ref|source|none --note ...`):
+- **design ref** frames guide generation: as a shot's design references (below), or as a
+  typology's landmark reference (`ref` in the catalog). They never seed the asset library.
+- Batches made on an older greybox are **archived**: kept, starred and viewable under
+  "Older layouts" on the shot's card, but never asset sources.
+
 **Per-shot edits (Frames tab, "Prompt and camera"):**
 - **Prompt:** see the auto prompt, *append* to it, or *override* it; *Reset to auto* clears
   both.
+- **Design references:** frames added as Redux references every time the shot is
+  generated, at a low total strength (0.05 by default).
 - **Camera:** lens, shot type, and position/aim nudges in metres in the camera's own frame
   (right, up, forward).
 - **Storage:** edits are saved in `site/layout.json` beside the auto values, so re-placing
