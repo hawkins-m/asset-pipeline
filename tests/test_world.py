@@ -202,3 +202,26 @@ def test_add_shot_and_passes_are_exact(site):
     for f in ("depth.png", "canny.png", "preview.png", "normal.png", "meta.json"):
         assert (sw_shots.shot_dir(site, "look") / f).is_file()
     assert [s["id"] for s in sw_shots.status(site)] == ["down", "look"]
+
+
+@pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
+def test_arched_walls_have_open_arches_in_blender(tmp_path):
+    """A notched outline triangulated over its openings once (solid walls in every pass):
+    the front faces must cover the wall minus its openings."""
+    import subprocess
+    script = tmp_path / "check.py"
+    script.write_text(
+        "import sys, math\n"
+        "sys.argv = ['x', '--']\n"
+        f"exec(open({str(Path(__file__).parents[1] / 'scripts/blender_greybox.py')!r}).read().split('# --- build')[0])\n"
+        "for prim in ({'kind': 'arcade', 'n': 3, 'bay': 4.5, 'span': 3.24, 'h': 4.4, 'd': 0.8, 'spring': 2.18},\n"
+        "             {'kind': 'archwall', 'w': 15.0, 'd': 3.0, 'h': 22.0, 'span': 12.0, 'spring': 14.0}):\n"
+        "    me = make_mesh(prim, 't')\n"
+        "    front = sum(p.area for p in me.polygons if p.normal.y < -0.9)\n"
+        "    W = prim.get('w') or prim['n'] * prim['bay']\n"
+        "    r, n = prim['span'] / 2, prim.get('n', 1)\n"
+        "    print('CHECK', front / (W * prim['h'] - n * (2 * r * prim['spring'] + math.pi * r * r / 2)))\n")
+    out = subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(script)],
+                         capture_output=True, text=True, timeout=300).stdout
+    ratios = [float(x.split()[1]) for x in out.splitlines() if x.startswith("CHECK")]
+    assert len(ratios) == 2 and all(0.98 < r < 1.03 for r in ratios), out[-2000:]

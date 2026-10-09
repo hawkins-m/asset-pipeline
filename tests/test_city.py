@@ -199,11 +199,18 @@ def test_quad_centre_and_rare_stoas():
     assert next(r for r in P.layout.rows if r.id == "a-civic").variant == "plain"
     med = next(s for s in city.shots(L, h) if s.id == "med-b")
     half = city.QUAD_HALF * city._rings(L.city.nodes[1])["plaza"]
-    assert math.dist(med.pos[:2], L.city.nodes[1].center) < half            # inside the court
-    assert math.dist(med.look_at[:2], L.city.nodes[1].center) == pytest.approx(half, abs=0.5)
+    cx, cy = L.city.nodes[1].center
+    rel = [abs(c) for c in greybox._rot(med.pos[0] - cx, med.pos[1] - cy, -L.city.nodes[1].rot)]
+    assert max(rel) < half and min(rel) > 0.3 * half                       # in the court, near a corner
+    assert math.dist(med.pos[:2], med.look_at[:2]) > half                  # looking along the court
+    assert next(s for s in greybox.build_spec(L, h)["slots"] if s["id"] == "plaza-b-plaza")["type"] == "plaza"
     spec = greybox.build_spec(L, h)
     s = next(s for s in spec["slots"] if s["id"] == "b-cloister-0")
     arc = next(p for p in s["pieces"] if p["prim"]["kind"] == "arcade")
+    # the arcade is on the court side of the range: nearer the node's centre than the range's middle
+    wx, wy = greybox._rot(arc["loc"][0], arc["loc"][1], s["rot_z"])
+    assert math.dist((s["loc"][0] + wx, s["loc"][1] + wy), L.city.nodes[1].center) < \
+        math.dist(s["loc"][:2], L.city.nodes[1].center)
     assert arc["prim"]["n"] >= 3 and 0.85 < arc["scale"][0] < 1.15
     plain = next(s for s in spec["slots"] if s["id"].startswith("a-civic-"))
     assert not [p for p in plain["pieces"] if "pier" in p["piece"]]

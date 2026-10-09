@@ -320,7 +320,7 @@ def _cloister(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
     cornice."""
     from .city_types import BAY_M, arcade_prim
     w, d, h = p.size
-    walk = 4.0
+    walk = 6.0
     back = d - walk
     sb.add_local("mass", box(w, back, h), 0, walk / 2, 0)
     sb.add_local("cornice", box(w + 1.2, back + 1.2, 0.45), 0, walk / 2, h - 0.45)
@@ -534,11 +534,11 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         sb.add_local("radial", box(rad.width, rad.r_to - rad.r_from, 0.1), 0, 0, RADIAL_LIFT)
     for pz in layout.plazas:
         x, y = pz.center
-        sb = new(f"plaza-{pz.id}", "plaza" if pz.type == "paved" else "pool", (x, y, hs(x, y)),
+        sb = new(f"plaza-{pz.id}", "plaza" if pz.type in ("paved", "court") else "pool", (x, y, hs(x, y)),
                  district=pz.district or district_at(layout, x, y))
-        if pz.type == "court":     # paved, a long channel pool down the middle along rot
+        if pz.type == "court":     # paved, a channel pool down the middle along rot, short of the ends
             sb.add_local("paving", cyl(pz.radius, 0.1, 96), 0, 0, PAVING_LIFT + 0.04)
-            sb.add_local("pool-water", box(3.0, pz.radius * 1.0, 0.12), 0, 0, PAVING_LIFT + 0.1, pz.rot + 90)
+            sb.add_local("pool-water", box(2.4, pz.radius * 0.7, 0.12), 0, 0, PAVING_LIFT + 0.1, pz.rot)
             continue
         if pz.type == "lagoon":    # sits on a paved plaza: a kerb and water just above it
             sb.add_local("lagoon-kerb", cyl(pz.radius + 1.2, 0.35, 96), 0, 0, PAVING_LIFT + 0.1)

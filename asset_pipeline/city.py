@@ -256,7 +256,7 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
             continue
         centre = nd.centre if nd.centre != "auto" else ("paved" if nd.monument or nd.role == "market" else "pool")
         if centre == "quad":
-            quad_core(L, nd, pr, kit)
+            quad_core(L, nd, pr, kit, f)
         else:
             L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=c, radius=pr,
                                   type="paved" if centre == "plaza" else centre, district=nd.id))
@@ -293,20 +293,27 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
 
 
 QUAD_HALF = 0.62            # the court's half side, x the plaza radius
-CLOISTER_DEPTH_M = 9.0
+CLOISTER_DEPTH_M = 11.0     # a 6 m walk behind the arcade: deep enough to read in the depth pass
 
 
-def quad_core(L: SiteLayout, nd: CivicNode, pr: float, kit: Kit) -> None:
-    """An arcaded courtyard: a square court (paved, a long channel pool down the middle)
+def quad_axis(nd: CivicNode, f: Fields) -> float:
+    """The court's axis nearest the sea: its channel pool and its medium shot run along it."""
+    sea = math.degrees(math.atan2(f.u[1], f.u[0]))
+    return min((nd.rot + 90 * k for k in range(4)), key=lambda q: abs(_angdiff(q, sea)))
+
+
+def quad_core(L: SiteLayout, nd: CivicNode, pr: float, kit: Kit, f: Fields) -> None:
+    """An arcaded courtyard: a square court (paved, a long channel pool down its axis)
     enclosed by four two-storey cloister ranges whose arcades face the court."""
     c = np.array(nd.center, float)
     half = QUAD_HALF * pr
-    L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=tuple(c), radius=pr, type="court", rot=nd.rot,
-                          district=nd.id))
+    L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=tuple(c), radius=pr, type="court",
+                          rot=quad_axis(nd, f) - 90, district=nd.id))
     for k in range(4):
         a = nd.rot + 90 * k
         m = c + (half + CLOISTER_DEPTH_M / 2) * _dir(a)
-        L.plots.append(Plot(id=f"{nd.id}-cloister-{k}", type="cloister", center=tuple(m), rot=a + 90,
+        # a plot's front (local -Y) faces rot - 90: towards the court's centre
+        L.plots.append(Plot(id=f"{nd.id}-cloister-{k}", type="cloister", center=tuple(m), rot=a - 90,
                             size=(2 * half + 2 * CLOISTER_DEPTH_M, CLOISTER_DEPTH_M, 9.0), kit=kit.id,
                             district=nd.id))
 
@@ -1209,12 +1216,17 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
             out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, float(hs(*p)) + 1.7),
                                 look_at=(*centre, cz + 10.0), lens_mm=24.0, district=nd.id,
                                 notes=f"eye-level view up the lanes and stairs of the {nd.role} quarter"))
-        elif nd.centre == "quad":         # inside the court, across it to the far arcade
+        elif nd.centre == "quad":
+            # the cloister view: from near one corner of the court, along one arcade (close,
+            # its arches receding: depth only shows arches within ~20 m) to the far range
             half = QUAD_HALF * r["plaza"]
-            p = centre + (half - 3) * _dir(a)
+            a = quad_axis(nd, f)
+            side = _dir(a + 90)
+            p = centre + 0.7 * half * _dir(a) + 0.45 * half * side
+            look = centre - half * _dir(a) + 0.75 * half * side
             out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
-                                look_at=(*(centre - half * _dir(a)), cz + 4.0), lens_mm=24.0, district=nd.id,
-                                notes="eye-level view across an arcaded courtyard"))
+                                look_at=(*look, cz + 4.0), lens_mm=24.0, district=nd.id,
+                                notes="eye-level view along the arcades of a courtyard"))
         else:
             p = centre + r["ring1"] * _dir(a)
             target_h = 14.0 if nd.monument else 6.0

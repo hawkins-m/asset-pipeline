@@ -108,32 +108,37 @@ def _vault(bm, p):
     _extrude_xz(bm, pts, d)
 
 
+def _arched_wall(bm, w, d, h, openings, r, spring, seg=12):
+    """A wall w wide, h tall, d thick, with arched openings (centre x of each, radius r,
+    springing at `spring`) that reach the ground. Built from convex pieces only, piers and
+    a comb of trapezoids over each arch, so triangulation can never fill an opening (a
+    single notched outline did)."""
+    edges = [-w / 2]
+    for c in sorted(openings):
+        edges += [c - r, c + r]
+    edges.append(w / 2)
+    for x0, x1 in zip(edges[::2], edges[1::2]):           # piers and the two ends
+        if x1 - x0 > 1e-4:
+            _extrude_xz(bm, [(x0, 0), (x1, 0), (x1, h), (x0, h)], d)
+    for c in openings:                                   # over each arch, up to the top
+        pts = [(c - r * math.cos(math.pi * k / seg), spring + r * math.sin(math.pi * k / seg)) for k in range(seg + 1)]
+        for (xa, za), (xb, zb) in zip(pts, pts[1:]):
+            if h - max(za, zb) > 1e-4:
+                _extrude_xz(bm, [(xa, za), (xb, zb), (xb, h), (xa, h)], d)
+
+
 def _archwall(bm, p):
-    """A wall w wide, h tall, d thick with an arched opening (span wide, springing at
-    `spring`) in its middle: the outline runs up the opening and over the arch."""
-    w, d, h, r, spring = p["w"], p["d"], p["h"], p["span"] / 2, p["spring"]
-    seg = 16
-    arch = [(r * math.cos(math.pi * i / seg), spring + r * math.sin(math.pi * i / seg)) for i in range(seg + 1)]
-    # counter-clockwise: along the bottom, up the left jamb, over the arch, down the right
-    # jamb, on to the right edge, back along the top
-    outline = [(-w / 2, 0), (-r, 0)] + arch[::-1] + [(r, 0), (w / 2, 0), (w / 2, h), (-w / 2, h)]
-    _extrude_xz(bm, outline, d)
+    """A wall w wide, h tall, d thick with one arched opening (`span` wide, springing at
+    `spring`) in its middle."""
+    _arched_wall(bm, p["w"], p["d"], p["h"], [0.0], p["span"] / 2, p["spring"], seg=16)
 
 
 def _arcade(bm, p):
     """n arched bays (`bay` wide each, `span` openings springing at `spring`) in one wall
-    h tall, d thick: the openings reach the ground, so the outline is one notched polygon."""
-    n, bay, r, spring, h, d = p["n"], p["bay"], p["span"] / 2, p["spring"], p["h"], p["d"]
-    W = n * bay
-    seg = 12
-    outline = [(-W / 2, 0)]
-    for i in range(n):
-        c = -W / 2 + bay * (i + 0.5)
-        outline.append((c - r, 0))
-        outline += [(c - r * math.cos(math.pi * k / seg), spring + r * math.sin(math.pi * k / seg)) for k in range(seg + 1)]
-        outline.append((c + r, 0))
-    outline += [(W / 2, 0), (W / 2, h), (-W / 2, h)]
-    _extrude_xz(bm, outline, d)
+    h tall, d thick."""
+    W = p["n"] * p["bay"]
+    centres = [-W / 2 + p["bay"] * (i + 0.5) for i in range(p["n"])]
+    _arched_wall(bm, W, p["d"], p["h"], centres, p["span"] / 2, p["spring"])
 
 
 def _ribbon(bm, p):
