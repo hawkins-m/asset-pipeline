@@ -52,7 +52,7 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "terrain": "the landscape",
               # city mode
               "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
-              "street": "narrow streets", "park": "parks and green corridors of umbrella pines, cypresses and olive trees",
+              "street": "narrow streets", "park": "parks and green corridors of Italian stone pines with broad flat canopies, cypresses and olive trees",
               "market": "a market square with stalls", "quay": "harbour piers",
               "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers"}
 SUFFIX = "cinematic architectural concept art"

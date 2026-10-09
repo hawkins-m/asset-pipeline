@@ -827,7 +827,9 @@ def stair_treads(sb, w: Way, hs) -> None:
 
 
 TREE_SPECIES = {          # (width, height) ranges, m
-    "pine": ((9.0, 13.0), (12.0, 17.0)),      # umbrella pine: tall bare trunk, wide flat crown
+    # stone pine: a broad, flat canopy on a short stout trunk. A tall thin trunk under a
+    # domed crown reads as a palm in the depth pass (and Flux draws palms).
+    "pine": ((13.0, 17.0), (10.0, 14.0)),
     "cypress": ((2.0, 2.8), (11.0, 16.0)),    # tall and narrow
     "olive": ((5.0, 7.0), (4.5, 6.5)),        # low and round
 }
@@ -1019,9 +1021,9 @@ def add_slots(P: CityPlan, new, hs) -> None:
                 if kind == "cypress":
                     sb.add("tree:cypress", TREE, (x, y, z), 0.0, (w, w, h))
                 else:   # a trunk and a crown: a wide flat umbrella (pine) or a low round one (olive)
-                    trunk = 0.62 if kind == "pine" else 0.3
-                    sb.add(f"tree:{kind}-trunk", TREE, (x, y, z), 0.0, (0.6, 0.6, h * trunk + 0.5))
-                    crown_h = h * (1 - trunk)
+                    trunk = 0.5 if kind == "pine" else 0.3
+                    sb.add(f"tree:{kind}-trunk", TREE, (x, y, z), 0.0, (1.1, 1.1, h * trunk + 0.5))
+                    crown_h = h * (0.24 if kind == "pine" else 1 - trunk)    # pines: flat
                     sb.add(f"tree:{kind}-crown", UNIT["dome"], (x, y, z + h * trunk), 0.0, (w, w, crown_h * 2))
     for i, (sq, stalls) in enumerate(P.markets):
         m = sq.centroid
