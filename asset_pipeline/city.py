@@ -24,6 +24,7 @@ into a CityPlan; `greybox.build_spec` turns that into slots. Steps:
 Housing is grouped into slots per tile (`tile_m`) so the id pass and the engine import
 stay small; it is never a per-building asset.
 """
+import hashlib
 import math
 from dataclasses import dataclass, field
 
@@ -102,7 +103,7 @@ class CityPlan:
     parks: list[Polygon] = field(default_factory=list)
     markets: list[tuple[Polygon, list[Box]]] = field(default_factory=list)
     piers: list[Box] = field(default_factory=list)
-    trees: list[tuple[float, float, float, float, float]] = field(default_factory=list)  # x y z width height
+    trees: list[tuple] = field(default_factory=list)  # x y z width height species (pine | cypress | olive)
     typed: list = field(default_factory=list)  # city_types.Building, when the layout has a typology catalog
     stats: dict = field(default_factory=dict)
 
@@ -167,18 +168,47 @@ class Fields:
 
 # --- terrain pads ---------------------------------------------------------------------------
 
-def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, float, float]]:
-    """(x, y, radius, z) per node: the mean ground of its disc, at least 3 m above the sea."""
+ORGANIC_PAD_BLEND_M = 45.0   # an organic node levels only its summit plaza, blending quickly
+STAIR_GRADE = 0.12           # steeper lanes and streets are stairs
+
+
+def organic_plaza_r(nd: CivicNode) -> float:
+    return max(26.0, 0.16 * nd.radius)
+
+
+def summit(nd: CivicNode, zfn) -> tuple[float, float]:
+    """The highest ground within 0.6 x the node's radius (the centroid of everything within
+    0.5 m of the top, so a levelled summit gives its centre)."""
+    R = 0.6 * nd.radius
+    rr, aa = np.meshgrid(np.linspace(0, R, 13), np.linspace(0, 2 * math.pi, 36, endpoint=False))
+    xs = nd.center[0] + (rr * np.cos(aa)).ravel()
+    ys = nd.center[1] + (rr * np.sin(aa)).ravel()
+    z = np.asarray(zfn(xs, ys), float)
+    top = z >= z.max() - 0.5
+    return float(xs[top].mean()), float(ys[top].mean())
+
+
+def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, float, float, float]]:
+    """(x, y, radius, z, blend) per node: the mean ground of its disc, at least 3 m above
+    the sea. An organic node levels only a small summit plaza (at the 85th percentile of
+    its ground, so the top is cut, not filled), and the hillside keeps its slope."""
     from .greybox import Heights
     hs = Heights(heights, layout.terrain.extent_m)
     out = []
     for nd in layout.city.nodes:
+        if nd.layout == "organic":
+            sx, sy = summit(nd, hs.many)
+            r = organic_plaza_r(nd) * 1.15
+            a = np.linspace(0, 2 * math.pi, 24, endpoint=False)
+            z = float(np.percentile(hs.many(sx + r * np.cos(a), sy + r * np.sin(a)), 85))
+            out.append((sx, sy, r, max(z, layout.sea_level + 3.0), ORGANIC_PAD_BLEND_M))
+            continue
         r = nd.radius * 1.05
         a = np.linspace(0, 2 * math.pi, 24, endpoint=False)
         xs = np.concatenate([[nd.center[0]], nd.center[0] + 0.6 * r * np.cos(a), nd.center[0] + r * np.cos(a)])
         ys = np.concatenate([[nd.center[1]], nd.center[1] + 0.6 * r * np.sin(a), nd.center[1] + r * np.sin(a)])
         z = float(np.mean(hs.many(xs, ys)))
-        out.append((nd.center[0], nd.center[1], r, max(z, layout.sea_level + 3.0)))
+        out.append((nd.center[0], nd.center[1], r, max(z, layout.sea_level + 3.0), PAD_BLEND_M))
     return out
 
 
@@ -191,9 +221,9 @@ def apply_pads(layout: SiteLayout, heights: np.ndarray) -> np.ndarray:
     u, v = sea_axes(t)
     inland = shore_at(t, x * v[0] + y * v[1]) - (x * u[0] + y * u[1])
     h = heights.astype(np.float32).copy()
-    for cx, cy, r, z in pads(layout, heights):
+    for cx, cy, r, z, blend in pads(layout, heights):
         d = np.hypot(x - cx, y - cy)
-        w = (1 - _smooth(r, r + PAD_BLEND_M, d)) * _smooth(-40, 10, inland)
+        w = (1 - _smooth(r, r + blend, d)) * _smooth(-40, 10, inland)
         h = h * (1 - w) + z * w
     return h.astype(np.float32)
 
@@ -221,8 +251,15 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
         c = tuple(nd.center)
         r = _rings(nd)
         pr = r["plaza"]
-        L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=c, radius=pr,
-                              type="paved" if nd.monument or nd.role == "market" else "pool", district=nd.id))
+        if nd.layout == "organic":
+            organic_core(L, nd, f, kit)
+            continue
+        centre = nd.centre if nd.centre != "auto" else ("paved" if nd.monument or nd.role == "market" else "pool")
+        if centre == "quad":
+            quad_core(L, nd, pr, kit)
+        else:
+            L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=c, radius=pr,
+                                  type="paved" if centre == "plaza" else centre, district=nd.id))
         L.rings.append(Ring(id=f"{nd.id}-ring", center=c, radius=r["ring1"], width=14, district=nd.id))
         if nd.radius >= 180:
             L.rings.append(Ring(id=f"{nd.id}-garden", center=c, radius=r["garden"], width=0.08 * nd.radius,
@@ -232,24 +269,66 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
         elif nd.monument == "temple":
             L.plots.append(Plot(id=f"{nd.id}-temple", type="temple", center=c, rot=nd.rot,
                                 size=(0.3 * pr + 12, 0.5 * pr + 18, 18), kit=kit.id, district=nd.id))
-        if nd.role in ("forum", "hill", "harbour") and nd.radials:
+        if nd.role in ("forum", "hill", "harbour") and nd.radials and nd.stoa_share > 0 and centre != "quad":
             rs = round(pr - 4)
             radii.add(rs)
             span = 360 / nd.radials
-            for k in range(nd.radials):
+            keep = max(1, round(nd.radials * nd.stoa_share))     # spread over the gaps
+            for k in sorted({int(i * nd.radials / keep) for i in range(keep)}):
                 a0 = nd.rot + k * span + 0.22 * span
                 L.plots.append(Plot(id=f"{nd.id}-stoa-{k}", type="stoa", center=c,
                                     arc=(rs, a0, a0 + 0.56 * span), kit=kit.id, district=nd.id))
         circ = 2 * math.pi * r["blocks"]
         count = max(4, int(circ / 46))
-        L.rows.append(RingRow(id=f"{nd.id}-civic", center=c, radius=r["blocks"], count=count, type="block",
-                              size=(min(34.0, circ / count - 12), 20.0, 16.0), height_jitter=0.15,
-                              angle_offset=nd.rot + 180 / count, kit=kit.id, district=nd.id))
+        if nd.civic_ring != "none":
+            L.rows.append(RingRow(id=f"{nd.id}-civic", center=c, radius=r["blocks"], count=count, type="block",
+                                  size=(min(34.0, circ / count - 12), 20.0, 16.0), height_jitter=0.15,
+                                  angle_offset=nd.rot + 180 / count, kit=kit.id, district=nd.id,
+                                  variant="plain" if nd.civic_ring == "plain" else None))
         for k in range(nd.radials):   # inside the core: kit radials; ways() carries them on
             L.radials.append(Radial(id=f"{nd.id}-r{k}", center=c, angle=nd.rot + 360 * k / nd.radials,
                                     width=L.city.avenue_w, r_from=pr, r_to=r["core"]))
     kit.ring_radii = sorted(radii)
     return L
+
+
+QUAD_HALF = 0.62            # the court's half side, x the plaza radius
+CLOISTER_DEPTH_M = 9.0
+
+
+def quad_core(L: SiteLayout, nd: CivicNode, pr: float, kit: Kit) -> None:
+    """An arcaded courtyard: a square court (paved, a long channel pool down the middle)
+    enclosed by four two-storey cloister ranges whose arcades face the court."""
+    c = np.array(nd.center, float)
+    half = QUAD_HALF * pr
+    L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=tuple(c), radius=pr, type="court", rot=nd.rot,
+                          district=nd.id))
+    for k in range(4):
+        a = nd.rot + 90 * k
+        m = c + (half + CLOISTER_DEPTH_M / 2) * _dir(a)
+        L.plots.append(Plot(id=f"{nd.id}-cloister-{k}", type="cloister", center=tuple(m), rot=a + 90,
+                            size=(2 * half + 2 * CLOISTER_DEPTH_M, CLOISTER_DEPTH_M, 9.0), kit=kit.id,
+                            district=nd.id))
+
+
+def organic_core(L: SiteLayout, nd: CivicNode, f: Fields, kit: Kit) -> None:
+    """A hill town's core: a plaza on the summit with the monument on it, facing downhill.
+    No rings, ring rows or stoas: its lanes and stairs come from ways()."""
+    sx, sy = summit(nd, f.z)
+    pr = organic_plaza_r(nd)
+    L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=(sx, sy), radius=pr, type="paved", district=nd.id))
+    down = _downhill_deg(f, sx, sy, pr)
+    if nd.monument == "temple":
+        L.plots.append(Plot(id=f"{nd.id}-temple", type="temple", center=(sx, sy), rot=down + 90,
+                            size=(0.45 * pr + 8, 0.7 * pr + 10, 18), kit=kit.id, district=nd.id))
+
+
+def _downhill_deg(f: Fields, x: float, y: float, r: float) -> float:
+    """Direction of the steepest descent around a point, averaged over a ring of radius r."""
+    a = np.linspace(0, 2 * math.pi, 24, endpoint=False)
+    z = f.z(x + 2 * r * np.cos(a), y + 2 * r * np.sin(a))
+    i = int(np.argmin(z))
+    return float(math.degrees(a[i]))
 
 
 def rotunda_ensemble(L: SiteLayout, nd: CivicNode, pr: float, f: Fields, kit: Kit) -> set[float]:
@@ -330,6 +409,9 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
 
     for nd in nodes:
         r = _rings(nd)
+        if nd.layout == "organic":
+            out += organic_lanes(nd, f, c, lambda p, me=nd.id: not inside(p) or in_other(p, me))
+            continue
         out.append(Way(f"{nd.id}-outer", "ring", Point(nd.center).buffer(nd.radius, quad_segs=24).exterior,
                        c.avenue_w * 0.8, nd.id))
         for k in range(nd.radials):
@@ -365,6 +447,48 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
     return out
 
 
+def organic_lanes(nd: CivicNode, f: Fields, c: CitySpec, stop) -> list[Way]:
+    """A hill town's lanes: from the summit plaza out and down at unequal, jittered angles
+    and lengths (re-rolled by nd.seed), steered to gentle grades so they wind across the
+    slope; their steep stretches are stairs."""
+    rng = np.random.default_rng(int(hashlib.sha256(f"{c.seed}:{nd.id}:{nd.seed}".encode()).hexdigest()[:8], 16))
+    sx, sy = summit(nd, f.z)
+    pr = organic_plaza_r(nd)
+    n = max(3, nd.radials)
+    span = 360 / n
+    out = []
+    for k in range(n):
+        a = nd.rot + k * span + rng.uniform(-0.35, 0.35) * span
+        start = np.array([sx, sy]) + (pr + 2) * _dir(a)
+        length = nd.avenue_m * rng.uniform(0.45, 1.0)
+        ln = _trace(f, start, a, length, rng.uniform(-8, 8), free_m=0.0, stop=stop)
+        if ln is not None and ln.length > 40:
+            out += split_by_grade(f, ln, f"{nd.id}-lane{k}", "lane", c.street_w * 1.3, nd.id)
+    return out
+
+
+def split_by_grade(f: Fields, ln: LineString, wid: str, kind: str, width: float, district) -> list[Way]:
+    """The line as ways of `kind`, with its stretches steeper than STAIR_GRADE as stairs."""
+    pts = np.array(LineString(ln.coords).segmentize(8.0).coords)
+    if len(pts) < 2:
+        return []
+    z = f.z(pts[:, 0], pts[:, 1])
+    seg = np.hypot(*np.diff(pts, axis=0).T)
+    steep = np.abs(np.diff(z)) / np.maximum(seg, 1e-6) > STAIR_GRADE
+    out, i = [], 0
+    while i < len(steep):
+        j = i
+        while j + 1 < len(steep) and steep[j + 1] == steep[i]:
+            j += 1
+        part = LineString(pts[i:j + 2])
+        if part.length > 4:
+            k = "stair" if steep[i] else kind
+            out.append(Way(f"{wid}-{len(out)}" if len(steep) > 1 else wid, k, part,
+                           width * (0.8 if k == "stair" else 1.0), district))
+        i = j + 1
+    return out
+
+
 # --- blocks ------------------------------------------------------------------------------------
 
 def _land_region(L: SiteLayout, f: Fields, margin: float) -> Polygon:
@@ -377,8 +501,9 @@ def _land_region(L: SiteLayout, f: Fields, margin: float) -> Polygon:
     return land.intersection(sbox(*c.bounds))
 
 
-def _cut(P: Polygon, rng, jitter_deg=10.0, pos=0.15):
-    """Cut a polygon across its long axis (jittered). Returns (pieces, cut line inside)."""
+def _cut(P: Polygon, rng, jitter_deg=10.0, pos=0.15, angle: float | None = None):
+    """Cut a polygon across its long axis (jittered), or along `angle` (a contour, on a
+    hillside). Returns (pieces, cut line inside)."""
     obb = P.minimum_rotated_rectangle
     q = np.array(obb.exterior.coords)[:4]
     e1, e2 = q[1] - q[0], q[2] - q[1]
@@ -386,10 +511,38 @@ def _cut(P: Polygon, rng, jitter_deg=10.0, pos=0.15):
     L_len = float(np.linalg.norm(long_v))
     long_u = long_v / max(L_len, 1e-9)
     a = math.degrees(math.atan2(long_u[1], long_u[0])) + 90 + rng.uniform(-jitter_deg, jitter_deg)
+    if angle is not None:
+        a = angle + rng.uniform(-jitter_deg / 2, jitter_deg / 2)
+        long_u = _dir(angle + 90)
     c = np.array(P.centroid.coords[0]) + long_u * rng.uniform(-pos, pos) * L_len
     big = 2 * L_len + 10
     line = LineString([c - big * _dir(a), c + big * _dir(a)])
     return _polys(split(P, line)), line.intersection(P)
+
+
+HILL_STRIP_M = (50.0, 140.0)   # terrace strips on an organic hillside: deep (downhill), long
+
+
+def _hill_cut(P: Polygon, f: Fields, c: CitySpec, rng) -> float | str | None:
+    """On a hillside near an organic node, terrace strips every building of which fronts a
+    street: cut along the contour while a strip is deeper than HILL_STRIP_M[0] (a contour
+    street between strips), straight down the slope while it's longer than HILL_STRIP_M[1]
+    (a stair), then "stop". None elsewhere (the usual cut across the long axis)."""
+    cx, cy = P.centroid.coords[0]
+    if not any(nd.layout == "organic" and math.dist(nd.center, (cx, cy)) < 1.6 * nd.radius for nd in c.nodes):
+        return None
+    if float(f.slope(cx, cy)) < 0.08:
+        return None
+    e = 10.0
+    down = math.degrees(math.atan2(-(float(f.z(cx, cy + e)) - float(f.z(cx, cy - e))),
+                                   -(float(f.z(cx + e, cy)) - float(f.z(cx - e, cy)))))
+    pts = np.array(P.exterior.coords)
+    deep, long_ = np.ptp(pts @ _dir(down)), np.ptp(pts @ _dir(down + 90))
+    if long_ > HILL_STRIP_M[1] and (deep <= HILL_STRIP_M[0] or rng.random() < 0.5):
+        return down                  # a cut down the slope: it becomes a stair
+    if deep > HILL_STRIP_M[0]:
+        return down + 90             # along the contour
+    return "stop"
 
 
 def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -> list[Polygon]:
@@ -401,9 +554,10 @@ def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -
     if d < c.urban_threshold * 0.7:
         return []           # countryside: no local streets
     size = c.block_m[0] + (c.block_m[1] - c.block_m[0]) * (1 - d)
-    if P.area <= size * size * 1.3 or depth > 9:
+    hill = _hill_cut(P, f, c, rng)
+    if hill == "stop" or depth > 12 or (hill is None and (P.area <= size * size * 1.3 or depth > 9)):
         return [P]
-    parts, line = _cut(P, rng)
+    parts, line = _cut(P, rng, angle=hill)
     if len(parts) < 2 or line.is_empty:
         return [P]
     gap = line.buffer(c.street_w / 2, cap_style="flat")
@@ -572,7 +726,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     lines = [w.line for w in P.ways] + [region.boundary]
     faces = [g for g in polygonize(unary_union(lines)) if region.contains(g.representative_point())]
     cut = unary_union([w.line.buffer(w.width / 2, cap_style="flat") for w in P.ways]
-                      + [Point(n.center).buffer(_rings(n)["core"], quad_segs=24) for n in c.nodes])
+                      + [Point(summit(n, f.z)).buffer(organic_plaza_r(n) + 6, quad_segs=24) if n.layout == "organic"
+                         else Point(n.center).buffer(_rings(n)["core"], quad_segs=24) for n in c.nodes])
     green_lines = corridors(L, f, rng)
     green = unary_union([g.buffer(c.corridor_w / 2) for g in green_lines]).intersection(region) \
         if green_lines else Polygon()
@@ -586,7 +741,7 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         for ln in (s.geoms if hasattr(s, "geoms") else [s]):
             if isinstance(ln, LineString) and ln.length > 15:
                 m = ln.interpolate(0.5, normalized=True)
-                P.ways.append(Way(f"st{i}", "street", ln, c.street_w, nearest_node(c, m.x, m.y)))
+                P.ways += split_by_grade(f, ln, f"st{i}", "street", c.street_w, nearest_node(c, m.x, m.y))
 
     # markets: avenue crossings at middling density, spread out; and each market node
     avs = [w for w in P.ways if w.kind in ("avenue", "arterial")]
@@ -645,7 +800,41 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     return P
 
 
+STAIR_TREAD_M = 1.6
+
+
+def stair_treads(sb, w: Way, hs) -> None:
+    """Steps on a stair: one riser box per tread length, so the depth pass shows a
+    staircase rather than a smooth ramp."""
+    from .greybox import UNIT_BOX
+    ln = w.line
+    for s in np.arange(0, ln.length - STAIR_TREAD_M, STAIR_TREAD_M):
+        p, q = ln.interpolate(s), ln.interpolate(s + STAIR_TREAD_M)
+        z0, z1 = float(hs(p.x, p.y)), float(hs(q.x, q.y))
+        lo, hi = min(z0, z1), max(z0, z1)
+        a = math.degrees(math.atan2(q.y - p.y, q.x - p.x))
+        sb.add("stair:tread", UNIT_BOX, ((p.x + q.x) / 2, (p.y + q.y) / 2, lo), a + 90,
+               (w.width, STAIR_TREAD_M, round(max(hi - lo, 0.15) + 0.12, 2)))
+
+
+TREE_SPECIES = {          # (width, height) ranges, m
+    "pine": ((9.0, 13.0), (12.0, 17.0)),      # umbrella pine: tall bare trunk, wide flat crown
+    "cypress": ((2.0, 2.8), (11.0, 16.0)),    # tall and narrow
+    "olive": ((5.0, 7.0), (4.5, 6.5)),        # low and round
+}
+
+
+def _tree(rng, x, y, z, weights) -> tuple:
+    kinds = list(weights)
+    p = np.array([weights[k] for k in kinds], float)
+    k = kinds[int(rng.choice(len(kinds), p=p / p.sum()))]
+    (w0, w1), (h0, h1) = TREE_SPECIES[k]
+    return (float(x), float(y), float(z), float(rng.uniform(w0, w1)), float(rng.uniform(h0, h1)), k)
+
+
 def trees(P: CityPlan, f: Fields, rng) -> list[tuple]:
+    """Street trees along avenues (mostly umbrella pines, some cypresses) and park trees
+    (pines, cypresses and olives): three silhouettes, so the depth pass asks for them."""
     out = []
     plazas = [Point(n.center).buffer(_rings(n)["plaza"] + 10) for n in P.layout.city.nodes]
     for w in P.ways:
@@ -660,16 +849,14 @@ def trees(P: CityPlan, f: Fields, rng) -> list[tuple]:
                 x, y = np.array([p.x, p.y]) + side * n * (w.width / 2 - 2)
                 if any(z.contains(Point(x, y)) for z in plazas) or not f.land(x, y):
                     continue
-                out.append((x, y, float(f.z(x, y)), 5.5, 8.0))
+                out.append(_tree(rng, x, y, f.z(x, y), {"pine": 0.65, "cypress": 0.35}))
     for pk in P.parks:
         x0, y0, x1, y1 = pk.bounds
         n = int(pk.area / 260)
         xs, ys = rng.uniform(x0, x1, n * 2), rng.uniform(y0, y1, n * 2)
         inside = shapely.contains_xy(pk, xs, ys)
         for x, y in zip(xs[inside][:n], ys[inside][:n]):
-            tall = rng.random() < 0.3
-            out.append((float(x), float(y), float(f.z(x, y)), 2.4 if tall else rng.uniform(6, 10),
-                        13.0 if tall else rng.uniform(6, 9)))
+            out.append(_tree(rng, x, y, f.z(x, y), {"pine": 0.4, "cypress": 0.25, "olive": 0.35}))
     if len(out) > TREE_CAP:
         idx = rng.choice(len(out), TREE_CAP, replace=False)
         out = [out[i] for i in sorted(idx)]
@@ -773,8 +960,12 @@ def add_slots(P: CityPlan, new, hs) -> None:
             group("street", m.x, m.y, w, w.district)
             continue
         x, y = w.line.coords[0]
-        sb = new(f"way-{w.id}", "avenue", (x, y, float(hs(x, y))), district=w.district)
+        kind = w.kind if w.kind in ("lane", "stair") else "avenue"
+        sb = new(f"way-{w.id}", kind, (x, y, float(hs(x, y))), district=w.district,
+                 category="terrain")
         ribbon_piece(sb, w.kind, list(w.line.coords), w.width, 0.12)
+        if w.kind == "stair":
+            stair_treads(sb, w, hs)
     for b in P.buildings:
         group(b.kind, b.x, b.y, b, b.district)
     typed: dict[tuple, list] = {}
@@ -815,8 +1006,14 @@ def add_slots(P: CityPlan, new, hs) -> None:
                 o = pts[0]
                 sb.add("lawn", poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
             else:
-                x, y, z, w, h = it
-                sb.add("tree", TREE, (x, y, z), 0.0, (w, w, h))
+                x, y, z, w, h, kind = it
+                if kind == "cypress":
+                    sb.add("tree:cypress", TREE, (x, y, z), 0.0, (w, w, h))
+                else:   # a trunk and a crown: a wide flat umbrella (pine) or a low round one (olive)
+                    trunk = 0.62 if kind == "pine" else 0.3
+                    sb.add(f"tree:{kind}-trunk", TREE, (x, y, z), 0.0, (0.6, 0.6, h * trunk + 0.5))
+                    crown_h = h * (1 - trunk)
+                    sb.add(f"tree:{kind}-crown", UNIT["dome"], (x, y, z + h * trunk), 0.0, (w, w, crown_h * 2))
     for i, (sq, stalls) in enumerate(P.markets):
         m = sq.centroid
         sb = new(f"market-{i}", "market", (m.x, m.y, float(hs(m.x, m.y))),
@@ -842,9 +1039,10 @@ UNIT = {"box": {"kind": "box", "w": 1.0, "d": 1.0, "h": 1.0},
 
 
 def unit_prim(pt) -> tuple[dict, list | None]:
-    """A catalog part as (primitive, scale): unit primitives scaled, others as given."""
+    """A catalog part as (primitive, scale): unit primitives scaled, others as given (with
+    their own scale if any: an arcade stretched to its facade)."""
     if isinstance(pt.prim, dict):
-        return pt.prim, None
+        return pt.prim, list(pt.scale) if pt.scale else None
     if pt.prim == "dome":                 # the unit dome is r 0.5, 0.5 tall
         return UNIT["dome"], [pt.w, pt.d, pt.h * 2]
     return UNIT[pt.prim], [pt.w, pt.d, pt.h]
@@ -995,20 +1193,37 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
         # down the radial that faces the sea most, from the ring avenue to the centre
         angles = [nd.rot + 360 * k / max(nd.radials, 1) for k in range(max(nd.radials, 1))]
         a = min(angles, key=lambda a: abs(_angdiff(a, math.degrees(math.atan2(u[1], u[0])))))
-        p = np.array(nd.center) + r["ring1"] * _dir(a)
-        target_h = 14.0 if nd.monument else 6.0
-        out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
-                            look_at=(*nd.center, cz + target_h), lens_mm=24.0, district=nd.id,
-                            notes=f"eye-level view across the {nd.role} plaza"))
-        p = np.array(nd.center) + (nd.radius * 1.15) * _dir(a + 25)
+        centre = np.array(nd.center, float)
+        if nd.layout == "organic":        # up the lanes from below to the summit
+            centre = np.array(summit(nd, f.z))
+            cz = float(hs(*centre))
+            a = _downhill_deg(f, *centre, organic_plaza_r(nd))
+            p = centre + (organic_plaza_r(nd) + 70) * _dir(a)
+            out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, float(hs(*p)) + 1.7),
+                                look_at=(*centre, cz + 10.0), lens_mm=24.0, district=nd.id,
+                                notes=f"eye-level view up the lanes and stairs of the {nd.role} quarter"))
+        elif nd.centre == "quad":         # inside the court, across it to the far arcade
+            half = QUAD_HALF * r["plaza"]
+            p = centre + (half - 3) * _dir(a)
+            out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
+                                look_at=(*(centre - half * _dir(a)), cz + 4.0), lens_mm=24.0, district=nd.id,
+                                notes="eye-level view across an arcaded courtyard"))
+        else:
+            p = centre + r["ring1"] * _dir(a)
+            target_h = 14.0 if nd.monument else 6.0
+            out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
+                                look_at=(*nd.center, cz + target_h), lens_mm=24.0, district=nd.id,
+                                notes=f"eye-level view across the {nd.role} plaza"))
+        p = centre + (nd.radius * 1.15) * _dir(a + 25)
         out.append(ShotSpec(id=f"med-{nd.id}-high", tier="medium", pos=(*p, float(hs(*p)) + 55),
-                            look_at=(*nd.center, cz), lens_mm=24.0, district=nd.id,
+                            look_at=(*centre, cz), lens_mm=24.0, district=nd.id,
                             notes=f"raised view over the {nd.role} quarter"))
         if nd.monument:
             mon = next(pl for pl in civic_layout(layout, f).plots if pl.id == f"{nd.id}-{nd.monument}")
             rr = max(mon.size[0], mon.size[1]) / 2
             p = np.array(mon.center) + (rr + 26) * _dir(a + 8)
-            out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, cz + 1.7),
-                                look_at=(*mon.center, cz + rr * 0.45), lens_mm=50.0, district=nd.id,
+            mz = float(hs(*mon.center))
+            out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, max(mz, float(hs(*p))) + 1.7),
+                                look_at=(*mon.center, mz + rr * 0.45), lens_mm=50.0, district=nd.id,
                                 notes=f"the {nd.monument} up close, shallow depth of field"))
     return out

@@ -144,3 +144,66 @@ def test_real_build_keeps_scale_and_shares_one_housing_mesh(city_site):
     m = np.array(boxes[0]["matrix_local"])
     sx, sy, sz = np.linalg.norm(m[:3, :3], axis=0)
     assert min(sx, sy) > 5 and sz > 5                                # metres, not a unit cube
+
+
+def hill_city(**node):
+    L = small_city()
+    L.city.nodes[1] = L.city.nodes[1].model_copy(update={"role": "hill", "monument": "temple", "layout": "organic",
+                                                         "radius": 160.0, **node})
+    return L
+
+
+def test_organic_node_has_no_rings_keeps_its_slope_and_is_walkable():
+    L = hill_city()
+    h = heights(L)
+    P = city.plan(L, h)
+    b = L.city.nodes[1]
+    assert not [r for r in P.layout.rings if r.district == "b"]
+    assert not [r for r in P.layout.rows if r.district == "b"]
+    assert not [p for p in P.layout.plots if p.district == "b" and p.type == "stoa"]
+    assert not [w for w in P.ways if w.id == "b-outer"]
+    temple = next(p for p in P.layout.plots if p.id == "b-temple")
+    sx, sy = city.summit(b, greybox.Heights(h, L.terrain.extent_m).many)
+    assert math.dist(temple.center, (sx, sy)) < 15                        # on the summit
+    # only the summit plaza is levelled: the slope stays across the rest of the node
+    raw = greybox.Heights(greybox.make_terrain(L.terrain), L.terrain.extent_m)
+    padded = greybox.Heights(h, L.terrain.extent_m)
+    a = np.linspace(0, 2 * math.pi, 16, endpoint=False)
+    ring = (b.center[0] + 0.9 * b.radius * np.cos(a), b.center[1] + 0.9 * b.radius * np.sin(a))
+    far = np.hypot(ring[0] - sx, ring[1] - sy) > city.organic_plaza_r(b) * 1.15 + city.ORGANIC_PAD_BLEND_M
+    assert far.sum() >= 8 and np.allclose(raw.many(*ring)[far], padded.many(*ring)[far], atol=0.5)
+    assert np.ptp(padded.many(*ring)) > 10                                 # a real slope, not a terrace
+    lanes = [w for w in P.ways if w.district == "b" and w.kind in ("lane", "stair")]
+    assert len({w.id.split("-")[1] for w in lanes if "lane" in w.id}) >= 3
+    assert P.stats["repetition"] is None or P.stats["repetition"]["walkable_share"] >= 0.95
+
+
+def test_organic_reroll_changes_the_lanes():
+    L1, L2 = hill_city(seed=0), hill_city(seed=5)
+    h = heights(L1)
+    f = city.Fields(L1, h)
+    ends = lambda L: sorted(round(w.line.coords[-1][0]) for w in city.ways(city.civic_layout(L, f), f)  # noqa: E731
+                            if w.district == "b")
+    assert ends(L1) != ends(L2)
+
+
+def test_quad_centre_and_rare_stoas():
+    L = small_city()
+    L.city.nodes[1] = L.city.nodes[1].model_copy(update={"centre": "quad"})
+    L.city.nodes[0] = L.city.nodes[0].model_copy(update={"stoa_share": 0.2, "civic_ring": "plain"})
+    h = heights(L)
+    P = city.plan(L, h)
+    cl = [p for p in P.layout.plots if p.type == "cloister"]
+    assert len(cl) == 4 and next(p for p in P.layout.plazas if p.id == "b-plaza").type == "court"
+    assert len([p for p in P.layout.plots if p.type == "stoa" and p.district == "a"]) == 1
+    assert next(r for r in P.layout.rows if r.id == "a-civic").variant == "plain"
+    med = next(s for s in city.shots(L, h) if s.id == "med-b")
+    half = city.QUAD_HALF * city._rings(L.city.nodes[1])["plaza"]
+    assert math.dist(med.pos[:2], L.city.nodes[1].center) < half            # inside the court
+    assert math.dist(med.look_at[:2], L.city.nodes[1].center) == pytest.approx(half, abs=0.5)
+    spec = greybox.build_spec(L, h)
+    s = next(s for s in spec["slots"] if s["id"] == "b-cloister-0")
+    arc = next(p for p in s["pieces"] if p["prim"]["kind"] == "arcade")
+    assert arc["prim"]["n"] >= 3 and 0.85 < arc["scale"][0] < 1.15
+    plain = next(s for s in spec["slots"] if s["id"].startswith("a-civic-"))
+    assert not [p for p in plain["pieces"] if "pier" in p["piece"]]

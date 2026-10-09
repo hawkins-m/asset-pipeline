@@ -102,9 +102,20 @@ class FramesReq(BaseModel):
     ref_strength: float = 0.08
 
 
+class RoleReq(BaseModel):
+    path: str
+    role: Literal["design_ref", "source"] | None = None
+    note: str | None = None
+
+
 class PromptReq(BaseModel):
     append: str = ""
     override: str | None = None     # empty / None: no override
+
+
+class RefsEditReq(BaseModel):
+    refs: list[str] = []
+    ref_strength: float = 0.05
 
 
 class CameraReq(BaseModel):
@@ -133,7 +144,8 @@ def _shot_edit(store: ProjectStore, shot: str) -> dict:
         return {"in_layout": False}
     return {"in_layout": True, "lens_auto": spec.lens_mm, "lens_override": spec.lens_override,
             "tier_auto": spec.tier, "tier_override": spec.tier_override, "nudge_pos": list(spec.nudge_pos),
-            "nudge_target": list(spec.nudge_target), "camera_edited": spec.camera_edited()}
+            "nudge_target": list(spec.nudge_target), "camera_edited": spec.camera_edited(),
+            "refs": list(spec.refs), "ref_strength": spec.ref_strength}
 
 
 class DraftReq(BaseModel):
@@ -213,6 +225,14 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                 "stars": review.load(store)["stars"],
                 "explore": batches, "derived": derived, "moodboard": s0_style.moodboard(store),
                 "jobs": [j.public() for j in jobs.list(slug)]}
+
+    @app.post("/api/projects/{slug}/role")
+    def frame_role(slug: str, req: RoleReq):
+        store = _store(slug)
+        try:
+            return {"key": review.set_role(store, req.path, req.role, req.note), "role": req.role}
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/projects/{slug}/star")
     def star(slug: str, req: StarReq):
@@ -551,6 +571,18 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             return s0_frames.prompt_parts(store, shot)
         except FileNotFoundError:
             return {}
+
+    @app.put("/api/projects/{slug}/shots/{shot}/refs")
+    def shot_refs(slug: str, shot: str, req: RefsEditReq):
+        store = _store(slug)
+        try:
+            refs = [review.rel(store, r) for r in req.refs]
+            spec = sw_site.update_shot(store, shot, refs=refs, ref_strength=req.ref_strength)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        except (ValueError, FileNotFoundError, ValidationError) as e:
+            raise HTTPException(400, str(e))
+        return {"refs": spec.refs, "ref_strength": spec.ref_strength}
 
     @app.put("/api/projects/{slug}/shots/{shot}/camera")
     def shot_camera(slug: str, shot: str, req: CameraReq):

@@ -59,6 +59,17 @@ VAULTS = {"barrel_vault", "solar_vault"}
 DOMES = {"shallow_dome", "half_domes"}
 CROWNS = {"bronze_crown", "lantern"}
 COLUMN_FACADES = ("colonnade", "pilasters")
+FLAT_ROOFS_TOO = GARDEN | PERGOLA | {"skylight", "flat_stone", "flat_white", "flat_cornice", ""}
+BAY_M = 4.5               # one arcade bay; arcade meshes are shared per (bays, height)
+CORNICE_M = 0.45
+
+
+def arcade_prim(n: int, h: float, d: float = 0.8, open_frac: float = 0.72) -> dict:
+    """A wall of n arched bays BAY_M wide (n * BAY_M overall), h tall, d thick; the
+    arches spring so their crown sits 0.6 m under the top."""
+    span = BAY_M * open_frac
+    return {"kind": "arcade", "n": int(n), "bay": BAY_M, "span": round(span, 3), "h": round(h, 2), "d": d,
+            "spring": round(max(h - span / 2 - 0.6, 1.0), 3)}
 FAMILY_COLORS = {"housing": (190, 140, 110), "mixed": (205, 120, 80), "civic": (245, 245, 238),
                  "infrastructure": (120, 120, 150), "public_realm": (150, 185, 120)}
 
@@ -76,6 +87,7 @@ class Part:
     h: float
     rot: float
     role: str = "mass"
+    scale: tuple | None = None        # for a dict prim: its scale (an arcade stretched to its facade)
 
 
 @dataclass
@@ -328,23 +340,46 @@ class Typer:
         loc = lambda lx, ly: (cx + lx * math.cos(math.radians(rot)) - ly * math.sin(math.radians(rot)),  # noqa: E731
                               cy + lx * math.sin(math.radians(rot)) + ly * math.cos(math.radians(rot)))
         top = z0 + slack + h
-        if st >= 2 and "arcade" in facade:     # recessed ground floor under the upper storeys
+        if st >= 2 and "arcade" in facade:     # recessed ground floor behind an arcade of round arches
             gh = c.storey_m * 1.3
             x, y = loc(0, ARCADE_DEPTH / 2)
             P.append(Part("box", x, y, z0, w, d - ARCADE_DEPTH, slack + gh, rot, "ground"))
             P.append(Part("box", cx, cy, z0 + slack + gh, w, d, h - gh, rot))
+            self.arcade(P, *loc(0, -d / 2 + 0.4), z0 + slack, w, round(gh, 1), rot)
         elif st >= 1:
             P.append(Part("box", cx, cy, z0, w, d, slack + h, rot))
-        if st >= 4 and d > 9 and ("loggia_top" in facade or self.rng.random() < c.variation.step_back_top):
-            # the top storey steps back from the street (and the court)
-            P[-1].h -= c.storey_m
-            x, y = loc(0, 1.0)
-            P.append(Part("box", x, y, top - c.storey_m, w - 2, d - 5, c.storey_m, rot, "setback"))
-            top_w, top_d = w - 2, d - 5
-        else:
-            top_w, top_d = w, d
-        self.roof(P, roof, *loc(0, 1.0 if top_d < d else 0), top, top_w, top_d, rot)
+        top_w, top_d, off = w, d, 0.0
+        if st >= 4 and d > 9 and ("loggia" in facade or self.rng.random() < c.variation.step_back_top):
+            # the top storey steps back from the street (and the court); tall ones twice
+            steps = 2 if st >= 8 and d > 16 else 1
+            P[-1].h -= c.storey_m * steps
+            for k in range(steps):
+                top_w, top_d, off = top_w - 2, top_d - 5 + (0 if k == 0 else -2), off + 1.0
+                x, y = loc(0, off)
+                z = top - c.storey_m * (steps - k)
+                P.append(Part("box", x, y, z, top_w, top_d, c.storey_m, rot, "setback"))
+                if k < steps - 1:       # the lower setback keeps its own cornice
+                    self.cornice(P, roof, x, y, z + c.storey_m, top_w, top_d, rot)
+            if "loggia" in facade:    # a slender pier row on the old facade line, in front of the loggia
+                self.arcade(P, *loc(0, -d / 2 + 0.3), top - c.storey_m, w, round(c.storey_m, 1), rot,
+                            open_frac=0.82, d=0.5)
+        x, y = loc(0, off)
+        self.roof(P, roof, x, y, top, top_w, top_d, rot)
+        if st >= 2:
+            self.cornice(P, roof, x, y, top, top_w, top_d, rot)
         return b
+
+    def arcade(self, P: list, x, y, z, w, h, rot, open_frac=0.72, d=0.8):
+        """An arcade along a facade w wide: whole bays, the shared mesh stretched to fit."""
+        n = max(1, round(w / BAY_M))
+        P.append(Part(arcade_prim(n, h, d, open_frac), x, y, z, 1, 1, 1, rot, "arcade",
+                      scale=(round(w / (n * BAY_M), 3), 1.0, 1.0)))
+
+    def cornice(self, P: list, roof: str, x, y, z, w, d, rot):
+        """A crisp projecting cornice at a flat roofline (pitched, vaulted and domed roofs
+        have their own edge)."""
+        if roof in FLAT_ROOFS_TOO or roof not in (PITCHED | VAULTS | DOMES | CROWNS | {"vault_series", "sawtooth"}):
+            P.append(Part("box", x, y, z - CORNICE_M, w + 1.2, d + 1.2, CORNICE_M, rot, "cornice"))
 
     def roof(self, P: list, roof: str, cx, cy, z, w, d, rot):
         lo, hi = min(w, d), max(w, d)
@@ -594,7 +629,7 @@ class Typer:
         z0 = min(p.z for p in b.parts if p.role in ("mass", "ground"))
         m = Part("box", m.x, m.y, z0, w, d, m.z + m.h - z0, m.rot)
         rest = [p for p in b.parts if p.role not in ("mass", "ground", "roof-garden", "roof", "vault", "dome", "crown",
-                                                     "pergola", "pergola-post", "setback")]
+                                                     "pergola", "pergola-post", "setback", "cornice", "arcade")]
         loc = lambda lx, ly: (m.x + lx * math.cos(math.radians(m.rot)) - ly * math.sin(math.radians(m.rot)),  # noqa: E731
                               m.y + lx * math.sin(math.radians(m.rot)) + ly * math.cos(math.radians(m.rot)))
         parts = []
@@ -603,6 +638,8 @@ class Typer:
             x, y = loc(lx, ly)
             parts.append(Part("box", x, y, m.z, ww, dd, m.h, m.rot))
             self.roof(parts, b.roof, x, y, m.z + m.h, ww, dd, m.rot)
+            if b.storeys >= 2:
+                self.cornice(parts, b.roof, x, y, m.z + m.h, ww, dd, m.rot)
         if court == "pool":
             parts.append(Part("box", m.x, m.y, m.z + 0.3, (w - 2 * wing) * 0.5, (d - 2 * wing) * 0.7, 0.35, m.rot, "pool"))
         b.parts = parts + rest
@@ -667,6 +704,13 @@ class Typer:
                 masses = [p for p in b.parts if p.role == "mass"]
                 for p in masses[:drop]:
                     b.parts = [q for q in b.parts if not (abs(q.x - p.x) < 0.01 and abs(q.y - p.y) < 0.01)]
+            elif t.family in ("civic", "mixed") and w <= d * 1.6 and self.rng.random() < 0.5:
+                self._curve_back_wing(b, x, y, z0, w, d, wing, ang)
+        elif t.form == "hall":
+            self._hall(b, t, x, y, z0, w, d, ang)
+        elif t.form == "cube":       # a cut light-well court; a stepped attic on the rim
+            wing = float(np.clip(0.3 * min(w, d), 9, 14))
+            self._hollow(b, w, d, wing)
         elif t.form == "drum":
             ring = t.family in ("civic",) and t.storeys[1] <= 3 and w > 80        # a stadium: ring + field
             b.parts = []
@@ -707,6 +751,40 @@ class Typer:
             b.foot = math.pi * w * w / 4
         self.add(b)
         return foot.buffer(8)
+
+    def _curve_back_wing(self, b: Building, x, y, z0, w, d, wing, ang):
+        """Replace the courtyard's back wing (local +Y) with a curved one: an arc whose ends
+        meet the side wings."""
+        back = [p for p in b.parts if p.role in ("mass", "cornice", "roof-garden", "roof", "vault")
+                and abs((p.x - x) * -math.sin(math.radians(ang)) + (p.y - y) * math.cos(math.radians(ang)) - (d / 2 - wing / 2)) < 0.5]
+        if not back:
+            return
+        b.parts = [p for p in b.parts if p not in back]
+        R = d / 2
+        half = math.degrees(math.asin(min(1.0, (w / 2) / R)))
+        a_mid = ang + 90
+        b.parts.append(Part({"kind": "arc", "r_in": round(R - wing, 2), "r_out": round(R, 2), "a0": 0,
+                             "a1": round(2 * half, 3), "h": round(b.h, 2), "seg": 16},
+                            x, y, z0, 1, 1, 1, a_mid - half, "mass"))
+
+    def _hall(self, b: Building, t: Typology, x, y, z0, w, d, ang):
+        """A basilica section: lower aisles, a raised clerestory nave down the long axis with
+        the roof on it, and for civic halls an apse at one end."""
+        along = ang if w >= d else ang + 90
+        L, S = max(w, d), min(w, d)
+        loc = lambda la, lc: (x + la * math.cos(math.radians(along)) - lc * math.sin(math.radians(along)),  # noqa: E731
+                              y + la * math.sin(math.radians(along)) + lc * math.cos(math.radians(along)))
+        H = b.h
+        aisle_h = max(self.c.storey_m * 1.5, 0.6 * H)
+        keep = [p for p in b.parts if p.role in ("ground", "arcade")]
+        b.parts = [Part("box", x, y, z0, w, d, aisle_h, ang, "mass"),
+                   Part("box", x, y, z0 + aisle_h, L, S * 0.5, H - aisle_h, along, "nave")] + keep
+        self.roof(b.parts, b.roof or "barrel_vault", x, y, z0 + H, L, S * 0.5, along)
+        self.cornice(b.parts, "", x, y, z0 + aisle_h, w, d, ang)
+        if t.family == "civic":
+            ex, ey = loc(L / 2, 0)
+            b.parts.append(Part({"kind": "arc", "r_in": 0.1, "r_out": round(S * 0.3, 2), "a0": 0, "a1": 180,
+                                 "h": round(aisle_h, 2), "seg": 16}, ex, ey, z0, 1, 1, 1, along - 90, "apse"))
 
     def _downhill(self, x, y, fallback):
         e = 10.0
@@ -1117,6 +1195,30 @@ def report(P, buildings: list[Building]) -> dict:
     flat = sum(1 for v in cvs if v < ck.min_height_cv_block)
     if cvs and flat / len(cvs) > 0.25:
         warn.append(f"{flat} of {len(cvs)} blocks have a height spread under {ck.min_height_cv_block} (std / mean)")
+    # walkable: every building within 20 m of a street, lane, stair or avenue (measured from
+    # its footprint's edge, roughly: centre distance minus half its footprint's side)
+    # Hill towns (organic nodes) must be walkable: every building within 20 m of a street,
+    # lane or stair, measured from its footprint's edge (roughly: centre distance minus half
+    # its side). City-wide the share is reported too; ordinary blocks have inner courts and
+    # second rows reached through them.
+    organic = [nd for nd in c.nodes if nd.layout == "organic"]       # within 1.6 x their radius
+    lines = [w.line for w in P.ways]
+    walk, walk_org = 1.0, None
+    on = [b for b in built if b.storeys > 0]
+    if lines and on:
+        tree = STRtree(lines)
+        xy = [Point(b.x, b.y) for b in on]
+        idx = tree.query_nearest(xy, all_matches=False)[1]
+        d = np.array([lines[j].distance(p) for p, j in zip(xy, idx)])
+        half = np.array([math.sqrt(max(b.foot, 1.0)) / 2 for b in on])
+        ok = d - half <= 20.0
+        walk = float(ok.mean())
+        sel = np.array([any(math.dist(nd.center, (b.x, b.y)) < 1.6 * nd.radius for nd in organic) for b in on])
+        if sel.any():
+            walk_org = float(ok[sel].mean())
+            if walk_org < ck.min_walkable:
+                warn.append(f"hill towns: {walk_org:.0%} of buildings are within 20 m of a street, lane or stair "
+                            f"(want >= {ck.min_walkable:.0%})")
     col = sum(1 for b in built if b.columns) / n
     if col > ck.max_column_share:
         warn.append(f"columns on {col:.0%} of buildings (max {ck.max_column_share:.0%})")
@@ -1128,6 +1230,8 @@ def report(P, buildings: list[Building]) -> dict:
             "identical_runs_over_max": runs, "longest_identical_run": worst,
             "flat_blocks": flat, "blocks_checked": len(cvs),
             "column_share": round(col, 3),
+            "walkable_share": round(walk, 3),
+            "walkable_hill_towns": round(walk_org, 3) if walk_org is not None else None,
             "merged_buildings": sum(1 for b in built if b.merged > 1),
             "accents": sum(1 for b in built if b.accent),
             "height_cv_median": round(float(np.median(cvs)), 3) if cvs else None,

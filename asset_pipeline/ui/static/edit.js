@@ -72,7 +72,7 @@ const TIPS = {
     id: "Material id (per material). District palettes and pinned typology materials refer to it.",
     words: "Exact words a prompt uses for this material. A prompt names at most 2 materials, each covering at least 3% of the frame; a visible landmark's material always comes first.",
     types: "Greybox slot types this material covers when a slot has no material tag: kit monuments, paving, water... City buildings are tagged from the district palette, so this list doesn't affect them.",
-    districts: "Limit the slot-type match above to these districts (per material). Empty = every district.",
+    districts: "Only these districts (per material). Limits the slot-type match above, and the prompts: the material is named only in shots whose focus district is one of these, so wide shots never name it (keep an accent material of one quarter off the whole city). Empty = every district.",
     ref: "Optional reference image (project-relative path). Applied as Redux masked to this material's pixels only (from the shot's id pass).",
     ref_strength: "Redux strength of the reference (per material), 0 to 2, default 0.15. Higher carries more of the image's look, and more of its content.",
   },
@@ -110,6 +110,7 @@ const TIPS = {
     max_identical_run: "Most neighbours in a row on one frontage with the same typology, facade, roof and storeys. City-wide.",
     min_height_cv_block: "Least height spread within a block (std / mean of building heights; blocks of 3+ buildings). Warns when more than 25% of blocks fall short. City-wide.",
     max_column_share: "City-wide: the largest share (0 to 1) of buildings with columns.",
+    min_walkable: "Hill towns (organic nodes): the least share (0 to 1) of buildings within 1.6x the node's radius that stand within 20 m of a street, lane or stair. The report also shows the city-wide share, for information (ordinary blocks have inner courts and second rows).",
     district_diversity_min: "Least typology diversity per district: the Shannon index of footprint shares, in nats. e^value is about the number of equally used types (1.6 = about 5). Checked per district with 20+ buildings.",
   },
   variation: {
@@ -300,6 +301,9 @@ function shotEditPanel(r) {
       <label class="${pp.override ? "mine" : ""}">Override (yours: replaces the auto prompt)<textarea rows="2" data-draft="${r.id}:override">${esc(val("override", pp.override || ""))}</textarea></label>
       <div class="row"><button type="button" class="save-prompt">Save prompt</button>
         <button type="button" class="secondary reset-prompt">Reset to auto</button></div>
+      ${e.in_layout ? `<label class="${(e.refs || []).length ? "mine" : ""}" title="Frames (project-relative paths, one per line) added to this shot's style references (Redux) every time it's generated. Use them for design references: frames whose layout or look this shot should keep. Strength is the total added; keep it low (0.05): more carries the reference's sky and can replace buildings.">Design references (yours)<textarea rows="2" data-draft="${r.id}:refs">${esc(val("refs", (e.refs || []).join("\n")))}</textarea></label>
+      <div class="row"><label title="Total Redux strength added for these references, 0 to 1. Default 0.05.">ref strength<input type="number" step="0.01" data-draft="${r.id}:ref_strength" value="${esc(val("ref_strength", e.ref_strength ?? 0.05))}"></label>
+        <button type="button" class="save-refs">Save references</button></div>` : ""}
     </div>
     ${e.in_layout ? `<div class="row camera">
       <label class="${e.lens_override ? "mine" : ""}">lens mm (auto ${e.lens_auto})<input type="number" step="any" data-draft="${r.id}:lens" placeholder="auto" value="${esc(val("lens", e.lens_override ?? ""))}"></label>
@@ -319,6 +323,13 @@ function shotEditPanel(r) {
   };
   $(".save-prompt", el).onclick = () => savePrompt($("[data-draft$=':append']", el).value, $("[data-draft$=':override']", el).value);
   $(".reset-prompt", el).onclick = () => savePrompt("", null);
+  if (e.in_layout) $(".save-refs", el).onclick = async () => {
+    const refs = $(`[data-draft="${r.id}:refs"]`, el).value.split("\n").map(s => s.trim()).filter(Boolean);
+    try { await api(`/api/projects/${slug}/shots/${r.id}/refs`, {refs, ref_strength: +$(`[data-draft="${r.id}:ref_strength"]`, el).value}, "PUT");
+      clear("refs"); clear("ref_strength"); }
+    catch (err) { alert(err.message); }
+    await load();
+  };
   const saveCam = async body => {
     try { await api(`/api/projects/${slug}/shots/${r.id}/camera`, body, "PUT");
       ["lens", "tier", "nudge_pos", "nudge_target"].forEach(clear); }

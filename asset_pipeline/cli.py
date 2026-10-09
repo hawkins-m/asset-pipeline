@@ -323,8 +323,10 @@ def cmd_site_init(a) -> None:
 def cmd_site_plan(a) -> None:
     from .stages import sw_site
     store = ProjectStore.open(a.project)
-    if a.shots:
-        print("shots:", ", ".join(s.id for s in sw_site.set_city_shots(store)), "(rebuild to apply)")
+    if a.shots or a.shot:
+        only = a.shot or None
+        sw_site.set_city_shots(store, only)
+        print("re-placed shots:", ", ".join(only) if only else "all", "(rebuild to apply)")
     st = sw_site.plan_city(store)
     kinds = (f"{len(st['repetition']['typologies'])} typologies" if st.get("repetition") else
              f"{st['housing_blocks']} in blocks/terraces, {st['houses']} houses")
@@ -507,6 +509,14 @@ def cmd_frames_settings(a) -> None:
         store.save(p)
         print("saved:", end=" ")
     print(fs.model_dump_json())
+
+
+def cmd_frames_role(a) -> None:
+    from . import review
+    store = ProjectStore.open(a.project)
+    role = None if a.role == "none" else a.role.replace("-", "_")
+    key = review.set_role(store, a.frame, role, a.note)
+    print(f"{key}: {role or 'no role'}" + (f" ({a.note})" if a.note else ""))
 
 
 def cmd_frames_show(a) -> None:
@@ -796,6 +806,7 @@ def main(argv: list[str] | None = None) -> None:
     p = sisub.add_parser("plan", help="city mode: plan image + area report, no Blender (fast)")
     p.add_argument("project")
     p.add_argument("--shots", action="store_true", help="also replace the layout's shots with the auto-placed ones")
+    p.add_argument("--shot", action="append", help="re-place only this auto shot (repeatable); the others keep their cameras")
     p.set_defaults(fn=cmd_site_plan)
     p = sisub.add_parser("catalog", help="city mode: import / export the typology catalog (YAML)")
     p.add_argument("what", choices=["import", "export"])
@@ -877,6 +888,12 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--canny-end", type=float)
         p.add_argument("--steps", type=int)
         p.set_defaults(fn=fn)
+    p = frsub.add_parser("role", help="mark a frame as a design reference (never an asset source) or a source")
+    p.add_argument("project")
+    p.add_argument("frame", help="project-relative frame path")
+    p.add_argument("role", choices=["design-ref", "source", "none"])
+    p.add_argument("--note", help="what it's for (empty string clears)")
+    p.set_defaults(fn=cmd_frames_role)
     p = frsub.add_parser("show", help="frames per shot with approval and edge match")
     p.add_argument("project")
     p.add_argument("shots", nargs="*")

@@ -40,7 +40,7 @@ MIN_COVERAGE = 0.01          # slot types under this share of the frame aren't n
 MAX_MATERIALS = 2            # materials named in a prompt, largest coverage first
 MATERIAL_COVERAGE = 0.03     # a material must cover this share of the frame to be named
 MAX_TYPES = 3                # building types named in a prompt, largest coverage first
-GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring"}  # implied by materials
+GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring", "lane"}  # implied by materials
 MOOD_TIERS = ("tight",)      # frames of these shots set mood/material, never assets
 TIER = {"wide": "wide establishing view", "medium": "eye-level view", "tight": "close-up detail view"}
 # What each greybox slot type is, for the prompt (plural forms: types usually repeat).
@@ -52,8 +52,9 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "terrain": "the landscape",
               # city mode
               "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
-              "street": "narrow streets", "park": "parks, gardens and tree-lined green corridors",
-              "market": "a market square with stalls", "quay": "harbour piers"}
+              "street": "narrow streets", "park": "parks and green corridors of umbrella pines, cypresses and olive trees",
+              "market": "a market square with stalls", "quay": "harbour piers",
+              "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers"}
 SUFFIX = "cinematic architectural concept art"
 
 
@@ -197,8 +198,12 @@ def auto_prompt(store: ProjectStore, shot: str) -> str:
     by_id = {m.id: m for m in layout.materials}
     mark_mats = [by_id[cat[t].material] for t in marks if cat[t].material in by_id]
     mats = [m.words for m in mark_mats]
+    # a material limited to some districts is named only in shots about one of them (wides
+    # are about none: an accent material of one quarter doesn't colour the whole city)
+    focus = s.get("district")
     mats += [m.words for m, f in visible_materials(store, shot)
-             if f >= MATERIAL_COVERAGE and m not in mark_mats][:max(0, MAX_MATERIALS - len(mats))]
+             if f >= MATERIAL_COVERAGE and m not in mark_mats and (not m.districts or focus in m.districts)
+             ][:max(0, MAX_MATERIALS - len(mats))]
     ds = [d for d, f in districts if f >= MIN_COVERAGE]
     if s.get("district") in notes:
         ds = [s["district"]] + [d for d in ds if d != s["district"]]
@@ -257,8 +262,9 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     """n concept frames for one shot into a new batch dir; returns the dir.
 
     refs: project-relative images (e.g. an approved wide frame) added to the Redux anchor
-    with `ref_strength` more total strength. material_refs: apply the visible materials'
-    reference images, masked to their slots (False: wording only)."""
+    with `ref_strength` more total strength, on top of the shot's own design references
+    (ShotSpec.refs at ShotSpec.ref_strength). material_refs: apply the visible materials'
+    and landmark typologies' reference images, masked to their slots (False: wording only)."""
     meta = _shot_meta(store, shot)
     if sw_shots.is_stale(meta, sw_site.load_greybox(store), shot):
         raise ValueError(f"shot {shot}'s passes are stale (the greybox or its camera changed): ap shots render first")
@@ -267,10 +273,15 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     source = "given" if prompt else prompt_parts(store, shot)["source"]
     prompt = prompt or prompt_for(store, shot)
     anchor = project.anchor
-    ref_paths = [store.root / review.rel(store, r) for r in refs or []]
+    spec = _shot_spec(store, shot)
+    own = list(spec.refs) if spec else []
+    extra = [r for r in refs or [] if r not in own]
+    refs = own + extra
+    ref_paths = [store.root / review.rel(store, r) for r in refs]
     if ref_paths:
         base = anchor or StyleAnchor(strength=0.0)
-        anchor = StyleAnchor(images=list(base.images) + ref_paths, strength=base.strength + ref_strength,
+        add = (spec.ref_strength if own else 0.0) + (ref_strength if extra else 0.0)
+        anchor = StyleAnchor(images=list(base.images) + ref_paths, strength=base.strength + add,
                              style_text=base.style_text, lora=base.lora)
     w, h = meta["shot"]["resolution"]
     backend = backend_for("frames", project)
@@ -303,14 +314,31 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     return out
 
 
+def _archived(meta: dict, gb: dict) -> bool:
+    """A batch made on an older greybox (other geometry): kept and viewable, never an
+    asset source. Without a meta.json there's nothing to compare: not archived."""
+    if not meta:
+        return False
+    if meta.get("geometry_sha256") and gb.get("geometry_sha256"):
+        return meta["geometry_sha256"] != gb["geometry_sha256"]
+    return meta.get("greybox_sha256") != gb.get("blend_sha256")
+
+
 def batches(store: ProjectStore, shot: str) -> list[dict]:
     out = []
+    gb = read_json(sw_site.site_dir(store) / "greybox.json", default=None) or {}
+    roles = review.roles(store)
+    notes = review.load(store)["notes"]
     for b in sorted(frames_dir(store, shot).glob("batch_*")):
         meta = read_json(b / "meta.json", default={}) or {}
+        frames = [{"key": (b / f["file"]).relative_to(store.root).as_posix(), **f}
+                  for f in meta.get("frames", []) if (b / f["file"]).is_file()]
+        for f in frames:
+            f["role"], f["note"] = roles.get(f["key"]), notes.get(f["key"], "")
         out.append({"dir": b.relative_to(store.root).as_posix(), "prompt": meta.get("prompt", ""),
+                    "archived": bool(gb) and _archived(meta, gb),
                     "settings": meta.get("settings"), "refs": meta.get("refs", []),
-                    "frames": [{"key": (b / f["file"]).relative_to(store.root).as_posix(), **f}
-                               for f in meta.get("frames", []) if (b / f["file"]).is_file()]})
+                    "frames": frames})
     return out
 
 
@@ -325,10 +353,20 @@ def mood_shots(store: ProjectStore) -> set[str]:
 
 def asset_sources(store: ProjectStore) -> list[str]:
     """Starred frames the asset library may derive assets from: frames of the current
-    greybox's shots, except mood shots (archived frames of an old layout never count)."""
-    shots = {s["id"] for s in sw_site.load_greybox(store)["shots"]}
+    greybox's shots, except mood shots, design references, and batches made on an older
+    greybox (archived: kept and viewable, but their geometry is gone)."""
+    gb = sw_site.load_greybox(store)
+    shots = {s["id"] for s in gb["shots"]}
     mood = mood_shots(store)
-    return [k for k in approved(store) if k.split("/")[1] in shots - mood]
+    roles = review.roles(store)
+    out = []
+    for k in approved(store):
+        if k.split("/")[1] not in shots - mood or roles.get(k) == "design_ref":
+            continue
+        meta = read_json(store.root / Path(k).parent / "meta.json", default={}) or {}
+        if not _archived(meta, gb):
+            out.append(k)
+    return out
 
 
 # --- structure check -----------------------------------------------------------------------

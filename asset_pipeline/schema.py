@@ -108,7 +108,7 @@ class AssetPlan(BaseModel):
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
-BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa", "colonnade"]
+BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa", "colonnade", "cloister"]
 
 
 DensityBand = Literal["core", "middle", "edge"]
@@ -214,6 +214,7 @@ class RepetitionChecks(BaseModel):
     min_height_cv_block: float = 0.15
     max_column_share: float = 0.10
     district_diversity_min: float = 1.6
+    min_walkable: float = 0.95            # share of buildings within 20 m of a street, lane or stair
 
 
 class Kit(BaseModel):
@@ -247,7 +248,9 @@ class Plaza(BaseModel):
     id: str
     center: Vec2 = (0.0, 0.0)
     radius: float = Field(gt=0)
-    type: Literal["paved", "pool", "lagoon"] = "paved"   # lagoon: water nearly to the edge
+    type: Literal["paved", "pool", "lagoon", "court"] = "paved"   # lagoon: water nearly to the edge;
+    # court: paved with a long channel pool along `rot`
+    rot: float = 0.0
     district: str | None = None
 
 
@@ -263,6 +266,7 @@ class Plot(BaseModel):
     district: str | None = None
     material: str | None = None           # tags the slot (else layout materials match by type)
     typology: str | None = None           # catalog entry it belongs to (a landmark ensemble)
+    variant: str | None = None            # block: "plain" (no pier-and-arch front)
 
 
 class RingRow(BaseModel):
@@ -277,6 +281,7 @@ class RingRow(BaseModel):
     kit: str | None = None
     district: str | None = None
     center: Vec2 = (0.0, 0.0)
+    variant: str | None = None
 
 
 class VegZone(BaseModel):
@@ -322,6 +327,14 @@ class CivicNode(BaseModel):
     avenue_m: float = 1200.0              # how far its avenues reach into the city
     weight: float = Field(default=1.0, gt=0)      # pull on the density field (size of its core)
     notes: str = ""                       # character, fed to frame prompts as a district
+    # radial: plaza, rings, a ring row of civic blocks, stoas. organic (hill towns): the
+    # monument on the summit, only the summit is levelled, winding lanes and stairs follow
+    # the slope, no rings
+    layout: Literal["radial", "organic"] = "radial"
+    seed: int = 0                         # re-roll an organic node (its paths' angles and lengths)
+    centre: Literal["auto", "plaza", "pool", "quad"] = "auto"   # quad: an arcaded courtyard
+    stoa_share: float = Field(default=1.0, ge=0, le=1)          # share of radial gaps with a stoa
+    civic_ring: Literal["arcade", "plain", "none"] = "arcade"   # the ring row of civic blocks
 
 
 class CitySpec(BaseModel):
@@ -381,6 +394,8 @@ class ShotSpec(BaseModel):
     nudge_target: Vec3 = (0.0, 0.0, 0.0)
     lens_override: float | None = Field(default=None, gt=0)
     tier_override: Tier | None = None
+    refs: list[str] = Field(default_factory=list)   # design-reference frames (Redux) for this shot
+    ref_strength: float = Field(default=0.05, ge=0, le=1)  # their total extra strength
 
     def camera_edited(self) -> bool:
         return (any(self.nudge_pos) or any(self.nudge_target) or self.lens_override is not None

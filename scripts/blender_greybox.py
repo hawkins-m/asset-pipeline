@@ -120,6 +120,22 @@ def _archwall(bm, p):
     _extrude_xz(bm, outline, d)
 
 
+def _arcade(bm, p):
+    """n arched bays (`bay` wide each, `span` openings springing at `spring`) in one wall
+    h tall, d thick: the openings reach the ground, so the outline is one notched polygon."""
+    n, bay, r, spring, h, d = p["n"], p["bay"], p["span"] / 2, p["spring"], p["h"], p["d"]
+    W = n * bay
+    seg = 12
+    outline = [(-W / 2, 0)]
+    for i in range(n):
+        c = -W / 2 + bay * (i + 0.5)
+        outline.append((c - r, 0))
+        outline += [(c - r * math.cos(math.pi * k / seg), spring + r * math.sin(math.pi * k / seg)) for k in range(seg + 1)]
+        outline.append((c + r, 0))
+    outline += [(W / 2, 0), (W / 2, h), (-W / 2, h)]
+    _extrude_xz(bm, outline, d)
+
+
 def _ribbon(bm, p):
     """A strip of width w along a draped polyline, h thick (top faces up)."""
     pts = [Vector(q) for q in p["pts"]]
@@ -180,6 +196,8 @@ def make_mesh(prim, name):
         _vault(bm, prim)
     elif k == "archwall":
         _archwall(bm, prim)
+    elif k == "arcade":
+        _arcade(bm, prim)
     elif k == "ribbon":
         _ribbon(bm, prim)
     elif k == "poly":

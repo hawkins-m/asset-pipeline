@@ -127,12 +127,13 @@ def plan_city(store: ProjectStore) -> dict:
 
 
 USER_SHOT_FIELDS = ("prompt_append", "prompt_override", "nudge_pos", "nudge_target", "lens_override",
-                    "tier_override")
+                    "tier_override", "refs", "ref_strength")
 
 
-def set_city_shots(store: ProjectStore) -> list[ShotSpec]:
-    """Replace the layout's shots with the auto-placed city shots (rebuild to apply). The
-    user's edits to a shot (prompt, nudges, lens, tier) carry over by id."""
+def set_city_shots(store: ProjectStore, only: list[str] | None = None) -> list[ShotSpec]:
+    """Replace the layout's shots with the auto-placed city shots (rebuild to apply), or
+    only the shots in `only` (the others keep their cameras). The user's edits to a shot
+    (prompt, references, nudges, lens, tier) carry over by id."""
     layout = load_layout(store)
     old = {s.id: s for s in layout.shots}
     shots = city_shots(layout)
@@ -140,6 +141,9 @@ def set_city_shots(store: ProjectStore) -> list[ShotSpec]:
         if s.id in old:
             for k in USER_SHOT_FIELDS:
                 setattr(s, k, getattr(old[s.id], k))
+    if only is not None:
+        new = {s.id: s for s in shots if s.id in only}
+        shots = [new.pop(s.id, s) for s in layout.shots] + list(new.values())
     layout.shots = shots
     save_layout(store, layout)
     return layout.shots

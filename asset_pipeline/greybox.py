@@ -45,7 +45,8 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "terrain": "terrain", "sea": "terrain",
             # city mode (asset_pipeline/city.py)
             "housing": "building", "houses": "building", "street": "terrain", "park": "terrain",
-            "market": "structure", "quay": "structure", "colonnade": "structure", "lagoon": "structure"}
+            "market": "structure", "quay": "structure", "colonnade": "structure", "lagoon": "structure",
+            "cloister": "building", "lane": "terrain", "stair": "terrain"}
 DEFAULT_KIT = Kit(id="default")
 
 
@@ -277,8 +278,15 @@ def _temple(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
 
 
 def _block(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
-    """Monumental civic block (Kahn-like mass) with an arcade loggia on the front."""
+    """Monumental civic block (Kahn-like mass) with an arcade loggia on the front; the
+    "plain" variant has a set-back top storey and a cornice instead (no pier-and-arch front)."""
     w, d, h = p.size
+    if p.variant == "plain":
+        top = min(kit.storey_m, 0.3 * h)
+        sb.add_local("mass", box(w, d, h - top), 0, 0, 0)
+        sb.add_local("cornice", box(w + 1.2, d + 1.2, 0.45), 0, 0, h - top - 0.45)
+        sb.add_local("setback", box(w - 3, d - 4, top), 0, 1.0, h - top)
+        return
     sb.add_local("mass", box(w, d, h), 0, 0, 0)
     depth = kit.module_m
     xs, span = _grid(w - kit.module_m, kit.module_m)
@@ -304,6 +312,23 @@ def _villa(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
     sb.add_local("court-pool", box(cw * 0.45, cd * 0.6, 0.15), 0, 0, PAVING_LIFT)
     if p.kit and cw > 2 * kit.module_m and cd > 2 * kit.module_m:
         _colonnade_rect(sb, kit, cw - kit.module_m, cd - kit.module_m, min(kit.storey_m * 0.6, h * 0.8), 0)
+
+
+def _cloister(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """One range of an arcaded courtyard: a two-storey range at the back, an arcade of round
+    arches on piers facing the court (local -Y) with the walk behind it roofed over, and a
+    cornice."""
+    from .city_types import BAY_M, arcade_prim
+    w, d, h = p.size
+    walk = 4.0
+    back = d - walk
+    sb.add_local("mass", box(w, back, h), 0, walk / 2, 0)
+    sb.add_local("cornice", box(w + 1.2, back + 1.2, 0.45), 0, walk / 2, h - 0.45)
+    ah = round(min(h * 0.62, 6.0), 1)
+    n = max(1, round(w / BAY_M))
+    sb.add_local("cloister:arcade", arcade_prim(n, ah, 0.9), 0, -d / 2 + 0.45, 0)
+    sb.slot["pieces"][-1]["scale"] = [round(w / (n * BAY_M), 3), 1.0, 1.0]
+    sb.add_local("cloister:walk-roof", box(w, walk + 0.4, 0.5), 0, -d / 2 + walk / 2, ah)
 
 
 def snap_radius(kit: Kit, r: float) -> float:
@@ -468,7 +493,7 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
                 h *= 1 + _seeded(layout.terrain.seed, f"{row.id}-{i}").uniform(-1, 1) * row.height_jitter
             plots.append(Plot(id=f"{row.id}-{i:02d}", type=row.type, center=(x, y), rot=a - 90,
                               size=(row.size[0], row.size[1], round(h, 2)), kit=row.kit,
-                              district=row.district))
+                              district=row.district, variant=row.variant))
     return plots
 
 
@@ -511,6 +536,10 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         x, y = pz.center
         sb = new(f"plaza-{pz.id}", "plaza" if pz.type == "paved" else "pool", (x, y, hs(x, y)),
                  district=pz.district or district_at(layout, x, y))
+        if pz.type == "court":     # paved, a long channel pool down the middle along rot
+            sb.add_local("paving", cyl(pz.radius, 0.1, 96), 0, 0, PAVING_LIFT + 0.04)
+            sb.add_local("pool-water", box(3.0, pz.radius * 1.0, 0.12), 0, 0, PAVING_LIFT + 0.1, pz.rot + 90)
+            continue
         if pz.type == "lagoon":    # sits on a paved plaza: a kerb and water just above it
             sb.add_local("lagoon-kerb", cyl(pz.radius + 1.2, 0.35, 96), 0, 0, PAVING_LIFT + 0.1)
             sb.add_local("pool-water", cyl(pz.radius, 0.12, 96), 0, 0, PAVING_LIFT + 0.36)
@@ -538,7 +567,8 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
             continue
         x, y = p.center
         sb = new(pid, p.type, (x, y, hs(x, y)), p.rot, p.kit, p.district or district_at(layout, x, y), **tags)
-        {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda}[p.type](sb, p, kit)
+        {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda,
+         "cloister": _cloister}[p.type](sb, p, kit)
     if city_plan is not None:
         city.add_slots(city_plan, new, hs)
     return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},

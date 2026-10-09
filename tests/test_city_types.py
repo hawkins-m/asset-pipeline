@@ -231,3 +231,27 @@ def test_aerial_previews_frame_the_whole_city():
         half = math.hypot(x1 - x0, y1 - y0) / 2
         # the city's half-diagonal fits half the horizontal field of view
         assert half / np.linalg.norm(p - t) <= math.tan(math.atan(18 / c["lens_mm"])) + 1e-6
+
+
+def test_articulation_cornices_arcades_and_tree_species(typed):
+    spec = greybox.build_spec(typed, heights(typed))
+    pieces = [p for s in spec["slots"] for p in s["pieces"]]
+    names = Counter(p["piece"].split(":")[-1] for p in pieces)
+    assert names["cornice"] > 100 and names["arcade"] > 10
+    arcs = [p for p in pieces if p["prim"]["kind"] == "arcade"]
+    assert len({json.dumps(p["prim"], sort_keys=True) for p in arcs}) < len(arcs) / 3   # shared meshes
+    assert all(0.75 < p["scale"][0] < 1.3 for p in arcs)     # whole bays, stretched a little
+    L = typed.model_copy(deep=True)
+    L.city.trees = True
+    spec = greybox.build_spec(L, heights(L))
+    trees = Counter(p["piece"] for s in spec["slots"] for p in s["pieces"] if p["piece"].startswith("tree"))
+    assert trees["tree:cypress"] and trees["tree:pine-crown"] and trees["tree:olive-crown"]
+
+
+def test_organic_hill_town_is_walkable(tmp_path):
+    from test_city import hill_city
+    p = tmp_path / "cat.yaml"
+    p.write_text(CATALOG)
+    L = catalog.apply(hill_city(), catalog.load(p))
+    rep = city.plan(L, heights(L)).stats["repetition"]
+    assert rep["walkable_hill_towns"] >= 0.95, rep["walkable_hill_towns"]

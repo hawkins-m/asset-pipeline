@@ -375,3 +375,54 @@ def test_a_camera_edit_stales_only_that_shot():
     assert not sw_shots.is_stale(meta("a"), gb, "a") and sw_shots.is_stale(meta("b"), gb, "b")
     assert sw_shots.is_stale(meta("a"), gb | {"geometry_sha256": "g2"}, "a")       # geometry changed
     assert sw_shots.is_stale({"shot": shot("a", EYE), "greybox_sha256": "old"}, gb, "a")   # legacy meta
+
+
+def test_design_refs_and_archived_batches_never_seed_assets(world):
+    for b in ("batch_001", "batch_002"):
+        f = world.root / f"frames/a/{b}/frame_000.png"
+        f.parent.mkdir(parents=True)
+        Image.new("L", (4, 4)).save(f)
+        write_json(f.parent / "meta.json", {"frames": [{"file": "frame_000.png", "edge_match": 0.5}],
+                                            "greybox_sha256": "sha1" if b == "batch_002" else "old"})
+        review.set_star(world, f)
+    assert s0_frames.asset_sources(world) == ["frames/a/batch_002/frame_000.png"]   # batch_001: older layout
+    review.set_role(world, "frames/a/batch_002/frame_000.png", "design_ref", "keep this court")
+    assert s0_frames.asset_sources(world) == []
+    bs = {b["dir"]: b for b in s0_frames.batches(world, "a")}
+    assert bs["frames/a/batch_001"]["archived"] and not bs["frames/a/batch_002"]["archived"]
+    fr = bs["frames/a/batch_002"]["frames"][0]
+    assert (fr["role"], fr["note"]) == ("design_ref", "keep this court")
+    with pytest.raises(ValueError):
+        review.set_role(world, "frames/a/batch_002/frame_000.png", "hero")
+
+
+def test_a_shots_design_refs_go_into_every_generation(world, monkeypatch):
+    ref = world.root / "frames/a/batch_009/frame_000.png"
+    ref.parent.mkdir(parents=True)
+    Image.new("L", (8, 8)).save(ref)
+    sw_site.update_shot(world, "a", refs=["frames/a/batch_009/frame_000.png"], ref_strength=0.05)
+    fake = FakeBackend()
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    s0_style.set_style_text(world, "x")
+    base = world.load().anchor.strength
+    s0_frames.generate(world, "a", n=1)
+    r = fake.requests[0]
+    assert r.anchor.images[-1].name == "frame_000.png" and r.anchor.strength == pytest.approx(base + 0.05)
+
+
+def test_district_limited_materials_stay_out_of_other_shots(world):
+    _with_materials(world)
+    layout = sw_site.load_layout(world)
+    layout.materials[1].districts = ["core"]            # the villa render: only the core district's
+    sw_site.save_layout(world, layout)
+    gb = json.loads((world.root / "site/greybox.json").read_text())
+    gb["slots"][1]["material"] = "render"               # tagged from a palette, as city buildings are
+    write_json(world.root / "site/greybox.json", gb)
+    assert "lime render" not in s0_frames.prompt_for(world, "a")     # shot a is about "edge"
+    gb = json.loads((world.root / "site/greybox.json").read_text())
+    gb["shots"][0]["district"] = "core"
+    write_json(world.root / "site/greybox.json", gb)
+    meta = json.loads((sw_shots.shot_dir(world, "a") / "meta.json").read_text())
+    meta["shot"]["district"] = "core"
+    write_json(sw_shots.shot_dir(world, "a") / "meta.json", meta)
+    assert "lime render" in s0_frames.prompt_for(world, "a")

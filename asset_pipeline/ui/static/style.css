@@ -154,3 +154,9 @@ label.mine, .row-card label.mine { border-left: 3px solid var(--accent); padding
 .shot-edit .col { max-width: 900px; margin-top: 8px; }
 .shot-edit .camera input[type=number] { width: 6em; }
 .auto-prompt { margin: 2px 0; color: var(--text); font-size: 13px; background: var(--bg); padding: 6px 8px; border-radius: 6px; }
+
+.card .role { display: flex; gap: 4px; padding: 4px; }
+.card .role select, .card .role input { font-size: 12px; padding: 2px 4px; min-width: 0; }
+.card .role input { flex: 1; }
+details.archived { margin: 4px 0 10px; }
+details.archived summary { cursor: pointer; color: var(--muted); font-size: 13px; }
