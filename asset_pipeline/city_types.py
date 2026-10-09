@@ -540,18 +540,31 @@ class Typer:
         dz_x = float(self.f.z(cx + e, cy) - self.f.z(cx - e, cy))
         dz_y = float(self.f.z(cx, cy + e) - self.f.z(cx, cy - e))
         down = math.degrees(math.atan2(-dz_y, -dz_x)) if abs(dz_x) + abs(dz_y) > 1e-3 else _obb(P)[1] + 90
+        _, ang, L0, S0 = _obb(P)
+        if L0 > 2 * S0:   # a contour strip: follow its own axis (the cut was a few degrees off the slope here)
+            down = ang - 90 if math.cos(math.radians(ang - 90 - down)) >= 0 else ang + 90
         along = down + 90
-        c0, _, L, S = _obb(P)
-        span = math.hypot(L, S)
+        # the block in (downhill, along-contour) coordinates: terrace strips sized to fit it
+        pts = np.array(P.exterior.coords)
+        pd, pa = pts @ C._dir(down), pts @ C._dir(along)
+        deep = float(np.ptp(pd))
+        c0 = np.array([0.0, 0.0]) + (pd.min() + pd.max()) / 2 * C._dir(down) + (pa.min() + pa.max()) / 2 * C._dir(along)
         step_d = 8.0
         hi = max(t.storeys[1], 3)
         n_steps = max(2, min(hi, int(float(self.rng.uniform(*t.depth)) // step_d)))
+        n_steps = max(1, min(n_steps, int((deep - 4) // step_d)))     # a contour strip may be shallow
         strip_d = n_steps * step_d
+        rows = max(1, int((deep - 4 + 10) // (strip_d + 10)))
         last = None
-        for j in np.arange(-span / 2 + strip_d / 2, span / 2, strip_d + 10):
-            for i in np.arange(-span / 2, span / 2, 46):
+        span_a = float(np.ptp(pa))
+        cols = max(1, int((span_a + 6) // 46))
+        for j in (np.arange(rows) - (rows - 1) / 2) * (strip_d + 10):
+            for i in (np.arange(cols) - (cols - 1) / 2) * 46:       # centred in the strip
                 w = float(self.rng.uniform(*t.width)) if t.width[1] < 44 else float(self.rng.uniform(30, 44))
-                ctr = c0 + (i + w / 2) * C._dir(along) + j * C._dir(down)
+                w = min(w, span_a - 6, 44.0)
+                if w < 12:
+                    continue
+                ctr = c0 + i * C._dir(along) + j * C._dir(down)
                 if not self._ok(_rect(*ctr, w, strip_d, along), P, avoid):
                     continue
                 top = self._storeys(t, district, False, float(ctr[0]), float(ctr[1]))
@@ -821,7 +834,7 @@ class Typer:
             if self.rng.random() < t.merge_chance * (rule.merge_chance if rule else 1.0):
                 P, merged = self.merge(P, bi, district)
         if self._is_fill(t):
-            if not self.fill(t, P, district, bi) and t.form == "crescent":
+            if not self.fill(t, P, district, bi):    # didn't fit after all: ordinary housing instead
                 self._fill_rest(w, P, district, bi, None, exclude=k)
             return
         if t.form == "open":

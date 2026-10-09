@@ -1130,8 +1130,13 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
         cx, cy = pl.center
         if pl.type == "stoa":
             continue
-        r = max(pl.size[0], pl.size[1]) / 2
-        d.rectangle([to(cx - r, cy + r), to(cx + r, cy - r)], fill=PLAN_COLORS["civic"], outline=(90, 90, 90))
+        if pl.type == "rotunda":
+            r = pl.size[0] / 2
+            d.ellipse([to(cx - r, cy + r), to(cx + r, cy - r)], fill=PLAN_COLORS["civic"], outline=(90, 90, 90))
+            continue
+        u, v = _dir(pl.rot) * pl.size[0] / 2, _dir(pl.rot + 90) * pl.size[1] / 2     # its footprint, rotated
+        pts = [np.array([cx, cy]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        d.polygon([to(*p) for p in pts], fill=PLAN_COLORS["civic"], outline=(90, 90, 90))
     for tr in P.trees[::3]:
         x, y = to(tr[0], tr[1])
         d.point((x, y), fill=PLAN_COLORS["tree"])
