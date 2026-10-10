@@ -255,6 +255,9 @@ def test_articulation_cornices_arcades_and_tree_species(typed):
     spec = greybox.build_spec(L, heights(L))
     trees = Counter(p["piece"] for s in spec["slots"] for p in s["pieces"] if p["piece"].startswith("tree"))
     assert trees["tree:cypress"] and trees["tree:pine-crown"] and trees["tree:olive-crown"]
+    crowns = [p for s in spec["slots"] for p in s["pieces"] if p["piece"] == "tree:pine-crown"]
+    # low domes, not discs: the unit dome is 0.5 tall, so the crown is scale[2] / 2 tall
+    assert all(0.3 <= p["scale"][2] / 2 / p["scale"][0] <= 0.34 for p in crowns)
 
 
 def test_organic_hill_town_is_walkable(tmp_path):

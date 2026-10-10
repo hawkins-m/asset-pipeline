@@ -41,7 +41,7 @@ MAX_MATERIALS = 2            # materials named in a prompt, largest coverage fir
 MATERIAL_COVERAGE = 0.03     # a material must cover this share of the frame to be named
 MAX_TYPES = 3                # building types named in a prompt, largest coverage first
 GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring", "lane"}  # implied by materials
-MOOD_TIERS = ("tight",)      # frames of these shots set mood/material, never assets
+MOOD_TIERS = ("wide", "tight")   # frames of these shots set mood/material (art direction), never assets
 TIER = {"wide": "wide establishing view", "medium": "eye-level view", "tight": "close-up detail view"}
 # What each greybox slot type is, for the prompt (plural forms: types usually repeat).
 TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed rotunda ringed by columns",

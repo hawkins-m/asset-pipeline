@@ -1050,6 +1050,9 @@ def stair_treads(sb, w: Way, hs) -> None:
                (w.width, STAIR_TREAD_M, round(max(hi - lo, 0.15) + 0.12, 2)))
 
 
+# a pine crown's height / width: a low dome. At ~0.2 (0.24 x the tree's height) the wides
+# read the crowns as flat discs.
+PINE_CROWN = 0.32
 TREE_SPECIES = {          # (width, height) ranges, m
     # stone pine: a broad, flat canopy on a short stout trunk. A tall thin trunk under a
     # domed crown reads as a palm in the depth pass (and Flux draws palms).
@@ -1244,11 +1247,15 @@ def add_slots(P: CityPlan, new, hs) -> None:
                 x, y, z, w, h, kind = it
                 if kind == "cypress":
                     sb.add("tree:cypress", TREE, (x, y, z), 0.0, (w, w, h))
-                else:   # a trunk and a crown: a wide flat umbrella (pine) or a low round one (olive)
-                    trunk = 0.5 if kind == "pine" else 0.3
+                elif kind == "pine":    # a stout trunk under a wide low dome (a flatter one read as a disc)
+                    crown_h = PINE_CROWN * w
+                    trunk_h = max(h - crown_h, 0.4 * h)
+                    sb.add("tree:pine-trunk", TREE, (x, y, z), 0.0, (1.4, 1.4, trunk_h + 0.5))
+                    sb.add("tree:pine-crown", UNIT["dome"], (x, y, z + trunk_h), 0.0, (w, w, crown_h * 2))
+                else:   # olive: a short trunk and a low round crown
+                    trunk = 0.3
                     sb.add(f"tree:{kind}-trunk", TREE, (x, y, z), 0.0, (1.1, 1.1, h * trunk + 0.5))
-                    crown_h = h * (0.24 if kind == "pine" else 1 - trunk)    # pines: flat
-                    sb.add(f"tree:{kind}-crown", UNIT["dome"], (x, y, z + h * trunk), 0.0, (w, w, crown_h * 2))
+                    sb.add(f"tree:{kind}-crown", UNIT["dome"], (x, y, z + h * trunk), 0.0, (w, w, h * (1 - trunk) * 2))
     for i, (sq, stalls) in enumerate(P.markets):
         m = sq.centroid
         sb = new(f"market-{i}", "market", (m.x, m.y, float(hs(m.x, m.y))),
@@ -1408,7 +1415,7 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
     """Cameras for city mode: three wides that frame the whole city (from the hills, from
     the sea, a high aerial over the main node for the plan), two mediums per civic node
     (eye level down a radial to its centre, and a raised view of the whole node), and a
-    tight on the monument (mood only)."""
+    tight on the monument. Wides and tights are mood only (s0_frames.MOOD_TIERS)."""
     from .greybox import Heights
     from .schema import ShotSpec
     c, t = layout.city, layout.terrain
