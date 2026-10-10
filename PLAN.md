@@ -193,6 +193,17 @@ Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.
 - Whether a moodboard-derived anchor helps beyond the style text.
 
+Open items after frame review round 2 (2026-10-08):
+- **med-harbour's design references** are round-1 frames that contain palms. Drop them, or
+  lower their strength, before the next round.
+- **Raised and aerial shots still invent their own layout** (edge match: market-high
+  0.00–0.09, aerial 0.08). Next try: stronger depth control for those shots only (per-tier
+  control settings), leaving eye-level shots at the default.
+- **Masked references are slow:** frames with them take ~77–230 s versus ~48 s without.
+  Consider skipping material references on far wides, where the masked slots are small.
+- **The moodboard anchor is off.** It made frames ornate and palm-heavy and lowered the
+  edge match (CLAUDE.md "Frame review round 2").
+
 ## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07, not started)
 
 Goal: turn the catalog, the greybox and the starred frames into a library of assets.
