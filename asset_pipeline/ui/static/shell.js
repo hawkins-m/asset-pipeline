@@ -9,6 +9,8 @@ let currentTab = "style";
 const saveHandlers = {};      // tab -> () => void: Edit › Save (Ctrl+S) on that tab
 const revertHandlers = {};    // tab -> () => void: Edit › Revert
 const statusLeft = {};        // tab -> () => text for the status bar's first cell ("" = the tab name)
+const statusMid = {};         // tab -> () => text for the second cell (default: the plan's building count)
+const statusRight = {};       // tab -> () => text for the right cell (default: ComfyUI's state)
 
 // --- tabs ------------------------------------------------------------------------------
 function showTab(tab) {
@@ -19,6 +21,7 @@ function showTab(tab) {
     b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll(".tabpanel[data-tab]").forEach(m => { m.hidden = m.dataset.tab !== tab; });
+  $("#side-default").hidden = tab === "frames"; $("#side-frames").hidden = tab !== "frames";
   try { localStorage.setItem("ap.tab", tab); } catch (_) { /* private window */ }
   if (data) renderShell();
 }
@@ -471,9 +474,12 @@ function renderShell() {
   $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";
   $("#sb-left").textContent = (statusLeft[currentTab] && statusLeft[currentTab]()) || TAB_NAMES[currentTab];
   const r = catalogData && catalogData.report;
-  $("#sb-mid").textContent = r && r.buildings ? `${r.buildings.toLocaleString("en")} buildings · ${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}` : "";
+  $("#sb-mid").textContent = (statusMid[currentTab] && statusMid[currentTab]()) ||
+    (r && r.buildings ? `${r.buildings.toLocaleString("en")} buildings · ${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}` : "");
   const comfy = statusData && statusData.comfy;
-  $("#sb-right").textContent = comfy == null ? "" : comfy ? "ComfyUI: connected" : "ComfyUI: not running";
-  $("#sb-right").className = comfy === false ? "error" : "";
+  const right = statusRight[currentTab] && statusRight[currentTab]();
+  $("#sb-right").textContent = right || (comfy == null ? "" : comfy ? "ComfyUI: connected" : "ComfyUI: not running");
+  $("#sb-right").className = !right && comfy === false ? "error" : "";
+  if (comfy != null) $("#status-line").textContent += comfy ? " · ComfyUI connected" : " · ComfyUI not running";
   renderApplyBar();
 }

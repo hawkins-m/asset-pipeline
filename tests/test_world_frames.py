@@ -267,6 +267,8 @@ def test_tight_shots_are_mood_only(world):
     review.set_star(world, old)
     assert len(s0_frames.approved(world)) == 3
     assert s0_frames.asset_sources(world) == ["frames/a/batch_001/frame_000.png"]
+    review.set_role(world, "frames/a/batch_001/frame_000.png", "rejected")   # reviewed and turned down
+    assert s0_frames.asset_sources(world) == []
 
 
 def test_stale_passes_are_refused(world):

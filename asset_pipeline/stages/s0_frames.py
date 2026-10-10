@@ -353,7 +353,7 @@ def mood_shots(store: ProjectStore) -> set[str]:
 
 def asset_sources(store: ProjectStore) -> list[str]:
     """Starred frames the asset library may derive assets from: frames of the current
-    greybox's shots, except mood shots, design references, and batches made on an older
+    greybox's shots, except mood shots, design references, rejected frames, and batches made on an older
     greybox (archived: kept and viewable, but their geometry is gone)."""
     gb = sw_site.load_greybox(store)
     shots = {s["id"] for s in gb["shots"]}
@@ -361,7 +361,7 @@ def asset_sources(store: ProjectStore) -> list[str]:
     roles = review.roles(store)
     out = []
     for k in approved(store):
-        if k.split("/")[1] not in shots - mood or roles.get(k) == "design_ref":
+        if k.split("/")[1] not in shots - mood or roles.get(k) in ("design_ref", "rejected"):
             continue
         meta = read_json(store.root / Path(k).parent / "meta.json", default={}) or {}
         if not _archived(meta, gb):

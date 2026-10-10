@@ -2,12 +2,13 @@
 
     {"stars":  {"style/explore/batch_001/scene_003.png": true, ...},
      "chosen": {"<plan>/<asset id>": "views/<plan>/<unit>/sheet_000_v2.png", ...},
-     "roles":  {"frames/<shot>/batch_002/frame_003.png": "design_ref" | "source", ...},
+     "roles":  {"frames/<shot>/batch_002/frame_003.png": "design_ref" | "source" | "rejected", ...},
      "notes":  {"frames/<shot>/batch_002/frame_003.png": "fountain toward the sea", ...}}
 
 Keys are paths relative to the project root. "chosen" is the view an asset goes to 3D
 with (stage 4). A frame's role says what it's for: a design_ref guides generation (a
-shot's or a typology's reference) and never seeds the asset library; a source may. Usage tags (game / cine / hero) live on the plan asset.
+shot's or a typology's reference) and never seeds the asset library; a source may; a
+rejected frame was reviewed and turned down (never a source or a reference). Usage tags (game / cine / hero) live on the plan asset.
 """
 from pathlib import Path
 
@@ -27,7 +28,7 @@ def load(store: ProjectStore) -> dict:
     return data
 
 
-ROLES = ("design_ref", "source")
+ROLES = ("design_ref", "source", "rejected")
 
 
 def set_role(store: ProjectStore, path: Path | str, role: str | None, note: str | None = None) -> str:

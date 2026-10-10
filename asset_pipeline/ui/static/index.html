@@ -173,13 +173,10 @@
       <!-- Frames -->
       <section class="tabpanel" data-tab="frames" id="frames-tab" hidden>
         <div class="applybar-slot"></div>
-        <div class="row">
-          <button id="frames-missing" type="button" class="default">Generate for shots without frames</button>
-          <button type="button" id="frames-missing-stop" class="stop" hidden>Stop</button>
-          <label>Frames per shot: <input id="frames-n" type="number" min="1" max="12" value="4"></label>
-          <span id="frames-settings" class="hint mono" style="margin:0"></span>
+        <div class="frames-layout">
+          <div class="frames-main" id="frames-main"></div>
+          <div class="frames-right" id="frames-right"></div>
         </div>
-        <div id="frames-list"></div>
       </section>
 
       <!-- Library: scene plans (stage 1) and reference sheets (stage 2) -->

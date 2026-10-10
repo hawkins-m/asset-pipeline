@@ -208,3 +208,49 @@ $("#anchor-form").onsubmit = async e => {
   } catch (err) { alert(err.message); }
 };
 
+
+// --- moodboard (Style tab) ------------------------------------------------------------------
+let draftApplied = Number(sessionStorage.getItem("ap.draftApplied") || 0);
+
+function renderMoodboard() {
+  const el = $("#moodboard-groups"); el.replaceChildren();
+  for (const [group, keys] of Object.entries(data.moodboard || {})) {
+    const sec = document.createElement("div"); sec.className = "batch";
+    sec.innerHTML = `<h3>${esc(group)} (${keys.length})</h3>`;
+    const g = document.createElement("div"); g.className = "grid small";
+    keys.forEach(k => g.append(card(k, {onSelect: key => { selectedScene = key; render(); }, selected: k === selectedScene})));
+    sec.append(g); el.append(sec);
+  }
+  const drafting = activeJobs("style.draft");
+  $("#style-draft").disabled = !Object.keys(data.moodboard || {}).length || !!drafting.length;
+  $("#style-draft").textContent = drafting.length ? "Drafting…" : "Draft style text from moodboard";
+  setStop("#style-draft-stop", drafting);
+  // a finished draft fills the style text box once (it's saved only with the anchor buttons)
+  const done = data.jobs.filter(j => j.kind === "style.draft" && j.status === "done" && j.id > draftApplied)
+    .sort((a, b) => b.id - a.id)[0];
+  if (done) {
+    const st = $("#anchor-form [name=style_text]");
+    st.value = done.result; st.dataset.touched = "1";
+    draftApplied = done.id; sessionStorage.setItem("ap.draftApplied", draftApplied);
+  }
+}
+
+$("#moodboard-form").onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData();
+  fd.append("group", e.target.group.value);
+  for (const file of e.target.files.files) fd.append("files", file);
+  try { await api(`/api/projects/${slug}/moodboard`, fd); e.target.reset(); }
+  catch (err) { alert(err.message); }
+  await load();
+};
+$("#style-draft").onclick = async () => {
+  try { await api(`/api/projects/${slug}/style/draft`, {}); } catch (err) { alert(err.message); }
+  await load();
+};
+$("#anchor-text-only").onclick = async () => {
+  const st = $("#anchor-form [name=style_text]");
+  try { await api(`/api/projects/${slug}/style/text`, {text: st.value}); delete st.dataset.touched; }
+  catch (err) { alert(err.message); }
+  await load();
+};

@@ -106,7 +106,7 @@ class FramesReq(BaseModel):
 
 class RoleReq(BaseModel):
     path: str
-    role: Literal["design_ref", "source"] | None = None
+    role: Literal["design_ref", "source", "rejected"] | None = None
     note: str | None = None
 
 
