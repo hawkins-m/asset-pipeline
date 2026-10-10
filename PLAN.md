@@ -204,7 +204,8 @@ UI (2026-10-09): the browser UI is now Terraformer Pipeline, a classic desktop l
 - a progress dialog per job. Progress is counted from the files a job writes; the jobs
   themselves are unchanged.
 
-Not in the UI yet: export, UE import and backup (CLI only).
+Export and UE backup run from the UI (Pipeline menu and Unreal tab, 2026-10-09); UE import,
+renders and pull-layout are still CLI only.
 
 Open items after frame review round 2 (2026-10-08):
 - **med-harbour's design references** are round-1 frames that contain palms. Drop them, or

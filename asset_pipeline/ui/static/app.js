@@ -54,7 +54,7 @@ const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive
   "3d.trellis": "3D (TRELLIS)", "cleanup": "cleanup (Blender)", "site.build": "greybox build",
   "site.extract": "reading the .blend", "site.preview": "aerial previews", "shots.render": "shot passes",
   "frames.generate": "concept frames", "style.draft": "style text draft", "site.plan": "city plan",
-  "shots.camera": "moving a camera"};
+  "shots.camera": "moving a camera", "ue.export": "export to Unreal", "ue.backup": "UE backup"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
 
@@ -143,6 +143,7 @@ function render() {
   renderCatalog();
   renderFrames();
   renderMoodboard();
+  renderUnreal();
   renderPlan();
   renderRefs();
   renderReview();
@@ -158,6 +159,7 @@ async function load() {
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
     api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`),
     api(`/api/projects/${slug}/status`)]);
+  unrealData = await api(`/api/projects/${slug}/unreal`);
   fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));
   render();
 }

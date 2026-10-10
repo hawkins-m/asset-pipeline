@@ -2,6 +2,7 @@
 import json
 import math
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -169,3 +170,85 @@ def test_manifest_carries_layout_materials_with_starting_pbr_and_slot_tags():
     assert mats["metal"]["pbr"]["Metallic"] == 1.0 and mats["stone"]["pbr"]["Roughness"] < 0.2   # polished
     assert m["slots"][0]["material"] == "metal"                              # the slot's own tag wins
     assert s7_export.material_pbr("rough unknown stuff")["pbr"]["Roughness"] == 0.9
+
+
+def test_a_canceled_backup_leaves_no_snapshot(ue_project, monkeypatch):
+    from asset_pipeline import blender
+    from asset_pipeline.jobs import Canceled
+    store, _ = ue_project
+
+    def canceled(cmd, log, what):
+        Path(cmd[-1]).mkdir(parents=True)            # rsync had started writing
+        raise Canceled("stopped")
+    monkeypatch.setattr(blender, "run_logged", canceled)
+    with pytest.raises(Canceled):
+        ue.backup(store)
+    assert not ue.backups(store) and not list((ue.backups_dir() / "demo-world").glob("*.partial"))
+
+
+def test_ui_backs_up_as_a_job_and_confirms_an_open_editor(ue_project, monkeypatch):
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.ui import app as ui_app
+    store, _ = ue_project
+    client = TestClient(ui_app.create_app(JobQueue()))
+
+    def wait(job):
+        for _ in range(500):
+            j = client.get(f"/api/jobs/{job['id']}").json()
+            if j["status"] not in ("queued", "running"):
+                return j
+            time.sleep(0.01)
+        raise AssertionError("job did not finish")
+    assert client.get("/api/projects/demo-world/unreal").json() | {"backup_dir": None} == {
+        "export": None, "uproject": str(ue.uproject(store)), "project": True, "editor_open": False,
+        "backups": [], "backup_dir": None, "greybox": False}
+    assert client.post("/api/projects/demo-world/export", json={}).status_code == 400   # no greybox
+    j = wait(client.post("/api/projects/demo-world/ue/backup", json={}).json())
+    assert j["kind"] == "ue.backup" and j["lane"] == "cpu" and j["status"] == "done", j
+    assert client.get("/api/projects/demo-world/unreal").json()["backups"] == [Path(j["result"]["snapshot"]).name]
+    assert "to-chk=0/" in ue.backup_log(store).read_text()   # the progress the dialog counts
+    monkeypatch.setattr(ue, "editor_running", lambda up: True)
+    r = client.post("/api/projects/demo-world/ue/backup", json={})
+    assert r.status_code == 409 and "open" in r.json()["detail"]
+    assert wait(client.post("/api/projects/demo-world/ue/backup", json={"force": True}).json())["status"] == "done"
+
+
+def test_progress_counts_backup_files_and_exported_meshes(ue_project):
+    from types import SimpleNamespace
+    from asset_pipeline.stages import s7_export
+    from asset_pipeline.ui import app as ui_app
+    store, _ = ue_project
+    t0 = time.time()
+    job = lambda kind: SimpleNamespace(kind=kind, tag={}, created=t0)   # noqa: E731
+    log = ue.backup_log(store)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("\n=== old run\n  1  100%  to-chk=0/9)\n=== 2026-10-09 rsync\n  5  10%  (xfr#1, to-chk=30/40)\n"
+                   "  9  20%  (xfr#2, to-chk=25/40)\n")
+    p = ui_app._progress(store, job("ue.backup"), t0, t0 + 10)
+    assert (p["done"], p["total"]) == (15, 40) and p["eta_s"] == 17
+    out = s7_export.export_dir(store)
+    p = ui_app._progress(store, job("ue.export"), t0, t0 + 1)
+    assert p["total"] is None and "opening" in p["line"]
+    (out / "assets" / "a").mkdir(parents=True)
+    (out / "assets" / "a" / "SM_a.glb").write_bytes(b"x")
+    (out / "blender.log").write_text("\n=== blender\nEXPORT_TOTAL 4\n")
+    p = ui_app._progress(store, job("ue.export"), t0, t0 + 1)
+    assert (p["done"], p["total"]) == (1, 4) and "mesh 2 of 4" in p["line"]
+
+
+def test_run_logged_flushes_each_line_while_the_command_runs(tmp_path):
+    """The UI's export and backup dialogs read progress from these logs mid-run."""
+    import threading
+    from asset_pipeline import blender
+    log = tmp_path / "run.log"
+    t = threading.Thread(target=blender.run_logged, args=(["sh", "-c", "echo EXPORT_TOTAL $((1 + 2)); sleep 2"], log, "test"))
+    t.start()
+    for _ in range(150):
+        if "\nEXPORT_TOTAL 3\n" in (log.read_text() if log.exists() else ""):  # not the header's command
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("line not in the log while the command ran")
+    assert t.is_alive()
+    t.join()

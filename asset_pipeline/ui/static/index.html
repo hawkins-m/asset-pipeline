@@ -262,15 +262,23 @@
       <!-- Unreal -->
       <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
         <div class="applybar-slot"></div>
-        <fieldset><legend>Unreal Engine 5.8</legend>
-          <p class="hint">Export and import run from the command line for now; the UI doesn't start them.</p>
+        <fieldset><legend>Export</legend>
+          <p class="hint">The greybox as stand-in GLBs plus the UE manifest, in <code>export/</code> (Blender, CPU).</p>
+          <div class="row"><button type="button" id="ue-export">Export to Unreal</button><span id="ue-export-stop"></span>
+            <span id="ue-export-state" class="hint" style="margin:0"></span></div>
+        </fieldset>
+        <fieldset><legend>Back up the UE project</legend>
+          <p class="hint">Snapshots <code id="ue-project"></code> without its caches; unchanged files are hard-linked, 10 kept.</p>
+          <div class="row"><button type="button" id="ue-backup">Back up now</button><span id="ue-backup-stop"></span>
+            <span id="ue-backup-state" class="hint" style="margin:0"></span></div>
+        </fieldset>
+        <fieldset><legend>Command line</legend>
+          <p class="hint">Import and renders drive UnrealEditor and run from the command line for now.</p>
           <div class="form">
-            <span class="lbl">Export:</span><code>ap export PROJECT</code>
             <span class="lbl">Import:</span><code>ap ue import PROJECT</code>
             <span class="lbl">Relayout:</span><code>ap ue backup PROJECT &amp;&amp; ap ue import PROJECT --reset-layout --prune</code>
             <span class="lbl">Renders:</span><code>ap ue render PROJECT</code>
             <span class="lbl">Pull layout:</span><code>ap ue pull-layout PROJECT</code>
-            <span class="lbl">Back up:</span><code>ap ue backup PROJECT</code>
           </div>
         </fieldset>
       </section>
@@ -296,6 +304,7 @@
 <script src="/static/city.js"></script>
 <script src="/static/site.js"></script>
 <script src="/static/frames.js"></script>
+<script src="/static/unreal.js"></script>
 <script>loadProjects();</script>
 </body>
 </html>

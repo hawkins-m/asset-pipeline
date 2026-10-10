@@ -13,8 +13,8 @@ Engine: [unreal] editor_cmd in config/backends.toml, or AP_UE_EDITOR_CMD.
 """
 import json
 import os
+import re
 import shutil
-import subprocess
 import time
 from pathlib import Path
 
@@ -247,6 +247,10 @@ def backups(store: ProjectStore) -> list[Path]:
     return sorted(p for p in d.iterdir() if p.is_dir() and not p.is_symlink()) if d.is_dir() else []
 
 
+def backup_log(store: ProjectStore) -> Path:
+    return work_dir(store) / "backup.log"
+
+
 def backup(store: ProjectStore, keep: int | None = None, force: bool = False) -> dict:
     """Snapshot the UE project to <backup_dir>/<slug>/<YYYYmmdd-HHMMSS>/, without
     Intermediate, Saved and DerivedDataCache (rebuilt by the editor). Unchanged files are
@@ -271,14 +275,18 @@ def backup(store: ProjectStore, keep: int | None = None, force: bool = False) ->
     tmp = dest.with_name(dest.name + ".partial")
     # --checksum: rsync's default size + mtime test would hard-link the previous snapshot's
     # copy of a file re-saved within the same second at the same size (caught by a test)
-    cmd = ["rsync", "-a", "--checksum", "--delete"] + [f"--exclude=/{x}" for x in BACKUP_EXCLUDE]
+    # --info=progress2 without incremental recursion: the log's "to-chk=left/total" counts
+    # files against the whole tree (the UI's backup dialog reads it)
+    cmd = ["rsync", "-a", "--checksum", "--delete", "--info=progress2", "--no-inc-recursive"] + \
+          [f"--exclude=/{x}" for x in BACKUP_EXCLUDE]
     if previous:
         cmd.append(f"--link-dest={previous[-1]}")
     cmd += [f"{up.parent}/", f"{tmp}/"]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
+    try:
+        blender.run_logged(cmd, backup_log(store), "UE backup")
+    except BaseException:                  # failed or canceled: no partial snapshot left
         shutil.rmtree(tmp, ignore_errors=True)
-        raise RuntimeError(f"rsync failed ({r.returncode}): {r.stderr.strip()[-500:]}")
+        raise
     tmp.rename(dest)                       # a snapshot is complete or absent, never partial
     latest = root / "latest"
     if latest.is_symlink() or latest.exists():

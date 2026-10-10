@@ -35,8 +35,11 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
     log.flush()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             start_new_session=True, cwd=cwd, errors="replace")
-    pump = threading.Thread(target=lambda: [log.write(line) or log.flush() for line in proc.stdout],
-                            daemon=True)
+    def pump_lines():
+        for line in proc.stdout:   # flushed per line: the UI reads progress from the log
+            log.write(line)
+            log.flush()
+    pump = threading.Thread(target=pump_lines, daemon=True)
     pump.start()
     job = current_job()
     release = job.on_cancel(lambda: stop(proc)) if job else (lambda: None)

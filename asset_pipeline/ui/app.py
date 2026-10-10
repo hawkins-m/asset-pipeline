@@ -3,6 +3,7 @@
 All state is on disk (project.json, review.json); the server holds only job status.
 """
 import copy
+import re
 import time
 from pathlib import Path
 from typing import Literal
@@ -13,13 +14,13 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from .. import config, review, vlm
+from .. import config, review, ue, vlm
 from ..comfy.client import ComfyClient, ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
 from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, Typology, Variation
-from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_shots, sw_site
+from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -102,6 +103,10 @@ class FramesReq(BaseModel):
     n: int = 4
     refs: list[str] = []          # approved frames added as Redux references
     ref_strength: float = 0.08
+
+
+class BackupReq(BaseModel):
+    force: bool = False           # even while an editor has the project open
 
 
 class RoleReq(BaseModel):
@@ -232,6 +237,19 @@ def _newer(paths, t0: float) -> int:
     return n
 
 
+def _run_tail(log: Path, since: float, size: int = 1 << 18) -> str | None:
+    """The end of a log's newest run (blender.run_logged starts each with "=== "), if the
+    log was written since `since`."""
+    try:
+        if log.stat().st_mtime < since - 1:
+            return None
+        with log.open("rb") as f:
+            f.seek(max(0, f.seek(0, 2) - size))
+            return f.read().decode(errors="replace").rsplit("\n=== ", 1)[-1]
+    except FileNotFoundError:
+        return None
+
+
 def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     """Counted progress of a running job, from the files it has written since it started:
     {done, total, line}, plus eta_s once something is done. Jobs whose work can't be
@@ -267,6 +285,23 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         sheets = tag["sheets"]
         done, total = sum(1 for k in sheets if not _uncut(store, k)), len(sheets)
         line = f"SAM 3.1 · sheet {min(done + 1, total)} of {total}"
+    elif job.kind == "ue.export":
+        out_dir = s7_export.export_dir(store)
+        m = re.findall(r"EXPORT_TOTAL (\d+)", _run_tail(out_dir / "blender.log", since) or "")
+        if m:
+            total = int(m[-1])
+            done = min(_newer(out_dir.glob("assets/*/*.glb"), since), total)
+            line = f"Blender on the CPU · mesh {done + 1} of {total}" if done < total else "writing the manifest"
+        else:
+            line = "Blender on the CPU · opening the greybox"
+    elif job.kind == "ue.backup":
+        m = re.findall(r"to-chk=(\d+)/(\d+)", _run_tail(ue.backup_log(store), since) or "")
+        if m:
+            left, total = map(int, m[-1])
+            done = total - left
+            line = f"rsync · {done} of {total} files compared, unchanged ones hard-linked"
+        else:
+            line = "rsync · listing the project"
     out = {"done": done, "total": total, "line": line, "elapsed_s": round(now - t0)}
     if done and total and done < total:
         out["eta_s"] = round((now - t0) / done * (total - done))
@@ -800,6 +835,40 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     def site_plan(slug: str):
         store = _store(slug)
         return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
+
+    # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
+
+    @app.get("/api/projects/{slug}/unreal")
+    def unreal(slug: str):
+        store = _store(slug)
+        man = s7_export.export_dir(store) / "manifest.json"
+        up = ue.uproject(store)
+        out = {"export": None, "uproject": str(up), "project": up.is_file(), "editor_open": False,
+               "backups": [], "backup_dir": str(ue.backups_dir() / store.load().slug),
+               "greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
+        if man.is_file():
+            out["export"] = s7_export.counts(read_json(man)) | {"mtime": man.stat().st_mtime}
+        if out["project"]:
+            out["editor_open"] = ue.editor_running(up)
+            out["backups"] = [p.name for p in ue.backups(store)]
+        return out
+
+    @app.post("/api/projects/{slug}/export")
+    def export(slug: str):
+        store = _store(slug)
+        if not (sw_site.site_dir(store) / "greybox.json").is_file():
+            raise HTTPException(400, "no greybox yet: build it first")
+        return jobs.submit("ue.export", slug, lambda: s7_export.export(store), lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/ue/backup")
+    def ue_backup(slug: str, req: BackupReq):
+        store = _store(slug)
+        up = ue.uproject(store)
+        if not up.is_file():
+            raise HTTPException(400, f"no UE project at {up} (ap ue init PROJECT)")
+        if ue.editor_running(up) and not req.force:   # checked here too so the UI can confirm
+            raise HTTPException(409, f"an Unreal Editor has {up.name} open: save and close it first")
+        return jobs.submit("ue.backup", slug, lambda: ue.backup(store, force=req.force), lane="cpu").public()
 
     @app.get("/api/projects/{slug}/status")
     def status(slug: str):

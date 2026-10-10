@@ -124,8 +124,8 @@ const ACTIONS = {
   frames: {run: () => framesAction({}), enabled: () => !!framesData && framesData.shots.some(r => !r.batches.length) && !activeJobs("frames.generate", {missing: true}).length},
   cutViews: {run: () => { showTab("views"); $("#cut-views").click(); }, enabled: () => reviewData && reviewData.pending_sheets.length && !activeJobs("views.cut").length},
   make3d: {run: () => { showTab("views"); $("#review-list").scrollIntoView(); }, enabled: () => !!reviewData && reviewData.assets.length},
-  exportUe: {run: () => {}, enabled: () => false, title: "Command line only for now: ap export PROJECT"},
-  backupUe: {run: () => {}, enabled: () => false, title: "Command line only for now: ap ue backup PROJECT"},
+  exportUe: {run: () => ueExport(), enabled: () => !!unrealData && unrealData.greybox && !activeJobs("ue.export").length},
+  backupUe: {run: () => ueBackup(), enabled: () => !!unrealData && unrealData.project && !activeJobs("ue.backup").length},
   stopAll: {run: () => stopAll(), enabled: () => allActive().some(j => STOPPABLE(j.kind))},
   comfyCheck: {run: () => comfyDialog()},
   vlmStatus: {run: () => vlmDialog()},
@@ -437,7 +437,8 @@ function stageStates() {
     ["library", "Library", jobs(["plan.analyze", "plan.refine", "refs.generate"]) ? "Running" : plans.length ? "Done" : ""],
     ["views", "Views and 3D", jobs(["views.cut", "3d.trellis", "cleanup"]) ? "Running" :
       reviewData && reviewData.assets.some(a => a.results.length) ? "Done" : ""],
-    ["unreal", "Unreal", ""],
+    ["unreal", "Unreal", jobs(["ue.export", "ue.backup"]) ? "Running" : !unrealData || !unrealData.export ? "" :
+      ueExportStale() ? "Out of date" : "Done"],
   ];
 }
 

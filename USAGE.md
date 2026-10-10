@@ -104,9 +104,11 @@ silent NaNs, and the script refuses to start if it is set.
 desktop app:
 
 - **Menu bar** (Alt+F, E, V, P, T, H; arrows and Enter inside), with *Help › Keyboard
-  shortcuts*. The *Pipeline* menu holds every long action. *Export to Unreal* and *Back up
-  Unreal project* are greyed out: they're command line only for now (`ap export`, `ap ue
-  backup`).
+  shortcuts*. The *Pipeline* menu holds every long action, including *Export to Unreal*
+  (`ap export`, Ctrl+E) and *Back up Unreal project* (`ap ue backup`; it asks before
+  backing up while an editor has the project open). Both are CPU jobs with a progress
+  dialog counting meshes or files, and also have buttons in the *Unreal* tab. UE import,
+  renders and *pull-layout* stay on the command line.
 - **Toolbar:** the project, *New…*, *Apply changes*, *Re-plan*, *Rebuild greybox*, *Render
   passes*, *Generate missing frames*, *Stop jobs*.
 - **Side panel:**

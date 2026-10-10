@@ -35,6 +35,7 @@ def slot_of(o):
 
 
 meshes = sorted({o.data.name for o in bpy.context.scene.objects if o.type == "MESH" and slot_of(o)})
+print("EXPORT_TOTAL", len(meshes), flush=True)   # the UI counts GLBs against it
 index = {}
 for name in meshes:
     me = bpy.data.meshes[name]

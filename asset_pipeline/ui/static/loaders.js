@@ -58,6 +58,19 @@ const PICS = {
     <rect x="20" y="14" width="100" height="52" fill="#fff" stroke="#333" stroke-width="1.5"/>
     ${[38, 70, 102].map((x, i) => `<g class="ld-appear" style="animation-delay:${i * .5}s"><path d="M${x - 9} 56h18l-3-24h-12z" fill="#C9A06B" stroke="#333" stroke-width="1.2"/>
       <path d="M${x - 10} 32h20" stroke="#333" stroke-width="1.5"/></g>`).join("")}</svg>`,
+  export: `<svg viewBox="0 0 140 80" aria-hidden="true">
+    <path d="M10 62h34" ${INK}/>
+    <rect x="14" y="40" width="10" height="22" fill="#BDBDBA" stroke="#333" stroke-width="1.5"/><rect x="27" y="30" width="12" height="32" fill="#C9C9C6" stroke="#333" stroke-width="1.5"/>
+    ${[56, 64, 72].map((x, i) => `<circle class="ld-dot" style="animation-delay:${i * .25}s" cx="${x}" cy="46" r="2.2" fill="#316AC5"/>`).join("")}
+    <path d="M88 30l20-10 20 10v28l-20 10-20-10z" fill="#C9A06B" stroke="#333" stroke-width="1.5"/>
+    <path d="M88 30l20 10 20-10M108 40v28" fill="none" stroke="#333" stroke-width="1.5"/>
+    ${[0, 1, 2].map(i => `<rect class="ld-appear" style="animation-delay:${i * .5}s" x="${94 + i * 9}" y="${44 - i * 4}" width="6" height="6" fill="#E6E6E3" stroke="#333"/>`).join("")}</svg>`,
+  backup: `<svg viewBox="0 0 140 80" aria-hidden="true">
+    <path d="M12 24h14l4 5h22v35H12z" fill="#E9C46A" stroke="#333" stroke-width="1.5"/>
+    ${[62, 70, 78].map((x, i) => `<circle class="ld-dot" style="animation-delay:${i * .25}s" cx="${x}" cy="44" r="2.2" fill="#316AC5"/>`).join("")}
+    <rect x="90" y="26" width="38" height="36" rx="3" fill="#888" stroke="#333" stroke-width="1.5"/>
+    <path d="M94 50h30" stroke="#555" stroke-width="1.5"/><path d="M94 34h22" stroke="#666" stroke-width="1.5"/>
+    <circle class="ld-blink" cx="120" cy="56" r="2.5" fill="#3E8E4E"/></svg>`,
 };
 const LOADERS = {
   "frames.generate": ["Generating concept frames…", "frames", "frames"], "style.explore": ["Generating scenes…", "frames", ""],
@@ -68,6 +81,7 @@ const LOADERS = {
   "plan.refine": ["Refining boxes…", "scene", ""], "style.draft": ["Drafting style text…", "scene", ""],
   "refs.generate": ["Drawing reference sheets…", "sheet", "sheets"], "views.cut": ["Cutting views…", "cut", "sheets"],
   "3d.trellis": ["Building 3D model…", "model", ""], "cleanup": ["Cleaning up mesh…", "mesh", ""],
+  "ue.export": ["Exporting to Unreal…", "export", "meshes"], "ue.backup": ["Backing up the UE project…", "backup", "files"],
 };
 const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU"};
 const base = k => String(k || "").split("/").pop();
