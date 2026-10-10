@@ -1,6 +1,6 @@
 """A/B of the concept-frame structure controls on a few shots of a world-mode project.
 
-    python scripts/diag/frames_ab.py PROJECT SHOT [SHOT ...] [--seed 11 ...] [--set control|above]
+    python scripts/diag/frames_ab.py PROJECT SHOT [SHOT ...] [--seed 11 ...] [--set control|above|concrete]
 
 Variants (same prompt and seeds per shot):
   control  ControlNet Union Pro 2.0 depth strength x end grid with canny at half the depth
@@ -9,6 +9,8 @@ Variants (same prompt and seeds per shot):
   above    for raised and aerial shots: the default, stronger depth, depth + canny, and
            the relief depth image (sw_shots.depth_relief) at two strengths.
   above2   relief + canny, and relief released at half the steps.
+  concrete wording only, at the project's settings: the concrete material's words (named
+           in the prompt, or appended when the shot doesn't name it).
 Writes frames/_ab[_<set>]/<shot>/<variant>[_s<seed>]/ in the project, a contact sheet per
 shot (<shot>.png: greybox preview first) and results.json with each frame's edge match
 against the greybox (how closely it keeps the layout). --no-material-refs: wording only
@@ -48,6 +50,22 @@ ABOVE2 = {    # round 2: relief plus canny for raised shots, relief released ear
 for _fs in [*VARIANTS.values(), *ABOVE.values(), *ABOVE2.values()]:
     _fs.views = {}          # each variant is exactly what it says, whatever the shot's view
 SETS = {"control": VARIANTS, "above": ABOVE, "above2": ABOVE2}
+# wording sets: variant -> {material id: words}, at the project's frame settings
+WORDINGS = {"concrete": {
+    "smooth": {"concrete": "smooth pale fair-faced concrete with fine tie-hole grid, no wood grain"},
+    "board_marked": {"concrete": "board-marked cast concrete, cool grey, fine horizontal formwork lines, no timber"},
+    "porous": {"concrete": "porous concrete"},
+}}
+SETS |= {k: dict.fromkeys(v) for k, v in WORDINGS.items()}
+
+
+def _reworded(store, shot: str, words: dict[str, str]) -> str:
+    from asset_pipeline.stages import sw_site
+    prompt = s0_frames.prompt_for(store, shot)
+    mats = {m.id: m.words for m in sw_site.load_layout(store).materials}
+    for mid, w in words.items():
+        prompt = prompt.replace(mats[mid], w) if mats.get(mid) and mats[mid] in prompt else f"{prompt}, {w}"
+    return prompt
 
 
 def main():
@@ -70,7 +88,8 @@ def main():
                 out = root / shot / key
                 if not (out / "frame_000.png").exists():
                     t = time.time()
-                    s0_frames.generate(store, shot, n=1, seed=seed, fs=fs, out=out,
+                    prompt = _reworded(store, shot, WORDINGS[a.set][name]) if a.set in WORDINGS else None
+                    s0_frames.generate(store, shot, n=1, seed=seed, fs=fs, out=out, prompt=prompt,
                                        material_refs=not a.no_material_refs)
                     print(f"{shot} {key}: {time.time() - t:.0f}s", flush=True)
                 rec = s0_frames.edge_match(out / "frame_000.png", sw_shots.shot_dir(store, shot) / "canny.png")
