@@ -155,7 +155,7 @@ function passUrl(r, which) { return fileUrl({greybox: r.preview, depth: r.depth,
 function renderFrameMain(r, b, f) {
   const main = $("#frames-main");
   const bl = batchList(r);
-  const settings = framesData.settings;
+  const c = r.control || framesData.settings;   // this shot's view's settings
   main.innerHTML = `<div class="frames-head">
       <b>${esc(r.id)}</b><span class="hint" style="margin:0">${esc(r.tier)} · ${r.lens_mm} mm${r.district ? ` · ${esc(r.district)} district` : ""}${r.mood ? " · mood only: never seeds assets" : ""}</span>
       <span class="spacer"></span>
@@ -175,7 +175,7 @@ function renderFrameMain(r, b, f) {
       <span class="spacer"></span>
       <span class="mono" id="fr-info">${f ? `layout match ${f.edge_match.toFixed(2)} · seed ${f.seed ?? "?"}` : ""}${b && b.refs.length ? ` · ${b.refs.length} ref${b.refs.length === 1 ? "" : "s"}` : ""}</span>
     </div>
-    <p class="hint mono" style="margin:0">${esc(settings.model === "union" ? "Union Pro 2.0" : "depth LoRA")}: depth ${settings.depth_strength}${settings.model === "union" ? ` to ${settings.depth_end}, canny ${settings.canny_strength} to ${settings.canny_end}` : ""}, ${settings.steps} steps</p>`;
+    <p class="hint mono" style="margin:0">${esc(r.view)} view · ${esc(c.model === "union" ? "Union Pro 2.0" : "depth LoRA")}: ${c.depth_image === "relief" ? "relief " : ""}depth ${c.depth_strength}${c.model === "union" ? ` to ${c.depth_end}, canny ${c.canny_strength} to ${c.canny_end}` : ""}, ${c.steps} steps</p>`;
   main.append(shotEditPanel(r));
   $("#fr-view", main).onchange = e => { fr.view = e.target.value; try { localStorage.setItem("ap.frView", fr.view); } catch (_) { /* ignore */ } fr.shown = ""; renderFrames(); };
   $("#fr-batch", main).onchange = e => selectFrame(0, e.target.value);

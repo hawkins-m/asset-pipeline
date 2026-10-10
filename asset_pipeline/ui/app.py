@@ -678,8 +678,13 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                     parts = s0_frames.prompt_parts(store, r["id"])
                 except FileNotFoundError:
                     parts = None
+                try:
+                    view = s0_frames.view_of(s0_frames._shot_meta(store, r["id"])["shot"])
+                except FileNotFoundError:
+                    view = "level"
                 extra = {"prompt": parts["prompt"] if parts else None, "prompt_parts": parts,
-                         "edit": _shot_edit(store, r["id"]), "batches": s0_frames.batches(store, r["id"])}
+                         "edit": _shot_edit(store, r["id"]), "batches": s0_frames.batches(store, r["id"]),
+                         "view": view, "control": s0_frames.settings(store).for_view(view).model_dump(exclude={"views"})}
                 frames_cache[(slug, r["id"])] = (key, extra)
             out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
                             "mood": r["tier"] in s0_frames.MOOD_TIERS} | copy.deepcopy(extra))

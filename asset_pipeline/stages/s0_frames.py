@@ -56,6 +56,11 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "market": "a market square with stalls", "quay": "harbour piers",
               "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers"}
 SUFFIX = "cinematic architectural concept art"
+# A shot looking down more steeply than AERIAL_PITCH is an aerial; a medium or tight one
+# looking down more than RAISED_PITCH is raised. Wides look down 13-18 deg and hold their
+# layout at the level settings, so they stay level unless they're aerials.
+RAISED_PITCH = -3.0
+AERIAL_PITCH = -35.0
 
 
 def frames_dir(store: ProjectStore, shot: str) -> Path:
@@ -146,16 +151,17 @@ def typology_mask(store: ProjectStore, shot: str, typology: str) -> np.ndarray:
     return np.isin(sw_shots._key(rgb), np.array(keys, np.int64))
 
 
-def landmark_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef]:
+def landmark_refs(store: ProjectStore, shot: str, out: Path, min_cover: float = MIN_COVERAGE) -> list[RegionalRef]:
     """Masked Redux refs for the visible catalog typologies that have a reference image
-    (landmarks): the reference shapes that building only."""
+    (landmarks) and cover at least `min_cover` of the frame: the reference shapes that
+    building only."""
     layout = sw_site.load_layout(store)
     cat = {t.id: t for t in (layout.city.typologies if layout.city else []) if t.ref and t.ref_strength > 0}
     types, _ = visible(store, shot)
     refs = []
     for k, f in types:
         t = cat.get(k)
-        if t is None or f < MIN_COVERAGE:
+        if t is None or f < max(min_cover, MIN_COVERAGE):
             continue
         mask = out / f"mask_typology_{k}.png"
         Image.fromarray(typology_mask(store, shot, k).astype(np.uint8) * 255).save(mask)
@@ -163,12 +169,12 @@ def landmark_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef
     return refs
 
 
-def regional_refs(store: ProjectStore, shot: str, out: Path) -> list[RegionalRef]:
-    """Masked Redux refs for the visible materials that have a reference image; the masks
-    are written into `out`."""
+def regional_refs(store: ProjectStore, shot: str, out: Path, min_cover: float = MIN_COVERAGE) -> list[RegionalRef]:
+    """Masked Redux refs for the visible materials that have a reference image and cover
+    at least `min_cover` of the frame; the masks are written into `out`."""
     refs = []
     for m, f in visible_materials(store, shot):
-        if not m.ref or f < MIN_COVERAGE or m.ref_strength <= 0:
+        if not m.ref or f < max(min_cover, MIN_COVERAGE) or m.ref_strength <= 0:
             continue
         mask = out / f"mask_{m.id}.png"
         Image.fromarray(material_mask(store, shot, m).astype(np.uint8) * 255).save(mask)
@@ -241,6 +247,22 @@ def prompt_for(store: ProjectStore, shot: str) -> str:
     return prompt_parts(store, shot)["prompt"]
 
 
+def pitch(shot: dict) -> float:
+    """Degrees above the horizon the camera looks (negative: down), from its matrix
+    (a Blender camera looks down its local -Z)."""
+    return math.degrees(math.asin(max(-1.0, min(1.0, -shot["matrix"][2][2]))))
+
+
+def view_of(shot: dict) -> str:
+    """level | raised | aerial, for a shot as stored in greybox.json / the passes' meta."""
+    p = pitch(shot)
+    if p <= AERIAL_PITCH:
+        return "aerial"
+    if p <= RAISED_PITCH and shot.get("tier") != "wide":
+        return "raised"
+    return "level"
+
+
 def settings(store: ProjectStore) -> FrameSettings:
     p = store.load()
     return p.frames or FrameSettings()
@@ -248,7 +270,7 @@ def settings(store: ProjectStore) -> FrameSettings:
 
 def controls(store: ProjectStore, shot: str, fs: FrameSettings) -> list[ControlImage]:
     d = sw_shots.shot_dir(store, shot)
-    out = [ControlImage(kind="depth", image=d / "depth.png", strength=fs.depth_strength,
+    out = [ControlImage(kind="depth", image=sw_shots.depth_image(store, shot, fs.depth_image), strength=fs.depth_strength,
                         start=0.0, end=fs.depth_end)]
     if fs.model == "union" and fs.canny_strength > 0:
         out.append(ControlImage(kind="canny", image=d / "canny.png", strength=fs.canny_strength,
@@ -269,7 +291,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     if sw_shots.is_stale(meta, sw_site.load_greybox(store), shot):
         raise ValueError(f"shot {shot}'s passes are stale (the greybox or its camera changed): ap shots render first")
     project = store.load()
-    fs = fs or settings(store)
+    view = view_of(meta["shot"])
+    fs = (fs or settings(store)).for_view(view)
     source = "given" if prompt else prompt_parts(store, shot)["source"]
     prompt = prompt or prompt_for(store, shot)
     anchor = project.anchor
@@ -287,7 +310,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     backend = backend_for("frames", project)
     out = out or _next_batch(frames_dir(store, shot))
     out.mkdir(parents=True, exist_ok=True)
-    regional = (regional_refs(store, shot, out) + landmark_refs(store, shot, out)
+    cover = fs.min_ref_coverage
+    regional = (regional_refs(store, shot, out, cover) + landmark_refs(store, shot, out, cover)
                 if material_refs and fs.model == "union" else [])
     t, results = time.time(), []
     try:
@@ -302,7 +326,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
                             "edge_match": edge_match(final, sw_shots.shot_dir(store, shot) / "canny.png")})
     finally:  # a canceled run keeps the frames already made
         write_json(out / "meta.json", {
-            "shot": shot, "prompt": prompt, "prompt_source": source, "settings": fs.model_dump(mode="json"),
+            "shot": shot, "prompt": prompt, "prompt_source": source, "view": view,
+            "settings": fs.model_dump(mode="json", exclude={"views"}),
             "anchor": anchor.model_dump(mode="json") if anchor else None, "refs": refs or [],
             "material_refs": [{"image": review.rel(store, r.image), "mask": r.mask.name, "strength": r.strength}
                               for r in regional],

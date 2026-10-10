@@ -125,16 +125,18 @@ def test_two_controls_of_one_kind_and_missing_images_are_refused(tmp_path, image
 # --- s0_frames: prompts, generation, edge match (no Blender, fake backend) -----------------
 
 import json  # noqa: E402
+import math  # noqa: E402
 
 import numpy as np  # noqa: E402
 
 from asset_pipeline import review  # noqa: E402
 from asset_pipeline.imagegen.base import GenResult  # noqa: E402
 from asset_pipeline.project import ProjectStore, write_json  # noqa: E402
-from asset_pipeline.schema import District, FrameSettings, Material, ShotSpec, SiteLayout  # noqa: E402
+from asset_pipeline.schema import District, FrameSettings, Material, ShotSpec, SiteLayout, ViewControl  # noqa: E402
 from asset_pipeline.stages import s0_frames, s0_style, sw_shots, sw_site  # noqa: E402
 
 EYE = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+LEVEL = [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]   # a camera looking along +Y
 
 
 class FakeBackend:
@@ -163,7 +165,7 @@ def world(tmp_path, monkeypatch):
     sw_site.save_layout(store, layout)
     slot = lambda id, type, d: {"id": id, "type": type, "category": "building", "kit": None, "district": d,  # noqa: E731
                                 "matrix": EYE, "bbox": [[0, 0, 0], [1, 1, 1]], "pieces": []}
-    shot = {"id": "a", "tier": "medium", "matrix": EYE, "lens_mm": 35, "sensor_mm": 36, "resolution": [64, 32],
+    shot = {"id": "a", "tier": "medium", "matrix": LEVEL, "lens_mm": 35, "sensor_mm": 36, "resolution": [64, 32],
             "district": "edge", "notes": "looking down the avenue"}
     write_json(store.root / "site/greybox.json", {
         "slots": [slot("rot", "rotunda", "core"), slot("v1", "villa", "edge"), slot("t", "terrain", None)],
@@ -250,6 +252,13 @@ def test_materials_replace_district_notes_and_their_refs_are_masked(world, monke
     assert json.loads((out / "meta.json").read_text())["material_refs"][0]["image"] == "moodboard/marble.png"
     s0_frames.generate(world, "a", n=1, material_refs=False)       # wording only
     assert fake.requests[-1].regional == [] and "polished white marble" in fake.requests[-1].prompt
+    ids = json.loads((sw_shots.shot_dir(world, "a") / "ids.json").read_text())
+    ids["slots"]["rot"]["frac"] = 0.03                             # the marble is small in this shot
+    write_json(sw_shots.shot_dir(world, "a") / "ids.json", ids)
+    s0_frames.generate(world, "a", n=1)                            # under 5%: not worth +40 s a frame
+    assert fake.requests[-1].regional == [] and "polished white marble" in fake.requests[-1].prompt
+    s0_frames.generate(world, "a", n=1, fs=FrameSettings(min_ref_coverage=0.02))
+    assert len(fake.requests[-1].regional) == 1
 
 
 def test_tight_shots_are_mood_only(world):
@@ -428,3 +437,44 @@ def test_district_limited_materials_stay_out_of_other_shots(world):
     meta["shot"]["district"] = "core"
     write_json(sw_shots.shot_dir(world, "a") / "meta.json", meta)
     assert "lime render" in s0_frames.prompt_for(world, "a")
+
+
+def _looking_down(deg: float) -> list[list[float]]:
+    """A camera matrix looking along +Y, pitched `deg` below the horizon."""
+    a = math.radians(90 - deg)                 # Blender camera: X rotation, 90 = level
+    return [[1, 0, 0, 0], [0, math.cos(a), -math.sin(a), 0], [0, math.sin(a), math.cos(a), 0], [0, 0, 0, 1]]
+
+
+def test_views_from_camera_pitch_and_tier():
+    assert s0_frames.pitch({"matrix": LEVEL}) == pytest.approx(0)
+    assert s0_frames.pitch({"matrix": _looking_down(20)}) == pytest.approx(-20)
+    view = lambda deg, tier: s0_frames.view_of({"matrix": _looking_down(deg), "tier": tier})  # noqa: E731
+    assert [view(-5, "medium"), view(2, "medium"), view(15, "medium"), view(15, "tight")] == \
+        ["level", "level", "raised", "raised"]
+    assert [view(15, "wide"), view(50, "wide"), view(50, "medium")] == ["level", "aerial", "aerial"]
+
+
+def test_raised_and_aerial_shots_generate_with_their_views_settings(world, monkeypatch):
+    fake = FakeBackend()
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    d = sw_shots.shot_dir(world, "a")
+    z = 1 / np.linspace(1 / 900, 1 / 60, 32)[:, None] * np.ones((1, 64))
+    Image.fromarray((z / sw_shots.DEPTH_SCALE * 65535).round().astype(np.uint16)).save(d / "depth_raw.png")
+    out = s0_frames.generate(world, "a", n=1)                                    # level: as set
+    assert fake.requests[-1].control[0].image.name == "depth.png"
+    assert json.loads((out / "meta.json").read_text())["view"] == "level"
+    for f in (world.root / "site/greybox.json", d / "meta.json"):              # the camera tilts down
+        m = json.loads(f.read_text())
+        (m["shots"][0] if "shots" in m else m["shot"])["matrix"] = _looking_down(15)
+        write_json(f, m)
+    p = world.load()
+    p.frames = FrameSettings(depth_strength=0.5, views={"raised": ViewControl(depth_image="relief", depth_end=0.9)})
+    world.save(p)
+    out = s0_frames.generate(world, "a", n=1)
+    c = fake.requests[-1].control[0]
+    assert (c.image.name, c.strength, c.end) == ("depth_relief.png", 0.5, 0.9)
+    meta = json.loads((out / "meta.json").read_text())
+    assert meta["view"] == "raised" and meta["settings"]["depth_image"] == "relief" and "views" not in meta["settings"]
+    s0_frames.generate(world, "a", n=1, fs=FrameSettings(views={}))             # explicit: no override
+    assert fake.requests[-1].control[0].image.name == "depth.png"
+    assert FrameSettings().for_view("aerial").depth_image == "relief"            # on by default

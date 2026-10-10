@@ -126,6 +126,55 @@ def test_depth_control_is_inverse_depth_near_white_sky_black():
     assert d[0, 0] > d[0, 1] > d[0, 2] and d[0, 3] == 0
 
 
+
+def _view_from_above(h=96, w=160):
+    """A ground plane seen from above at an angle (far at the top; a plane's inverse depth
+    is linear in the image), with 8 m boxes on it and sky in the top rows: the depth ramp
+    dwarfs the boxes."""
+    z = 1 / np.linspace(1 / 2000, 1 / 300, h)[:, None] * np.ones((1, w))
+    boxes = np.zeros((h, w), bool)
+    for y0, x0 in ((30, 20), (50, 70), (70, 120)):
+        boxes[y0:y0 + 10, x0:x0 + 16] = True
+    z[boxes] -= 8.0
+    hit = np.ones((h, w), bool)
+    hit[:8] = False
+    z[:8] = 0
+    return z, hit, boxes
+
+
+def test_relief_depth_brings_out_buildings_on_a_ramp_and_keeps_near_light():
+    z, hit, boxes = _view_from_above()
+    ring = np.zeros_like(boxes)          # the ground beside each box, in the same rows
+    ys, xs = np.nonzero(boxes)
+    for y, x in zip(ys, xs):
+        ring[y, max(x - 6, 0):x + 7] = True
+    ring &= ~boxes & hit
+    plain, relief = sw_shots.depth_control(z, hit), sw_shots.depth_relief(z, hit)
+    contrast = lambda img: img[boxes].mean() - img[ring].mean()   # noqa: E731
+    assert contrast(relief) > 4 * contrast(plain) > 0
+    assert relief[~hit].max() == 0 and 0 <= relief.min() and relief.max() <= 1
+    assert relief[-10:][hit[-10:]].mean() > relief[10:20][hit[10:20]].mean()   # near still lighter
+
+
+def test_relief_depth_image_is_made_from_the_raw_pass_and_follows_it(tmp_path, monkeypatch):
+    z, hit, _ = _view_from_above()
+    d = tmp_path / "shots" / "a"
+    d.mkdir(parents=True)
+    Image.fromarray((z / sw_shots.DEPTH_SCALE * 65535).round().astype(np.uint16)).save(d / "depth_raw.png")
+    monkeypatch.setattr(sw_shots, "shot_dir", lambda store, shot: tmp_path / "shots" / shot)
+    assert sw_shots.depth_image(None, "a") == d / "depth.png"
+    p = sw_shots.depth_image(None, "a", "relief")
+    first = np.array(Image.open(p))
+    assert p.name == "depth_relief.png" and first[0].max() == 0 and first.std() > 10
+    z2 = z.copy()
+    z2[40:60, 40:60] -= 50            # the passes were re-rendered: a new building
+    Image.fromarray((z2 / sw_shots.DEPTH_SCALE * 65535).round().astype(np.uint16)).save(d / "depth_raw.png")
+    import os
+    os.utime(p, (1, 1))
+    assert not np.array_equal(np.array(Image.open(sw_shots.depth_image(None, "a", "relief"))), first)
+    with pytest.raises(ValueError):
+        sw_shots.depth_image(None, "a", "fancy")
+
 def test_edges_mark_slot_changes_and_creases_only():
     idx = np.zeros((4, 6), int)
     idx[:, 3:] = 1

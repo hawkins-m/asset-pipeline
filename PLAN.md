@@ -208,13 +208,17 @@ Export and UE backup run from the UI (Pipeline menu and Unreal tab, 2026-10-09);
 renders and pull-layout are still CLI only.
 
 Open items after frame review round 2 (2026-10-08):
-- **med-harbour's design references** are round-1 frames that contain palms. Drop them, or
-  lower their strength, before the next round.
-- **Raised and aerial shots still invent their own layout** (edge match: market-high
-  0.00–0.09, aerial 0.08). Next try: stronger depth control for those shots only (per-tier
-  control settings), leaving eye-level shots at the default.
-- **Masked references are slow:** frames with them take ~77–230 s versus ~48 s without.
-  Consider skipping material references on far wides, where the masked slots are small.
+- **The harbour medium's design references**: the round-2 note said they show palms; the
+  three current references (checked 2026-10-09) show olives and broadleaf trees, no palms.
+  Confirm before the next round.
+- **Raised and aerial shots** (2026-10-09): raised mediums now use the relief depth image
+  at 0.75 by default (`FrameSettings.views`; edge match 0.16 -> 0.49), level shots are
+  unchanged. Still open: the harbour raised shot drifts, and the aerial follows no
+  setting without turning into a white scale model (CLAUDE.md "Concept frames: views
+  from above"). Next options for the aerial: a lower camera, or a plan-image control.
+- **Masked references** (2026-10-09): each one costs ~+40 s a frame whatever its size, so
+  those under 5% of the frame are skipped (`min_ref_coverage`); this drops them on the far
+  wides and on several eye-level shots where they were small.
 - **The moodboard anchor is off.** It made frames ornate and palm-heavy and lowered the
   edge match (CLAUDE.md "Frame review round 2").
 

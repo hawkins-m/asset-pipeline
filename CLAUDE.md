@@ -394,8 +394,37 @@ reflects what was actually verified.
   the precise material words hold (marble, no wood). Views from far above follow it
   poorly: raised node mediums 0.00-0.38 and the aerial 0.06-0.12. Flux keeps the
   "radial city" idea but invents its own plan and megastructures (oval stadia, curved
-  slabs), because a near-top-down depth pass is almost flat. Not yet tried: per-tier
-  control settings (more depth, or canny) for raised and aerial shots.
+  slabs), because a near-top-down depth pass is almost flat. Per-view control settings: see "Concept frames: views from above".
+
+## Concept frames: views from above (2026-10-09)
+- A shot's view comes from its camera (`s0_frames.view_of`): aerial if it looks down more
+  than 35 deg, raised if a medium or tight looks down more than 3 deg, else level. Wides
+  at 13-18 deg down hold their layout (0.55-0.58) and stay level.
+- Why raised views drift: the plain depth image is inverse depth over the whole view, so
+  it's mostly the ground's near-to-far ramp, and 10-30 m of buildings are faint bumps on
+  it (on the aerial the radial plan is almost invisible). `sw_shots.depth_relief`
+  removes the ramp with a masked blur and gives half the range to the local relief. A
+  plane's inverse depth is linear in the image, so the blur keeps the ground flat grey;
+  the blur's border must be extended linearly (odd reflection), otherwise the frame's edge
+  turns into a false relief band that eats the scale.
+- A/B (`scripts/diag/frames_ab.py --set above|above2`, 3 raised mediums + the aerial,
+  2 seeds, wording only), mean edge match on the raised shots:
+
+  | Variant | Raised | Aerial | Look |
+  |---|---|---|---|
+  | default depth 0.6/0.6 | 0.16 | 0.08 | Invents its own plan (an avenue with lettering) |
+  | plain depth 0.8/0.8 | 0.45 | 0.10 | Pine canopies became lawns; a plaza flooded |
+  | depth 0.6/0.6 + canny 0.3/0.4 | 0.49 | 0.11 | Good layout on one shot, surfaces flatter |
+  | relief 0.6/0.6 | 0.22 | 0.13 | Aerial keeps colour and a city look |
+  | **relief 0.75/0.75** | **0.49** | 0.19 | **Raised default**: layout held, real buildings; aerial a white scale model |
+  | relief 0.75/0.75 + canny 0.3 | 0.71 | 0.18 | The greybox shows through (white boxes, grey plaza) |
+  | relief 0.75 to 0.5 | 0.35 | 0.15 | Drifts; aerial still white |
+
+  Defaults (`schema.DEFAULT_VIEWS`): raised = relief 0.75/0.75, aerial = relief 0.6/0.6.
+  The harbour raised shot still drifts at the default (0.10/0.31); the aerial is unsolved.
+- Masked references cost one model evaluation per step each, whatever their size: 34 s a
+  frame with none, ~76 s with one, ~116 s with two. They're skipped below 5% of the frame
+  (`FrameSettings.min_ref_coverage`).
 
 ## Typology catalog (city mode) findings (2026-10-07)
 - Shares must be measured by footprint, not by building count: a row of narrow

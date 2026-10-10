@@ -26,15 +26,52 @@ class StyleAnchor(BaseModel):
     lora: LoraRef | None = None
 
 
+View = Literal["level", "raised", "aerial"]
+
+
+class ViewControl(BaseModel):
+    """Structure control for one kind of view (s0_frames.view_of); None keeps the
+    project's value."""
+    depth_strength: float | None = Field(default=None, ge=0, le=2)
+    depth_end: float | None = Field(default=None, ge=0, le=1)
+    canny_strength: float | None = Field(default=None, ge=0, le=2)
+    canny_end: float | None = Field(default=None, ge=0, le=1)
+    depth_image: Literal["plain", "relief"] | None = None
+
+
+# Views from above follow the layout poorly at the eye-level settings: their plain depth
+# image is mostly the ground's ramp. A/B in CLAUDE.md "Concept frames: views from above".
+# Raised: relief at 0.75 kept the layout (mean edge match 0.49 vs 0.16) with real
+# buildings; adding canny scored 0.71 but drew the greybox. Aerial: nothing held the plan;
+# relief 0.75 turned it into a white scale model, relief at 0.6 keeps the look (0.13 vs 0.08).
+DEFAULT_VIEWS: dict[str, ViewControl] = {
+    "raised": ViewControl(depth_image="relief", depth_strength=0.75, depth_end=0.75),
+    "aerial": ViewControl(depth_image="relief"),
+}
+
+
 class FrameSettings(BaseModel):
     """World mode concept frames: which structure control and how hard it holds.
-    Defaults from the A/B in CLAUDE.md "Concept frames"."""
+    Defaults from the A/B in CLAUDE.md "Concept frames". `views` overrides them for
+    raised and aerial shots; level shots use the values here."""
     model: Literal["union", "depth_lora"] = "union"
     depth_strength: float = Field(default=0.6, ge=0, le=2)
     depth_end: float = Field(default=0.6, ge=0, le=1)
     canny_strength: float = Field(default=0.0, ge=0, le=2)    # union only; 0 = depth alone (best, A/B)
     canny_end: float = Field(default=0.5, ge=0, le=1)
+    depth_image: Literal["plain", "relief"] = "plain"   # relief: local relief boosted (views from above)
     steps: int = Field(default=28, ge=1, le=100)
+    # A masked reference (material or landmark) costs one more model evaluation per step,
+    # about +40 s a frame whatever its size: skip those covering less of the frame than this.
+    min_ref_coverage: float = Field(default=0.05, ge=0, le=1)
+    views: dict[Literal["raised", "aerial"], ViewControl] = Field(
+        default_factory=lambda: {k: v.model_copy() for k, v in DEFAULT_VIEWS.items()})
+
+    def for_view(self, view: str) -> "FrameSettings":
+        """The settings a shot of this view generates with (no `views` left in them)."""
+        vc = self.views.get(view)
+        upd = {k: v for k, v in vc.model_dump().items() if v is not None} if vc else {}
+        return self.model_copy(update=upd | {"views": {}})
 
 
 class Project(BaseModel):

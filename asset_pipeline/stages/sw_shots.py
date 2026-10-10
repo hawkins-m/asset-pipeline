@@ -83,6 +83,57 @@ def depth_control(z: np.ndarray, hit: np.ndarray) -> np.ndarray:
     return out
 
 
+def _box_blur(a: np.ndarray, r: int) -> np.ndarray:
+    """Mean over a (2r+1)^2 box (integral image; no scipy here). The border is extended
+    linearly (odd reflection), so a ramp stays a ramp up to the frame's edge."""
+    for axis in (0, 1):
+        pad = [(0, 0), (0, 0)]
+        pad[axis] = (r + 1, r)
+        c = np.cumsum(np.pad(a, pad, mode="reflect", reflect_type="odd"), axis=axis)
+        n = a.shape[axis]
+        hi = np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis=axis)
+        lo = np.take(c, np.arange(0, n), axis=axis)
+        a = (hi - lo) / (2 * r + 1)
+    return a
+
+
+def depth_relief(z: np.ndarray, hit: np.ndarray, mix: float = 0.5, radius_frac: float = 1 / 24) -> np.ndarray:
+    """Depth control with the local relief boosted, for views from above: there the plain
+    image is mostly the ground's near-to-far ramp, and 10-30 m of buildings are faint bumps
+    on it. The ramp is a masked blur (3 box passes, ~Gaussian, radius `radius_frac` of the
+    width); `mix` of the range goes to the detail around it, scaled so its 99th percentile
+    fills that share, the rest keeps the plain image. Near stays light, sky 0."""
+    d = depth_control(z, hit)
+    if hit.sum() < 2:
+        return d
+    m = hit.astype(np.float64)
+    r = max(1, min(round(z.shape[1] * radius_frac / 3), min(z.shape) // 2 - 2))
+    num, den = d.astype(np.float64) * m, m
+    for _ in range(3):
+        num, den = _box_blur(num, r), _box_blur(den, r)
+    detail = d - num / np.maximum(den, 1e-6)
+    scale = max(float(np.percentile(np.abs(detail[hit]), 99)), 1e-6)
+    out = np.zeros(z.shape, np.float32)
+    out[hit] = np.clip((1 - mix) * d[hit] + mix * (0.5 + 0.5 * detail[hit] / scale), 0, 1)
+    return out
+
+
+def depth_image(store: ProjectStore, shot: str, kind: str = "plain") -> Path:
+    """The depth control image of a rendered shot: depth.png, or depth_relief.png (made
+    from depth_raw.png on first use and whenever the passes are newer)."""
+    d = shot_dir(store, shot)
+    if kind == "plain":
+        return d / "depth.png"
+    if kind != "relief":
+        raise ValueError(f"unknown depth image {kind!r}")
+    out, raw_p = d / "depth_relief.png", d / "depth_raw.png"
+    if not out.is_file() or out.stat().st_mtime < raw_p.stat().st_mtime:
+        raw = np.array(Image.open(raw_p)).astype(np.float64)
+        img = depth_relief(raw / 65535.0 * DEPTH_SCALE, raw > 0)
+        Image.fromarray((img * 255).round().astype(np.uint8)).save(out)
+    return out
+
+
 def edges(idx: np.ndarray, normal: np.ndarray, z: np.ndarray, hit: np.ndarray) -> np.ndarray:
     """1-px edge map: slot changes, creases (normal angle) and depth jumps."""
     e = np.zeros(idx.shape, bool)

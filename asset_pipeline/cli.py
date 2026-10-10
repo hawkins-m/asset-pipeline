@@ -478,12 +478,31 @@ def cmd_style_text(a) -> None:
         print("style text saved")
 
 
+CONTROL_FLAGS = {"depth_strength": "depth", "depth_end": "depth_end", "canny_strength": "canny",
+                 "canny_end": "canny_end", "depth_image": "depth_image"}
+
+
 def _frame_settings(a, store):
+    """The project's frame settings with the command line's flags applied. For `generate`,
+    a control flag applies to every shot (the raised / aerial overrides are dropped); for
+    `settings --view V` the control flags edit that view's overrides."""
+    from .schema import ViewControl
     from .stages import s0_frames
     fs = s0_frames.settings(store)
-    upd = {k: v for k, v in {"model": a.model, "depth_strength": a.depth, "depth_end": a.depth_end,
-                             "canny_strength": a.canny, "canny_end": a.canny_end, "steps": a.steps}.items()
+    ctrl = {k: getattr(a, f) for k, f in CONTROL_FLAGS.items() if getattr(a, f) is not None}
+    upd = {k: v for k, v in {"model": a.model, "steps": a.steps, "min_ref_coverage": a.min_ref_coverage}.items()
            if v is not None}
+    view = getattr(a, "view", None)
+    if view:
+        views = dict(fs.views)
+        views[view] = (views.get(view) or ViewControl()).model_copy(update=ctrl)
+        upd["views"] = views
+    elif ctrl:
+        upd |= ctrl
+        if a.action == "generate":
+            upd["views"] = {}
+    if getattr(a, "reset_views", False):
+        upd["views"] = type(fs)().views
     return fs.model_copy(update=upd) if upd else fs
 
 
@@ -503,7 +522,9 @@ def cmd_frames_generate(a) -> None:
 def cmd_frames_settings(a) -> None:
     store = ProjectStore.open(a.project)
     fs = _frame_settings(a, store)
-    if any(v is not None for v in (a.model, a.depth, a.depth_end, a.canny, a.canny_end, a.steps)):
+    if any(v is not None for v in (a.model, a.depth, a.depth_end, a.canny, a.canny_end, a.depth_image, a.steps,
+                                   a.min_ref_coverage)) \
+            or a.reset_views:
         p = store.load()
         p.frames = fs
         store.save(p)
@@ -886,7 +907,15 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--depth-end", type=float, help="depth control stops at this fraction of the steps")
         p.add_argument("--canny", type=float, help="canny control strength (union; 0 = off)")
         p.add_argument("--canny-end", type=float)
+        p.add_argument("--depth-image", choices=["plain", "relief"],
+                       help="relief: depth with the local relief boosted (the default for raised and aerial shots)")
         p.add_argument("--steps", type=int)
+        p.add_argument("--min-ref-coverage", type=float,
+                       help="skip masked material / landmark references covering less of the frame (default 0.05)")
+        if name == "settings":
+            p.add_argument("--view", choices=["raised", "aerial"],
+                           help="the control flags set this view's overrides instead of the level settings")
+            p.add_argument("--reset-views", action="store_true", help="raised / aerial overrides back to the defaults")
         p.set_defaults(fn=fn)
     p = frsub.add_parser("role", help="mark a frame as a design reference (never an asset source), a source, or rejected")
     p.add_argument("project")
