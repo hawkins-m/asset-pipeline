@@ -1,5 +1,6 @@
-// Asset pipeline UI: shell and stage 0 (Style). State lives on the server; this re-renders
-// from it. Stage 1 (Plan) is in plan.js.
+// Terraformer Pipeline UI: data loading, shared helpers and stage 0 (Style). State lives on
+// the server; this re-renders from it. The window chrome (menus, tabs, side panel, job
+// dialogs) is in shell.js; stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
 const URL_ARGS = new URLSearchParams(location.search);
 let slug = null, data = null, plans = [], refs = [], reviewData = null, siteData = null, framesData = null,
@@ -79,27 +80,6 @@ function stopButton(jobs) {
   return b;
 }
 
-function renderJobs() {
-  const el = $("#jobs"); el.replaceChildren();
-  const active = data.jobs.filter(isActive);
-  for (const j of active) {
-    const chip = document.createElement("span"); chip.className = "job";
-    chip.textContent = `${JOB_LABELS[j.kind] || j.kind}${j.tag.unit ? ` · ${j.tag.unit}` : j.tag.asset ? ` · ${j.tag.asset}` : ""}` +
-      (j.status === "queued" ? " (queued)" : "…");
-    if (STOPPABLE(j.kind)) chip.append(stopButton([j]));
-    el.append(chip);
-  }
-  if (!active.length) {
-    const last = data.jobs.filter(j => j.status === "error" || j.status === "canceled").sort((a, b) => b.finished - a.finished)[0];
-    if (last && Date.now() / 1000 - last.finished < 120) {
-      el.innerHTML = last.status === "error" ? `<span class="error">${esc(JOB_LABELS[last.kind] || last.kind)} failed: ${esc(last.error)}</span>`
-        : `<span>${esc(JOB_LABELS[last.kind] || last.kind)} canceled.</span>`;
-    }
-  }
-  if (active.length && !polling) polling = setInterval(load, 2000);
-  if (!active.length && polling) { clearInterval(polling); polling = null; }
-}
-
 function render() {
   const p = data.project;
   $("#empty").hidden = true;
@@ -164,13 +144,13 @@ function render() {
   renderRefs();
   renderReview();
 
-  renderJobs();
+  renderShell();
   setStop("#explore-stop", activeJobs("style.explore"));
   setStop("#derive-stop", activeJobs("style.derive"));
 }
 
 async function load() {
-  if (!slug) { $("#empty").hidden = false; return; }
+  if (!slug) { $("#empty").hidden = false; renderShell(); return; }
   [data, plans, refs, reviewData, siteData, framesData, catalogData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
     api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`)]);
@@ -188,31 +168,9 @@ async function loadProjects(pick) {
   await load();
 }
 
-function showTab(tab) {
-  document.querySelectorAll("nav [data-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
-  document.querySelectorAll("main[data-tab]").forEach(m => { m.hidden = m.dataset.tab !== tab; });
-  localStorage.setItem("ap.tab", tab);
-}
-document.querySelectorAll("nav [data-tab]").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
-{ // ?project=<slug>&tab=<tab> (links) wins over the last one used
-  const t = URL_ARGS.get("tab") || localStorage.getItem("ap.tab");
-  showTab(["site", "frames", "plan", "refs", "review"].includes(t) ? t : "style");
-}
-
 $("#project").onchange = e => {
   if (!confirmDiscard()) { e.target.value = slug; return; }
   slug = e.target.value; localStorage.setItem("ap.project", slug); load(); };
-
-$("#new-form").onsubmit = async e => {
-  e.preventDefault();
-  const f = new FormData(e.target);
-  try {
-    await api("/api/projects", {slug: f.get("slug"), brief: f.get("brief")});
-    localStorage.setItem("ap.project", f.get("slug"));
-    e.target.reset(); $("#new-project").open = false;
-    await loadProjects(f.get("slug"));
-  } catch (err) { alert(err.message); }
-};
 
 $("#explore-form").onsubmit = async e => {
   e.preventDefault();
@@ -249,4 +207,3 @@ $("#anchor-form").onsubmit = async e => {
   } catch (err) { alert(err.message); }
 };
 
-loadProjects();

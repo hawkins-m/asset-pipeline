@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .. import config, review, vlm
-from ..comfy.client import ComfyError
+from ..comfy.client import ComfyClient, ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
@@ -188,12 +188,23 @@ def _uncut(store: ProjectStore, sheet: str) -> bool:
 
 
 def create_app(jobs: JobQueue | None = None) -> FastAPI:
-    app = FastAPI(title="asset-pipeline")
+    app = FastAPI(title="Terraformer Pipeline")
     jobs = jobs or JobQueue()
 
     @app.get("/")
     def index():
         return FileResponse(STATIC / "index.html")
+
+    @app.get("/api/comfy")
+    def comfy_status():
+        """Read-only: is ComfyUI reachable (for the status bar)."""
+        url = config.backends()["comfyui"]["url"]
+        try:
+            stats = ComfyClient(url, timeout_s=2).health()
+        except ComfyError as e:
+            return {"up": False, "url": url, "error": str(e)}
+        dev = (stats.get("devices") or [{}])[0]
+        return {"up": True, "url": url, "device": dev.get("name")}
 
     @app.get("/api/projects")
     def projects():

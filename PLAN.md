@@ -1,4 +1,6 @@
-# Asset Pipeline — Project Plan
+# Terraformer Pipeline — Project Plan
+
+(Repo `asset-pipeline`, command `ap`; Terraformer Pipeline is the tool's name in the UI and docs.)
 
 ## Goal
 A local-first tool that turns a single concept/scene image into organized, reviewable

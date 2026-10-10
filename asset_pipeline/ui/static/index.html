@@ -3,238 +3,292 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Asset Pipeline</title>
+  <title>Terraformer Pipeline</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header>
-    <h1>Asset Pipeline</h1>
-    <label>Project
-      <select id="project"></select>
-    </label>
-    <details id="new-project">
-      <summary>New project</summary>
-      <form id="new-form">
-        <input name="slug" placeholder="slug (e.g. my-project)" required pattern="[a-z0-9][a-z0-9_-]*">
-        <input name="brief" placeholder="brief (optional)">
-        <button>Create</button>
-      </form>
-    </details>
-    <span id="jobs" aria-live="polite"></span>
-  </header>
+<div class="app">
+  <div class="titlebar" id="titlebar">Terraformer Pipeline</div>
+  <nav class="menubar" id="menubar" role="menubar" aria-label="Main menu"></nav>
 
-  <nav role="tablist">
-    <button role="tab" data-tab="site">Site · Shots</button>
-    <button role="tab" data-tab="frames">Frames</button>
-    <button role="tab" aria-selected="true" data-tab="style">0 · Style</button>
-    <button role="tab" data-tab="plan">1 · Plan</button>
-    <button role="tab" data-tab="refs">2 · References</button>
-    <button role="tab" data-tab="review">3–4 · Review</button>
-  </nav>
+  <div class="toolbar" role="toolbar" aria-label="Toolbar">
+    <label>Project: <select id="project"></select></label>
+    <button type="button" id="tb-new">New…</button>
+    <span class="sep"></span>
+    <button type="button" id="tb-apply" class="default" title="Re-plan → rebuild greybox → render passes (Ctrl+Enter)">Apply changes</button>
+    <button type="button" id="tb-replan" title="Re-plan the city only (F5)">Re-plan</button>
+    <button type="button" id="tb-build">Rebuild greybox</button>
+    <button type="button" id="tb-render">Render passes</button>
+    <button type="button" id="tb-frames">Generate missing frames</button>
+    <span class="spacer"></span>
+    <button type="button" id="tb-stop" class="stop" title="Stop every running job (Esc)">Stop jobs</button>
+  </div>
 
-  <p id="empty" hidden>Create or pick a project to start.</p>
-
-  <main id="site-tab" data-tab="site" hidden>
-    <section>
-      <h2>Site and shots (world mode)</h2>
-      <p class="hint">One city instead of separate scenes. <code>site/layout.json</code>
-        (districts, rings, radial avenues, plots, kits, shots) builds a Blender greybox; after
-        that the .blend is the source of truth: move buildings or cameras in Blender, then
-        <em>Re-read .blend</em>. Each shot camera renders depth, canny and object-id passes
-        that guide its concept frames. Blender runs on the CPU (seconds per shot).</p>
-      <div class="row">
-        <button id="site-init" type="button">Start from the starter layout</button>
-        <button id="site-build" type="button">Build greybox</button>
-        <button id="site-extract" type="button" class="secondary">Re-read .blend</button>
-        <button id="site-preview" type="button" class="secondary">Aerial previews</button>
-        <button id="shots-render" type="button">Render all passes</button>
-        <button type="button" id="site-stop" class="stop" hidden>Stop</button>
+  <div class="body">
+    <aside class="side" id="side-default" aria-label="Pipeline">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 38 30" fill="none" stroke="#1d1d1b" stroke-width="1.6" stroke-linecap="round">
+          <path d="M2 8c4-4 8 4 12 0s8 4 12 0 8 4 10 1"/><path d="M2 14c4-4 8 4 12 0s8 4 12 0 8 4 10 1"/>
+          <path d="M2 20c4-4 8 4 12 0s8 4 12 0"/><circle cx="20" cy="26" r="2.4"/></svg>
+        <div><div class="name">TERRAFORMER</div><div class="sub">PIPELINE</div></div>
       </div>
-      <p id="site-summary" class="hint"></p>
-      <div id="site-previews" class="grid"></div>
-    </section>
-    <div id="catalog" hidden>
-      <section id="cat-report"></section>
-      <section id="cat-districts"></section>
-      <section id="cat-typologies"></section>
-      <section id="cat-materials"></section>
-      <section id="cat-overlays"></section>
-    </div>
-    <div id="shots-list"></div>
-  </main>
+      <fieldset id="side-status"><legend>Status</legend>
+        <div class="line" id="status-line">No project</div>
+      </fieldset>
+      <fieldset><legend>Stages</legend>
+        <ul class="list" id="stage-list" role="listbox" aria-label="Stages"></ul>
+      </fieldset>
+      <fieldset><legend>Jobs</legend>
+        <div id="lanes"></div>
+        <div id="jobs-msg" aria-live="polite"></div>
+      </fieldset>
+    </aside>
 
-  <main id="frames-tab" data-tab="frames" hidden>
-    <section>
-      <h2>Concept frames per shot (world mode)</h2>
-      <p class="hint">Each shot's frames are drawn onto its greybox passes (depth + edges),
-        with the project's style anchor and a prompt built from what the camera sees and the
-        districts' notes. Star the frames that set the look; starred frames can be added to
-        other shots as references, to carry materials across. About 40 s per frame
-        (ComfyUI, GPU 1). <em>Match</em> is how much of the greybox's layout a frame keeps
-        (1 = all of its edges, 0 = no better than chance).</p>
-      <div class="row">
-        <button id="frames-missing" type="button">Generate for shots without frames</button>
-        <button type="button" id="frames-missing-stop" class="stop" hidden>Stop</button>
-        <label>Frames per shot <input id="frames-n" type="number" min="1" max="12" value="4"></label>
-        <span id="frames-settings" class="hint"></span>
+    <aside class="side" id="side-frames" aria-label="Shots" hidden></aside>
+
+    <div class="workspace">
+      <div role="tablist" id="tabs" aria-label="Workspace">
+        <button role="tab" data-tab="style">Style</button>
+        <button role="tab" data-tab="site">Site</button>
+        <button role="tab" data-tab="city">City</button>
+        <button role="tab" data-tab="shots">Shots</button>
+        <button role="tab" data-tab="frames">Frames</button>
+        <button role="tab" data-tab="library">Library</button>
+        <button role="tab" data-tab="views">Views and 3D</button>
+        <button role="tab" data-tab="unreal">Unreal</button>
       </div>
-    </section>
-    <div id="frames-list"></div>
-  </main>
 
-  <main id="style-tab" data-tab="style">
-    <section id="explore">
-      <h2>1 · Explore scenes</h2>
-      <p class="hint">Generate environment concepts from a brief. Star the scenes worth
-        keeping. Starred scenes go to scene analysis (stage 1) and are the source for the
-        style anchor below.</p>
-      <form id="explore-form" class="row">
-        <textarea name="brief" rows="2" placeholder="Brief: e.g. a misty fishing harbour at dawn, painterly, muted blues and rust"></textarea>
-        <label>Images <input name="n" type="number" min="1" max="32" value="8"></label>
-        <label>Seed <input name="seed" type="number" placeholder="random"></label>
-        <button>Generate scenes</button>
-        <button type="button" id="explore-stop" class="stop" hidden>Stop</button>
-      </form>
-      <div id="batches"></div>
-    </section>
+      <p id="empty" class="tabpanel" hidden>Create or pick a project to start (File › New project).</p>
 
-    <section id="derive">
-      <h2>2 · Derive anchor objects</h2>
-      <p class="hint">Pick a starred scene and name objects in it. Each one is cut out
-        with SAM 3 and redrawn as a whole object on white in the scene's style. Star the
-        good ones (cutouts or redraws).</p>
-      <div id="starred-scenes" class="grid small"></div>
-      <form id="derive-form" class="row">
-        <input name="nouns" placeholder="objects, comma-separated: boat, house, lantern" required>
-        <label>Per object <input name="per_noun" type="number" min="1" max="6" value="2"></label>
-        <button>Derive objects</button>
-        <button type="button" id="derive-stop" class="stop" hidden>Stop</button>
-      </form>
-      <div id="derived"></div>
-    </section>
-
-    <section id="moodboard">
-      <h2>Moodboard</h2>
-      <p class="hint">Reference images for the style (e.g. a PureRef board: export its images to
-        a folder, then upload them here, one group at a time). Moodboard images can be used in
-        <em>Derive objects</em> like scenes, and the vision LLM can draft the style text from
-        them (GPU 0).</p>
-      <form id="moodboard-form" class="row">
-        <input name="group" placeholder="group (e.g. references)" required>
-        <input name="files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
-        <button>Upload</button>
-        <button type="button" id="style-draft" class="secondary">Draft style text from moodboard</button>
-        <button type="button" id="style-draft-stop" class="stop" hidden>Stop</button>
-      </form>
-      <div id="moodboard-groups"></div>
-    </section>
-
-    <section id="anchor">
-      <h2>3 · Style anchor</h2>
-      <p class="hint">The starred derived objects plus this style text condition every later
-        image. The text carries most of the style; the images add the look.</p>
-      <form id="anchor-form" class="col">
-        <textarea name="style_text" rows="2" placeholder="Style text: medium, palette, linework, lighting…"></textarea>
-        <label>Image strength <output id="strength-out">0.06</output>
-          <input name="strength" type="range" min="0.02" max="0.3" step="0.01" value="0.06">
-        </label>
-        <p class="hint">Start low (0.06). If new images pick up parts of the anchor objects
-          (awnings, produce…), lower it or star more varied objects; if the style is too
-          weak, raise it a little or strengthen the style text.</p>
-        <div class="row"><button>Save anchor</button>
-          <button type="button" id="anchor-text-only" class="secondary">Save style text only</button></div>
-      </form>
-      <div id="anchor-current"></div>
-    </section>
-  </main>
-
-  <main id="plan-tab" data-tab="plan" hidden>
-    <section id="plan-scenes">
-      <h2>1 · Scenes</h2>
-      <p class="hint">Starred scenes from stage 0, plus any you upload. Pick one and analyse it:
-        the vision LLM lists the assets to model, with counts, real-world sizes and where
-        they sit. When ComfyUI is running, SAM 3.1 then redraws the boxes (solid); dashed boxes
-        are the LLM's own.</p>
-      <p id="vlm-status" class="hint"></p>
-      <div id="plan-scene-list" class="grid small"></div>
-      <div class="row">
-        <button id="analyze-btn" disabled>Analyse scene</button>
-        <button id="refine-btn" class="secondary" disabled title="Redo the boxes with SAM 3.1 (needs ComfyUI). Runs after every analysis when ComfyUI is up.">Refine boxes</button>
-        <label>Upload a scene <input id="scene-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
-      </div>
-    </section>
-
-    <section id="plan-editor" hidden>
-      <h2>2 · Asset plan</h2>
-      <div class="plan-layout">
-        <div class="plan-scene">
-          <div id="plan-figure" class="figure"></div>
-          <label>Summary <textarea id="plan-summary" rows="2"></textarea></label>
-          <label>Scale notes <textarea id="plan-scale" rows="2"></textarea></label>
-          <p id="plan-meta" class="hint"></p>
-        </div>
-        <div class="plan-assets">
-          <div id="plan-asset-list"></div>
-          <h3>Relations</h3>
-          <ul id="plan-relations"></ul>
-          <form id="relation-form" class="row">
-            <select name="subject" aria-label="Subject"></select>
-            <input name="relation" placeholder="on top of" aria-label="Relation" required>
-            <select name="object" aria-label="Object"></select>
-            <button>Add relation</button>
+      <!-- Style (stage 0) -->
+      <section class="tabpanel" data-tab="style" id="style-tab" hidden>
+        <div class="applybar-slot"></div>
+        <fieldset id="explore"><legend>Explore scenes</legend>
+          <p class="hint">Generate environment concepts from a brief. Starred scenes go to scene analysis and are
+            the source for the style anchor.</p>
+          <form id="explore-form" class="form">
+            <label for="ex-brief">Brief:</label>
+            <textarea id="ex-brief" name="brief" rows="2" placeholder="e.g. a misty fishing harbour at dawn, painterly, muted blues and rust"></textarea>
+            <label for="ex-n">Images:</label>
+            <div class="row" style="margin:0"><input id="ex-n" name="n" type="number" min="1" max="32" value="8">
+              <label>Seed: <input name="seed" type="number" placeholder="random"></label>
+              <button class="default">Generate scenes</button>
+              <button type="button" id="explore-stop" class="stop" hidden>Stop</button></div>
           </form>
+          <div id="batches"></div>
+        </fieldset>
+
+        <fieldset id="derive"><legend>Derive anchor objects</legend>
+          <p class="hint">Pick a starred scene and name objects in it. Each is cut out with SAM 3 and redrawn on
+            white in the scene's style. Star the good ones.</p>
+          <div id="starred-scenes" class="grid small"></div>
+          <form id="derive-form" class="form">
+            <label for="dv-nouns">Objects:</label>
+            <input id="dv-nouns" name="nouns" placeholder="comma-separated: boat, house, lantern" required>
+            <label for="dv-per">Per object:</label>
+            <div class="row" style="margin:0"><input id="dv-per" name="per_noun" type="number" min="1" max="6" value="2">
+              <button class="default">Derive objects</button>
+              <button type="button" id="derive-stop" class="stop" hidden>Stop</button></div>
+          </form>
+          <div id="derived"></div>
+        </fieldset>
+
+        <fieldset id="moodboard"><legend>Moodboard</legend>
+          <p class="hint">Reference images for the style, one group at a time. They can be used in
+            <em>Derive objects</em> like scenes, and the vision LLM can draft the style text from them (GPU 0).</p>
+          <form id="moodboard-form" class="form">
+            <label for="mb-group">Group:</label><input id="mb-group" name="group" placeholder="e.g. references" required>
+            <label for="mb-files">Images:</label><input id="mb-files" name="files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
+            <span></span><div class="row" style="margin:0"><button class="default">Upload</button>
+              <button type="button" id="style-draft">Draft style text from moodboard</button>
+              <button type="button" id="style-draft-stop" class="stop" hidden>Stop</button></div>
+          </form>
+          <div id="moodboard-groups"></div>
+        </fieldset>
+
+        <fieldset id="anchor"><legend>Style anchor</legend>
+          <form id="anchor-form" class="form">
+            <label for="an-text">Style text:</label>
+            <textarea id="an-text" name="style_text" rows="3" placeholder="medium, palette, linework, lighting…"></textarea>
+            <label for="an-str">Image strength:</label>
+            <div class="row" style="margin:0"><input id="an-str" name="strength" type="range" min="0.02" max="0.3" step="0.01" value="0.06" style="width:240px">
+              <output id="strength-out">0.06</output></div>
+            <span></span><p class="hint">Start low (0.06). If new images pick up parts of the anchor objects, lower it; if the
+              style is too weak, raise it a little or strengthen the text.</p>
+            <span></span><div class="row" style="margin:0"><button class="default">Save anchor</button>
+              <button type="button" id="anchor-text-only">Save style text only</button></div>
+          </form>
+          <div id="anchor-current"></div>
+        </fieldset>
+      </section>
+
+      <!-- Site: layout and greybox -->
+      <section class="tabpanel" data-tab="site" id="site-tab" hidden>
+        <div class="applybar-slot"></div>
+        <fieldset><legend>Site and greybox</legend>
+          <p class="hint"><code>site/layout.json</code> builds a Blender greybox; after that the .blend is the source of
+            truth: move buildings or cameras in Blender, then <em>Re-read .blend</em>. Blender runs on the CPU.</p>
+          <div class="row">
+            <button id="site-init" type="button">Start from the starter layout</button>
+            <button id="site-build" type="button" class="default">Build greybox</button>
+            <button id="site-extract" type="button">Re-read .blend</button>
+            <button id="site-preview" type="button">Aerial previews</button>
+            <button type="button" id="site-stop" class="stop" hidden>Stop</button>
+          </div>
+          <p id="site-summary"></p>
+        </fieldset>
+        <fieldset><legend>Aerial previews</legend><div id="site-previews" class="grid"></div></fieldset>
+      </section>
+
+      <!-- City catalog -->
+      <section class="tabpanel" data-tab="city" id="city-tab" hidden>
+        <div class="applybar-slot"></div>
+        <p id="city-none" class="hint">This project has no city spec (start one with <code>ap site init --city</code>).</p>
+        <div id="catalog" hidden>
+          <section id="cat-report"></section>
+          <section id="cat-districts"></section>
+          <section id="cat-typologies"></section>
+          <section id="cat-materials"></section>
+          <section id="cat-overlays"></section>
         </div>
-      </div>
-      <div class="row sticky-actions">
-        <button id="add-asset" type="button" class="secondary">Add asset</button>
-        <span id="plan-dirty" class="hint"></span>
-        <button id="discard-plan" type="button" class="secondary" disabled>Discard changes</button>
-        <button id="save-plan" type="button" disabled>Save plan</button>
-      </div>
-    </section>
-  </main>
-  <main id="refs-tab" data-tab="refs" hidden>
-    <section>
-      <h2>Reference sheets</h2>
-      <p class="hint">Each included asset of every plan, drawn on white in the project's style:
-        three views side by side, a kit's pieces together in one sheet, ground surfaces as a
-        top-down texture. Star the sheets worth keeping; stage 3 cuts the views out of
-        starred sheets. About 55 s per sheet (ComfyUI, GPU 1).</p>
-      <div class="row">
-        <button id="refs-missing" type="button">Generate missing</button>
-        <button type="button" id="refs-missing-stop" class="stop" hidden>Stop</button>
-        <label>Sheets per asset <input id="refs-n" type="number" min="1" max="8" value="2"></label>
-        <span id="refs-summary" class="hint"></span>
-      </div>
-    </section>
-    <div id="refs-list"></div>
-  </main>
+      </section>
 
-  <main id="review-tab" data-tab="review" hidden>
-    <section>
-      <h2>Views and 3D</h2>
-      <p class="hint">Starred reference sheets are cut into separate views (SAM 3.1). For each
-        asset, click the view to build it from, tag it (game, cine or hero), then
-        <em>Make 3D</em>: TRELLIS.2 on GPU 0, about 2.5 min. Hero assets will get a multi-view
-        path later; for now they go through TRELLIS too.</p>
-      <div class="row">
-        <button id="cut-views" type="button">Cut views</button>
-        <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
-        <label>3D mode <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
-        <span id="review-summary" class="hint"></span>
-      </div>
-    </section>
-    <div id="review-list"></div>
-  </main>
+      <!-- Shots: per-shot control passes -->
+      <section class="tabpanel" data-tab="shots" id="shots-tab" hidden>
+        <div class="applybar-slot"></div>
+        <div class="row"><button id="shots-render" type="button" class="default">Render all passes</button>
+          <span class="hint" style="margin:0">Each shot camera renders depth, edges and object-id passes that guide its frames.</span></div>
+        <div id="shots-list"></div>
+      </section>
 
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4/dist/model-viewer.min.js"></script>
-  <script src="/static/app.js"></script>
-  <script src="/static/review.js"></script>
-  <script src="/static/refs.js"></script>
-  <script src="/static/plan.js"></script>
-  <script src="/static/edit.js"></script>
-  <script src="/static/site.js"></script>
-  <script src="/static/frames.js"></script>
+      <!-- Frames -->
+      <section class="tabpanel" data-tab="frames" id="frames-tab" hidden>
+        <div class="applybar-slot"></div>
+        <div class="row">
+          <button id="frames-missing" type="button" class="default">Generate for shots without frames</button>
+          <button type="button" id="frames-missing-stop" class="stop" hidden>Stop</button>
+          <label>Frames per shot: <input id="frames-n" type="number" min="1" max="12" value="4"></label>
+          <span id="frames-settings" class="hint mono" style="margin:0"></span>
+        </div>
+        <div id="frames-list"></div>
+      </section>
+
+      <!-- Library: scene plans (stage 1) and reference sheets (stage 2) -->
+      <section class="tabpanel" data-tab="library" id="library-tab" hidden>
+        <div class="applybar-slot"></div>
+        <p class="hint">The typology asset library (phase 3) isn't built yet. These are the single-scene stages that
+          feed it: asset plans from scenes, and reference sheets per asset.</p>
+        <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
+          <button role="tab" data-sub="plan">Scene plans</button>
+          <button role="tab" data-sub="refs">Reference sheets</button>
+        </div>
+        <div class="tabpanel" style="flex:none;overflow:visible">
+          <div data-sub="plan" id="plan-tab">
+            <fieldset id="plan-scenes"><legend>Scenes</legend>
+              <p class="hint">Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with
+                counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM's own).</p>
+              <p id="vlm-status" class="hint"></p>
+              <div id="plan-scene-list" class="grid small"></div>
+              <div class="row">
+                <button id="analyze-btn" class="default" disabled>Analyse scene</button>
+                <button id="refine-btn" disabled title="Redo the boxes with SAM 3.1 (needs ComfyUI).">Refine boxes</button>
+                <label>Upload a scene: <input id="scene-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+              </div>
+            </fieldset>
+            <fieldset id="plan-editor" hidden><legend>Asset plan</legend>
+              <div class="plan-layout">
+                <div class="plan-scene">
+                  <div id="plan-figure" class="figure"></div>
+                  <label>Summary: <textarea id="plan-summary" rows="2"></textarea></label>
+                  <label>Scale notes: <textarea id="plan-scale" rows="2"></textarea></label>
+                  <p id="plan-meta" class="hint"></p>
+                </div>
+                <div class="plan-assets">
+                  <div id="plan-asset-list"></div>
+                  <h3>Relations</h3>
+                  <ul id="plan-relations"></ul>
+                  <form id="relation-form" class="row">
+                    <select name="subject" aria-label="Subject"></select>
+                    <input name="relation" placeholder="on top of" aria-label="Relation" required>
+                    <select name="object" aria-label="Object"></select>
+                    <button>Add relation</button>
+                  </form>
+                </div>
+              </div>
+              <div class="row sticky-actions">
+                <button id="add-asset" type="button">Add asset</button>
+                <span id="plan-dirty" class="hint"></span>
+                <button id="discard-plan" type="button" disabled>Discard changes</button>
+                <button id="save-plan" type="button" class="default" disabled>Save plan</button>
+              </div>
+            </fieldset>
+          </div>
+          <div data-sub="refs" id="refs-tab" hidden>
+            <p class="hint">Each included asset drawn on white in the project's style: three views side by side, a kit's
+              pieces in one sheet, ground as a top-down texture. Star the sheets to keep. About 55 s per sheet.</p>
+            <div class="row">
+              <button id="refs-missing" type="button" class="default">Generate missing</button>
+              <button type="button" id="refs-missing-stop" class="stop" hidden>Stop</button>
+              <label>Sheets per asset: <input id="refs-n" type="number" min="1" max="8" value="2"></label>
+              <span id="refs-summary" class="hint" style="margin:0"></span>
+            </div>
+            <div id="refs-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Views and 3D (stages 3-6) -->
+      <section class="tabpanel" data-tab="views" id="review-tab" hidden>
+        <div class="applybar-slot"></div>
+        <fieldset><legend>Views and 3D</legend>
+          <p class="hint">Starred sheets are cut into views (SAM 3.1). Per asset, pick the view to build from, tag it
+            game, cine or hero, then <em>Make 3D</em> (TRELLIS.2 on GPU 0, about 2.5 min).</p>
+          <div class="row">
+            <button id="cut-views" type="button" class="default">Cut views</button>
+            <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
+            <label>3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
+            <span id="review-summary" class="hint" style="margin:0"></span>
+          </div>
+        </fieldset>
+        <div id="review-list"></div>
+      </section>
+
+      <!-- Unreal -->
+      <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
+        <div class="applybar-slot"></div>
+        <fieldset><legend>Unreal Engine 5.8</legend>
+          <p class="hint">Export and import run from the command line for now; the UI doesn't start them.</p>
+          <div class="form">
+            <span class="lbl">Export:</span><code>ap export PROJECT</code>
+            <span class="lbl">Import:</span><code>ap ue import PROJECT</code>
+            <span class="lbl">Relayout:</span><code>ap ue backup PROJECT &amp;&amp; ap ue import PROJECT --reset-layout --prune</code>
+            <span class="lbl">Renders:</span><code>ap ue render PROJECT</code>
+            <span class="lbl">Pull layout:</span><code>ap ue pull-layout PROJECT</code>
+            <span class="lbl">Back up:</span><code>ap ue backup PROJECT</code>
+          </div>
+        </fieldset>
+      </section>
+    </div>
+  </div>
+
+  <footer class="statusbar" id="statusbar">
+    <span id="sb-left">Ready</span><span id="sb-mid"></span><span id="sb-gpu"></span>
+    <span class="grow"></span><span id="sb-right"></span>
+  </footer>
+</div>
+
+<div id="dialogs"></div>
+
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4/dist/model-viewer.min.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/shell.js"></script>
+<script src="/static/review.js"></script>
+<script src="/static/refs.js"></script>
+<script src="/static/plan.js"></script>
+<script src="/static/edit.js"></script>
+<script src="/static/site.js"></script>
+<script src="/static/frames.js"></script>
+<script>loadProjects();</script>
 </body>
 </html>

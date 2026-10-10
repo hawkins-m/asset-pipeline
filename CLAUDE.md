@@ -1,5 +1,8 @@
 # CLAUDE.md
 
+The tool is called **Terraformer Pipeline** in the UI and docs; the repo stays
+`asset-pipeline` and the command stays `ap`.
+
 **[PLAN.md](PLAN.md) is the source of truth for the design** (goal, architecture, stages,
 milestones). Read it before starting work. This file only covers the machine and the
 working rules. If the two disagree on design, PLAN.md wins. On machine facts, this file

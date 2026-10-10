@@ -591,7 +591,7 @@ def cmd_ue(a) -> None:
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
-    print(f"Asset pipeline UI: http://127.0.0.1:{a.port}")
+    print(f"Terraformer Pipeline UI: http://127.0.0.1:{a.port}")
     uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 
@@ -630,7 +630,7 @@ def cmd_set(a) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="ap", description="Asset pipeline (see USAGE.md)")
+    ap = argparse.ArgumentParser(prog="ap", description="Terraformer Pipeline (see USAGE.md)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("new", help="create a project under $AP_ROOT/projects/")
