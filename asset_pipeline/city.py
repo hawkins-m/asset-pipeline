@@ -397,7 +397,8 @@ def forum_core(L: SiteLayout, nd: CivicNode, kit: Kit, f: Fields) -> Callable[[f
         sign = int(np.sign(math.cos(t) if side == "short" else math.sin(t)))
         gaps.setdefault((side, sign), []).append(off)
         gates.append((a, dist, side))
-    tags = {"kit": kit.id, "district": nd.id, "typology": FORUM_TYPOLOGY}
+    t = next((t for t in (L.city.typologies if L.city else []) if t.id == FORUM_TYPOLOGY), None)
+    tags = {"kit": kit.id, "district": nd.id, "typology": FORUM_TYPOLOGY, "material": t.material if t else None}
     ax, ac = _dir(nd.rot), _dir(nd.rot + 90)
     lv_top = portico_top(kit)
     for sign in (1, -1):
