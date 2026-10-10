@@ -322,6 +322,7 @@ details summary { cursor: default; }
 .tree .mark { font-family: var(--mono); }
 .tree .mark.star { color: var(--star); }
 .tree .mark.stale { color: #6B5A10; }
+.tree .mark.locked { color: var(--ready); }
 .tree [aria-selected="true"] .mark { color: var(--select-text); }
 .shot-edit { margin-top: 4px; }
 .shot-edit summary { padding: 2px 0; display: flex; gap: 6px; align-items: center; }

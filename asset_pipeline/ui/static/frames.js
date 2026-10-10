@@ -18,6 +18,7 @@ function shotMark(r) {
   const fs = allFrames(r), stars = fs.filter(f => data.stars[f.key]).length;
   const newest = currentBatches(r).at(-1);
   const fresh = newest ? newest.frames.filter(f => !f.role).length : 0;
+  if (r.locked) return ["locked", "locked"];     // finished: never regenerated
   if (!r.rendered || r.stale || (fs.length && fs.every(f => f.role === "rejected"))) return ["redo", "stale"];
   if (fresh) return [`${fresh} new`, "new"];
   return stars ? [`★${stars}`, "star"] : ["", ""];
@@ -181,7 +182,11 @@ function renderFrameMain(r, b, f) {
   $("#fr-batch", main).onchange = e => selectFrame(0, e.target.value);
   $("#fr-strip", main).onclick = e => {
     const t = e.target.closest(".thumb"); if (!t) return;
-    if (t.dataset.view) { fr.view = "greybox"; fr.shown = ""; renderFrames(); } else selectFrame(+t.dataset.i);
+    if (t.dataset.view) { fr.view = "greybox"; fr.shown = ""; renderFrames(); return; }
+    if (fr.view === "greybox") {     // back from the greybox thumb: show the frame clicked
+      fr.view = "frame"; try { localStorage.setItem("ap.frView", fr.view); } catch (_) { /* ignore */ }
+    }
+    selectFrame(+t.dataset.i);
   };
   $("#fr-prev", main).onclick = () => stepFrame(-1);
   $("#fr-next", main).onclick = () => stepFrame(1);
