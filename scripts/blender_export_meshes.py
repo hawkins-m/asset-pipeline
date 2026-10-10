@@ -36,24 +36,26 @@ def slot_of(o):
 
 meshes = sorted({o.data.name for o in bpy.context.scene.objects if o.type == "MESH" and slot_of(o)})
 print("EXPORT_TOTAL", len(meshes), flush=True)   # the UI counts GLBs against it
+# Each mesh goes out from an empty scene of its own: the exporter walks the whole scene even
+# with use_selection, which took ~3.5 s a mesh on an 80k-object city greybox (0.09 s here;
+# the GLBs are byte-identical apart from names).
+scene = bpy.data.scenes.new("ap_export")
+ids = set()
 index = {}
 for name in meshes:
     me = bpy.data.meshes[name]
     aid = asset_id(name)
-    if aid in {v["id"] for v in index.values()}:
+    if aid in ids:
         raise SystemExit(f"two meshes map to asset id {aid}")
-    # a temporary object at the origin, the only one selected (no window in background
-    # mode, so no scene switching)
-    obj = bpy.data.objects.new(f"SM_{aid}", me)
-    bpy.context.scene.collection.objects.link(obj)
-    for o in bpy.context.view_layer.objects:
-        o.select_set(False)
-    obj.select_set(True)
+    ids.add(aid)
+    obj = bpy.data.objects.new(f"SM_{aid}", me)    # a temporary object at the origin
+    scene.collection.objects.link(obj)
     d = os.path.join(out_dir, aid)
     os.makedirs(d, exist_ok=True)
     path = os.path.join(d, f"SM_{aid}.glb")
-    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True,
-                              export_materials="NONE", export_apply=False)
+    with bpy.context.temp_override(scene=scene, view_layer=scene.view_layers[0]):
+        bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_active_scene=True,
+                                  export_materials="NONE", export_apply=False)
     lo = [min(v.co[i] for v in me.vertices) for i in range(3)]
     hi = [max(v.co[i] for v in me.vertices) for i in range(3)]
     index[name] = {"id": aid, "glb": os.path.relpath(path, out_dir), "faces": len(me.polygons),

@@ -196,6 +196,14 @@ reflects what was actually verified.
   another client's prompt was untouched; GPU 0 back to baseline 2 s after stopping TRELLIS.
 - A scratch AP_ROOT for UI tests needs symlinks to `envs`, `models`, `tools`, `hf`, `src`,
   since `scripts/trellis` finds its env through AP_ROOT.
+- Export and UE backup dialogs (2026-10-09) count progress from logs: export from the
+  `EXPORT_TOTAL n` line in `export/blender.log` plus GLBs written, backup from rsync's
+  `--info=progress2 --no-inc-recursive` (`to-chk=left/total`) in `export/ue/backup.log`.
+  Until then `blender.run_logged` never flushed per line (`log.write(line) or
+  log.flush()`: write returns a count), so logs reached disk in 8 KB chunks.
+- glTF export walks the whole scene even with `use_selection`: 3.5 s per mesh on an
+  80k-object city greybox. Exporting each mesh from an empty scene of its own
+  (`temp_override(scene=...)`, `use_active_scene=True`) takes 0.09 s, byte-identical.
 
 ## Hero orbit (Wan 2.2) prototype findings (2026-10-05)
 - `workflows/wan22_i2v_orbit.json`: Wan 2.2 I2V 14B fp8 high/low + lightx2v 4-step LoRAs,
