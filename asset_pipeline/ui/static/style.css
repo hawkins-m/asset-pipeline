@@ -375,3 +375,4 @@ details summary { cursor: default; }
   .ld-check, .ld-road { stroke-dashoffset: 0; }
   .ld-spiky { opacity: 0; }
 }
+.statusbar > span:empty:not(.grow) { display: none; }

@@ -11,7 +11,7 @@ function renderRefs() {
   const starred = refs.reduce((k, u) => k + u.sheets.filter(s => data.stars[s]).length, 0);
   $("#refs-summary").textContent = refs.length ?
     `${refs.length} assets, ${refs.length - missing} with sheets, ${starred} sheet(s) starred.` :
-    "No included assets yet: analyse a scene in the Plan tab.";
+    "No included assets yet: analyse a scene in Library › Scene plans.";
 
   for (const plan of [...new Set(refs.map(u => u.plan))]) {
     const sec = document.createElement("section"); sec.className = "refs-plan";

@@ -13,7 +13,7 @@ function renderReview() {
   const built = reviewData.assets.filter(a => a.results.length).length;
   $("#review-summary").textContent = reviewData.assets.length ?
     `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${reviewData.assets.length} assets have views, ${built} have a 3D model.` :
-    "No assets yet: analyse a scene in the Plan tab.";
+    "No assets yet: analyse a scene in Library › Scene plans.";
 
   const list = $("#review-list"); list.replaceChildren();
   for (const plan of [...new Set(reviewData.assets.map(a => a.plan))]) {
@@ -41,7 +41,7 @@ function assetReview(a) {
   });
 
   const g = document.createElement("div"); g.className = "grid views";
-  if (!a.views.length) g.innerHTML = `<span class="hint">No views yet: star a sheet in References, then <em>Cut views</em>.</span>`;
+  if (!a.views.length) g.innerHTML = `<span class="hint">No views yet: star a sheet in Library › Reference sheets, then <em>Cut views</em>.</span>`;
   for (const v of a.views) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "view" + (v.key === a.chosen ? " chosen" : "");

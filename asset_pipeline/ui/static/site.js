@@ -1,4 +1,4 @@
-// World mode (Site · Shots): greybox build state, aerial previews, per-shot control passes.
+// World mode (Site and Shots tabs): greybox build state, aerial previews, per-shot control passes.
 const SITE_JOBS = ["site.build", "site.extract", "site.preview", "shots.render"];
 
 function renderSite() {
