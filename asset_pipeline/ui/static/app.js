@@ -3,7 +3,7 @@
 // dialogs) is in shell.js; stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);
 const URL_ARGS = new URLSearchParams(location.search);
-let slug = null, data = null, plans = [], refs = [], reviewData = null, siteData = null, framesData = null,
+let slug = null, data = null, statusData = null, plans = [], refs = [], reviewData = null, siteData = null, framesData = null,
   selectedScene = null, polling = null;
 
 async function api(path, body, method = "POST") {
@@ -151,9 +151,10 @@ function render() {
 
 async function load() {
   if (!slug) { $("#empty").hidden = false; renderShell(); return; }
-  [data, plans, refs, reviewData, siteData, framesData, catalogData] = await Promise.all([api(`/api/projects/${slug}`),
+  [data, plans, refs, reviewData, siteData, framesData, catalogData, statusData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
-    api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`)]);
+    api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`),
+    api(`/api/projects/${slug}/status`)]);
   fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));
   render();
 }

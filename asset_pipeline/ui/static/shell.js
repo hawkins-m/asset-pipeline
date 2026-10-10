@@ -291,9 +291,9 @@ function renderLanes() {
     const act = jobs.filter(j => j.lane === lane && isActive(j));
     const run = act.find(j => j.status === "running"), queued = act.filter(j => j.status === "queued").length;
     const row = document.createElement("div"); row.className = "lane";
-    row.innerHTML = `<span>${name}:</span><span class="what">${run ? esc(jobLabel(run)) : queued ? "waiting" : "idle"}${queued ? ` (+${queued} queued)` : ""}</span>`;
+    const p = run && jobProgress(run);
+    row.innerHTML = `<span>${name}:</span><span class="what" title="${run ? esc(p.line) : ""}">${run ? esc(jobLabel(run)) + (p.count ? ` ${p.done} / ${p.total}` : "") : queued ? "waiting" : "idle"}${queued ? ` (+${queued} queued)` : ""}</span>`;
     if (run) {
-      const p = jobProgress(run);
       row.insertAdjacentHTML("beforeend", `${progressBar(p)}<span class="eta">${esc(p.eta || p.line || "")}</span>`);
       const actions = document.createElement("div"); actions.className = "actions";
       const show = document.createElement("button"); show.type = "button"; show.className = "small"; show.textContent = "Details";
@@ -316,8 +316,16 @@ function renderLanes() {
   if (!active && polling) { clearInterval(polling); polling = null; }
 }
 
-// Progress of a running job. Phase 1: unknown (marquee); the server's counts come later.
-function jobProgress(j) { return {done: null, total: null, line: "", eta: ""}; }
+// Progress of a running job: counted by the server from the files the job has written
+// (frames, passes, sheets); jobs it can't count show a marquee bar and the elapsed time.
+const fmtDur = s => s >= 5400 ? `${Math.round(s / 3600 * 10) / 10} h` : s >= 90 ? `${Math.round(s / 60)} min` : `${Math.max(1, Math.round(s))} s`;
+function jobProgress(j) {
+  const p = (statusData && statusData.progress && statusData.progress[j.id]) || {};
+  const det = p.total != null && p.done != null;
+  return {done: p.done ?? null, total: p.total ?? null, line: p.line || "",
+    count: det ? `${p.done} of ${p.total}` : "",
+    eta: p.eta_s != null ? `about ${fmtDur(p.eta_s)} left` : p.elapsed_s != null ? `${fmtDur(p.elapsed_s)} elapsed` : ""};
+}
 function progressBar(p) {
   const det = p.total && p.done != null;
   const pct = det ? Math.min(100, Math.round(100 * p.done / p.total)) : 0;
@@ -325,8 +333,88 @@ function progressBar(p) {
     ${det ? `aria-valuenow="${pct}"` : ""}><div class="fill" style="${det ? `width:${pct}%` : ""}"></div></div>`;
 }
 function openJobDialog() { /* job dialogs: phase 5 */ }
-function applyRunning() { return false; }
-async function applyChanges() { /* phase 2 */ }
+
+// --- what's out of date, and Apply changes ----------------------------------------------
+// catalog (saved edits) -> plan (city_plan.png) -> greybox (greybox.json) -> shot passes.
+// Catalog saves are noted per project in this browser (edit.js), since the layout file also
+// changes for shot prompt and camera edits, which need none of this.
+const catSavedKey = () => `ap.catSaved.${slug}`;
+function catalogSavedAt() { try { return +localStorage.getItem(catSavedKey()) || 0; } catch (_) { return 0; } }
+function noteCatalogSaved() { try { localStorage.setItem(catSavedKey(), String(Date.now() / 1000)); } catch (_) { /* ignore */ } }
+
+function outOfDate() {
+  if (!siteData || !siteData.layout || !statusData) return {plan: false, greybox: false, passes: 0, any: false};
+  const st = statusData, saved = catalogSavedAt();
+  const plan = isCity() && saved > (st.plan_mtime || 0) + 1;
+  const greybox = !!siteData.summary && (plan || (isCity() && (st.plan_mtime || 0) > (st.greybox_mtime || 0) + 1) ||
+    saved > (st.greybox_mtime || 0) + 1);
+  const passes = (siteData.shots || []).filter(r => !r.rendered || r.stale).length;
+  return {plan, greybox, passes, any: plan || greybox || passes > 0};
+}
+let applyState = null;     // {steps: [[label, path, body]], i, job, canceled}
+const applyRunning = () => !!applyState;
+
+async function applyChanges() {
+  if (applyState) return;
+  const o = outOfDate();
+  const steps = [];
+  if (o.plan) steps.push(["Re-planning the city", "site/plan", {}]);
+  if (o.greybox || o.plan) steps.push(["Rebuilding the greybox", "site/build", {}]);
+  if (steps.length) steps.push(["Rendering shot passes", "shots/render", {shots: null}]);
+  else if (o.passes) steps.push(["Rendering shot passes", "shots/render",
+    {shots: siteData.shots.filter(r => !r.rendered || r.stale).map(r => r.id)}]);
+  if (!steps.length) { dialog({title: "Apply changes", body: "<p>Nothing is out of date.</p>"}); return; }
+  applyState = {steps, i: 0, job: null, canceled: false};
+  renderShell();
+  try {
+    for (; applyState.i < steps.length; applyState.i++) {
+      const [, path, body] = steps[applyState.i];
+      let job;
+      try { job = await api(`/api/projects/${slug}/${path}`, body); }
+      catch (err) {
+        if (!err.message.includes("edited in Blender")) throw err;
+        if (!confirm(`${err.message}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`)) { applyState.canceled = true; break; }
+        job = await api(`/api/projects/${slug}/${path}`, {...body, force: true});
+      }
+      applyState.job = job.id;
+      await load();
+      openJobDialog(job.id);
+      while (true) {                 // wait for this step's job
+        await new Promise(r => setTimeout(r, 1500));
+        job = await api(`/api/jobs/${job.id}`);
+        if (!isActive(job)) break;
+      }
+      if (job.status !== "done") { applyState.canceled = job.status === "canceled"; if (job.status === "error") throw new Error(job.error); break; }
+    }
+  } catch (err) { alert(`Apply changes stopped: ${err.message}`); }
+  finally { applyState = null; await load(); }
+}
+
+function renderApplyBar() {
+  document.querySelectorAll(".applybar-slot").forEach(s => s.replaceChildren());
+  if (!["site", "city", "shots", "frames"].includes(currentTab)) return;
+  const slot = $(`.tabpanel[data-tab="${currentTab}"] .applybar-slot`);
+  const o = outOfDate();
+  if (!slot || (!o.any && !applyState)) return;
+  const bar = document.createElement("div"); bar.className = "applybar"; bar.setAttribute("role", "status");
+  if (applyState) {
+    const [label] = applyState.steps[applyState.i] || ["Finishing"];
+    bar.innerHTML = `<span class="msg">Applying changes: step ${applyState.i + 1} of ${applyState.steps.length} · ${esc(label)}…</span>`;
+    const show = document.createElement("button"); show.type = "button"; show.textContent = "Details";
+    show.onclick = () => applyState && applyState.job && openJobDialog(applyState.job);
+    bar.append(show);
+  } else {
+    const what = [o.plan && "the plan", o.greybox && "the greybox", o.passes && `${o.passes} shot pass${o.passes === 1 ? "" : "es"}`].filter(Boolean);
+    const list = what.length > 1 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : what[0];
+    bar.innerHTML = `<span class="msg">${o.plan ? "Catalog changed: " : ""}${esc(list.replace(/^./, c => c.toUpperCase()))} ${what.length > 1 || o.passes > 1 ? "are" : "is"} out of date.</span>`;
+    const b = document.createElement("button"); b.type = "button"; b.className = "default"; b.textContent = "Apply changes";
+    b.title = "Re-plan → rebuild greybox → render passes, each only if needed (Ctrl+Enter)";
+    b.disabled = !ACTIONS.applyAll.enabled() || siteBusy();
+    b.onclick = () => applyChanges();
+    bar.append(b);
+  }
+  slot.append(bar);
+}
 
 // Stage list: what each stage needs. state: "Done", "Out of date", "Running" or "".
 function stageStates() {
@@ -334,11 +422,12 @@ function stageStates() {
   const sh = siteData ? siteData.shots : [];
   const passesStale = sh.filter(r => !r.rendered || r.stale).length;
   const fr = framesData ? framesData.shots : [];
+  const ood = outOfDate();
   const anyStar = pre => Object.keys(data.stars).some(k => data.stars[k] && k.startsWith(pre));
   return [
     ["style", "Style", jobs(["style.explore", "style.derive", "style.draft"]) ? "Running" : data.project.anchor ? "Done" : ""],
     ["city", "City", jobs(["site.plan", "site.build", "site.extract"]) ? "Running" : !siteData.layout ? "" :
-      !siteData.summary || siteData.summary.stale ? "Out of date" : "Done"],
+      !siteData.summary || siteData.summary.stale || ood.plan || ood.greybox ? "Out of date" : "Done"],
     ["shots", "Shots", jobs(["shots.render", "shots.camera"]) ? "Running" : !sh.length ? "" : passesStale ? "Out of date" : "Done"],
     ["frames", "Frames", jobs(["frames.generate"]) ? "Running" : !fr.length ? "" :
       fr.some(r => !r.batches.length) ? "Out of date" : anyStar("frames/") ? "Done" : ""],
@@ -377,9 +466,13 @@ function renderShell() {
   for (const [sel, act] of Object.entries(TOOLBAR)) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
   $("#tb-replan").hidden = !isCity();
   const comfyRun = active.find(j => j.lane === "comfy" && j.status === "running");
-  $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${jobLabel(comfyRun)}` : "GPU 1: idle";
+  const cp = comfyRun && jobProgress(comfyRun);
+  $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";
   $("#sb-left").textContent = `${TAB_NAMES[currentTab]}`;
   const r = catalogData && catalogData.report;
   $("#sb-mid").textContent = r && r.buildings ? `${r.buildings.toLocaleString("en")} buildings · ${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}` : "";
-  $("#sb-right").textContent = "";
+  const comfy = statusData && statusData.comfy;
+  $("#sb-right").textContent = comfy == null ? "" : comfy ? "ComfyUI: connected" : "ComfyUI: not running";
+  $("#sb-right").className = comfy === false ? "error" : "";
+  renderApplyBar();
 }

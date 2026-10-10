@@ -2,6 +2,7 @@
 
 All state is on disk (project.json, review.json); the server holds only job status.
 """
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -185,6 +186,72 @@ def _uncut(store: ProjectStore, sheet: str) -> bool:
         return False
     meta = read_json(s3_views.view_dir(store, unit) / "meta.json", default=None) or {"views": []}
     return not any(v["sheet"] == sheet for v in meta["views"])
+
+
+_comfy_cache: dict = {"t": 0.0, "up": None}
+
+
+def _comfy_up() -> bool:
+    """Is ComfyUI reachable (cached 10 s; the status is polled every 2 s while jobs run)."""
+    if time.time() - _comfy_cache["t"] > 10:
+        try:
+            ComfyClient(config.backends()["comfyui"]["url"], timeout_s=1).health()
+            _comfy_cache["up"] = True
+        except ComfyError:
+            _comfy_cache["up"] = False
+        _comfy_cache["t"] = time.time()
+    return _comfy_cache["up"]
+
+
+def _newer(paths, t0: float) -> int:
+    n = 0
+    for p in paths:
+        try:
+            n += p.stat().st_mtime >= t0 - 1
+        except FileNotFoundError:   # renamed or removed while counting
+            pass
+    return n
+
+
+def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
+    """Counted progress of a running job, from the files it has written since it started:
+    {done, total, line}, plus eta_s once something is done. Jobs whose work can't be
+    counted from outside (a greybox build, TRELLIS, an analysis) get total None: the UI
+    shows a marquee bar and the elapsed time."""
+    tag, done, total, line = job.tag, None, None, ""
+    root = store.root
+    since = job.created
+    if job.kind == "frames.generate" and tag.get("shots"):
+        n, shots = tag.get("n", 4), tag["shots"]
+        per = [_newer((root / s0_frames.FRAMES / s).glob("batch_*/frame_*.png"), since) for s in shots]
+        done, total = sum(min(k, n) for k in per), n * len(shots)
+        cur = next((i for i, k in enumerate(per) if k < n), len(shots) - 1)
+        line = f"{shots[cur]} · frame {min(per[cur] + 1, n)} of {n}"
+        if len(shots) > 1:
+            line += f" · shot {cur + 1} of {len(shots)}"
+    elif job.kind == "shots.render" and tag.get("shots"):
+        shots = tag["shots"]
+        rendered = [s for s in shots if _newer((root / sw_shots.SHOTS / s).glob("*.png"), since)]
+        done, total = len(rendered), len(shots)
+        nxt = next((s for s in shots if s not in rendered), None)
+        line = f"{nxt} · depth, edges, object IDs" if nxt else "post-processing"
+    elif job.kind == "refs.generate" and tag.get("units") is not None:
+        n = tag.get("n", 2)
+        if tag.get("unit"):
+            dirs = [u.dir(store) for u in s2_refs.units(store, tag.get("plan")) if u.key == tag["unit"]]
+        else:
+            dirs = [root / d for d in tag["units"]]
+        per = [_newer(d.glob("*.png"), since) if d.is_dir() else 0 for d in dirs]
+        done, total = sum(min(k, n) for k in per), n * max(1, len(dirs))
+        line = f"sheet {min(done + 1, total)} of {total}"
+    elif job.kind == "views.cut" and tag.get("sheets"):
+        sheets = tag["sheets"]
+        done, total = sum(1 for k in sheets if not _uncut(store, k)), len(sheets)
+        line = f"SAM 3.1 · sheet {min(done + 1, total)} of {total}"
+    out = {"done": done, "total": total, "line": line, "elapsed_s": round(now - t0)}
+    if done and total and done < total:
+        out["eta_s"] = round((now - t0) / done * (total - done))
+    return out
 
 
 def create_app(jobs: JobQueue | None = None) -> FastAPI:
@@ -393,6 +460,9 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         else:
             fn = lambda: len(s2_refs.generate_missing(store, n=req.n, plan=req.plan))  # noqa: E731
         tag = {"plan": req.plan, "unit": req.unit} if req.unit else {"missing": True}
+        tag["n"] = req.n
+        tag["units"] = [req.unit] if req.unit else \
+            [u.dir(store).relative_to(store.root).as_posix() for u in s2_refs.units(store, req.plan) if not s2_refs.sheets(store, u)]
         return jobs.submit("refs.generate", slug, fn, lane="comfy", tag=tag).public()
 
     # --- stages 3-4: views, review, 3D -------------------------------------------------
@@ -429,7 +499,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             tag = {"sheet": req.sheet}
         else:
             fn = lambda: s3_views.cut_starred(store, log=lambda m: None)  # noqa: E731
-            tag = {"starred": True}
+            tag = {"starred": True,
+                   "sheets": [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]}
         return jobs.submit("views.cut", slug, fn, lane="comfy", tag=tag).public()
 
     @app.post("/api/projects/{slug}/review/choose")
@@ -527,6 +598,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     def shots_render(slug: str, req: ShotsReq):
         store = _store(slug)
         tag = {"shot": req.shots[0]} if req.shots and len(req.shots) == 1 else {"all": True}
+        gb = sw_site.site_dir(store) / "greybox.json"
+        tag["shots"] = req.shots or ([r["id"] for r in sw_shots.status(store)] if gb.is_file() else [])
         return jobs.submit("shots.render", slug, lambda: len(sw_shots.render(store, req.shots)),
                            lane="cpu", tag=tag).public()
 
@@ -566,6 +639,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         fn = lambda: [str(s0_frames.generate(store, s, n=req.n, refs=req.refs, ref_strength=req.ref_strength)  # noqa: E731
                           .relative_to(store.root)) for s in todo]
         tag = {"shot": req.shot} if req.shot else {"missing": True}
+        tag |= {"n": req.n, "shots": todo}
         return jobs.submit("frames.generate", slug, fn, lane="comfy", tag=tag).public()
 
     # --- per-shot edits (prompt, camera) and regenerate ------------------------------------
@@ -624,7 +698,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                 sw_shots.render(store, [shot])
             return str(s0_frames.generate(store, shot, n=req.n, refs=req.refs, ref_strength=req.ref_strength)
                        .relative_to(store.root))
-        return jobs.submit("frames.generate", slug, run, lane="comfy", tag={"shot": shot}).public()
+        return jobs.submit("frames.generate", slug, run, lane="comfy",
+                           tag={"shot": shot, "n": req.n, "shots": [shot]}).public()
 
     # --- city catalog: districts, materials, typologies, overlays, checks -----------------
 
@@ -691,6 +766,24 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     def site_plan(slug: str):
         store = _store(slug)
         return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
+
+    @app.get("/api/projects/{slug}/status")
+    def status(slug: str):
+        """Read-only, for the window chrome: counted progress of the running jobs, and the
+        file times that tell what's out of date (catalog -> plan -> greybox -> passes)."""
+        store = _store(slug)
+        now = time.time()
+        prog = {}
+        for j in jobs.list(slug):
+            if j.status == "running":
+                started.setdefault(j.id, now)
+                prog[j.id] = _progress(store, j, started[j.id], now)
+        sd = sw_site.site_dir(store)
+        mt = lambda p: p.stat().st_mtime if p.is_file() else None  # noqa: E731
+        return {"progress": prog, "comfy": _comfy_up(), "layout_mtime": mt(sd / "layout.json"),
+                "plan_mtime": mt(sd / "city_plan.png"), "greybox_mtime": mt(sd / "greybox.json")}
+
+    started: dict[int, float] = {}      # job id -> when this server first saw it running
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

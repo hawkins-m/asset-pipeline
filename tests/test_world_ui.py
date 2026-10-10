@@ -108,3 +108,30 @@ def test_project_files_are_revalidated(world, client):  # noqa: F811
     r = client.get("/files/w/shots/a/depth.png")
     assert r.status_code == 200 and r.headers["cache-control"] == "no-cache" and r.headers.get("etag")
     assert client.get("/files/w/shots/a/depth.png", headers={"If-None-Match": r.headers["etag"]}).status_code == 304
+
+
+def test_status_counts_frames_written_by_a_running_job(world, client, monkeypatch):  # noqa: F811
+    """The window chrome's progress bar counts the frames a job has written so far (the jobs
+    themselves report nothing); ComfyUI is not contacted for real."""
+    import threading
+    monkeypatch.setattr(ui_app, "_comfy_up", lambda: False)
+    go, wrote = threading.Event(), threading.Event()
+
+    def fake_generate(store, shot, n, refs, ref_strength):
+        d = store.root / "frames" / shot / "batch_100"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "frame_000.png").write_bytes(b"x")
+        wrote.set()
+        go.wait(5)
+        return d
+    monkeypatch.setattr(s0_frames, "generate", fake_generate)
+    job = client.post("/api/projects/w/shots/a/regenerate", json={"n": 4}).json()
+    assert job["tag"] == {"shot": "a", "n": 4, "shots": ["a"]}
+    assert wrote.wait(5)
+    st = client.get("/api/projects/w/status").json()
+    p = st["progress"][str(job["id"])]
+    assert (p["done"], p["total"]) == (1, 4) and p["line"] == "a · frame 2 of 4" and "eta_s" in p
+    assert st["comfy"] is False and st["greybox_mtime"]
+    go.set()
+    _wait(client, job["id"])
+    assert client.get("/api/projects/w/status").json()["progress"] == {}

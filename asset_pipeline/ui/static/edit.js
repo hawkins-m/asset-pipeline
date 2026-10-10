@@ -205,7 +205,7 @@ async function saveRows(name) {
       return readRow(el, i >= 0 ? catalogData[name][i] : {}, sec.fields);
     });
   } catch (err) { alert(err.message); return; }
-  try { await api(`/api/projects/${slug}/catalog/${name}`, rows, "PUT"); catDirty.delete(name); catalogShown = ""; }
+  try { await api(`/api/projects/${slug}/catalog/${name}`, rows, "PUT"); catDirty.delete(name); catalogShown = ""; noteCatalogSaved(); }
   catch (err) { alert(err.message); return; }
   await load();
 }
@@ -227,7 +227,7 @@ function renderOverlays() {
   $(".add", box).onclick = () => $(".rows", box).insertAdjacentHTML("beforeend", overlayRow("", {adds: {}}));
   box.oninput = () => catDirty.add("overlays");
   const put = async (section, body) => {
-    try { await api(`/api/projects/${slug}/catalog/${section}`, body, "PUT"); catDirty.delete("overlays"); catalogShown = ""; }
+    try { await api(`/api/projects/${slug}/catalog/${section}`, body, "PUT"); catDirty.delete("overlays"); catalogShown = ""; noteCatalogSaved(); }
     catch (err) { alert(err.message); return; }
     await load();
   };
