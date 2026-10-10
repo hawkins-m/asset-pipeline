@@ -150,6 +150,15 @@ def test_auto_shots_keep_the_users_edits(tmp_path, monkeypatch):
     sw_site.save_layout(store, layout)
     shots = sw_site.set_city_shots(store)
     assert shots[0].prompt_append == "golden hour" and shots[0].nudge_pos == (0, 5, 0)
+    # a locked shot keeps its camera, even when the layout moves (or drops) its node
+    layout = sw_site.load_layout(store)
+    layout.shots[1].locked = f"frames/{layout.shots[1].id}/batch_001/frame_000.png"
+    old = layout.shots[1].model_copy()
+    layout.shots.append(old.model_copy(update={"id": "med-gone"}))
+    layout.city.nodes[0].center = (layout.city.nodes[0].center[0] + 200, layout.city.nodes[0].center[1])
+    sw_site.save_layout(store, layout)
+    shots = {s.id: s for s in sw_site.set_city_shots(store)}
+    assert shots[old.id] == old and "med-gone" in shots
 
 
 def test_mark_user_edits_records_changed_fields():

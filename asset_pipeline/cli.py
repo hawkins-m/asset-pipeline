@@ -510,10 +510,19 @@ def cmd_frames_generate(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
     fs = _frame_settings(a, store)
-    shots = a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]
+    locked = s0_frames.locked(store)
+    if a.shots:
+        shots = a.shots
+        held = [s for s in shots if s in locked and not a.force]
+        if held:
+            raise SystemExit(f"locked (unlock, or --force): {', '.join(held)}")
+    else:
+        shots = [s["id"] for s in sw_site.load_greybox(store)["shots"] if s["id"] not in locked]
+        if locked:
+            print(f"skipping locked: {', '.join(sorted(locked))}")
     for shot in shots:
         out = s0_frames.generate(store, shot, n=a.n, seed=a.seed, fs=fs, refs=a.ref, ref_strength=a.ref_strength,
-                                material_refs=not a.no_material_refs)
+                                material_refs=not a.no_material_refs, force=a.force)
         meta = json.loads((out / "meta.json").read_text())
         print(f"{out}: {len(meta['frames'])} frame(s), edge match "
               + ", ".join(f"{f['edge_match']:.2f}" for f in meta["frames"]))
@@ -540,16 +549,44 @@ def cmd_frames_role(a) -> None:
     print(f"{key}: {role or 'no role'}" + (f" ({a.note})" if a.note else ""))
 
 
+def cmd_frames_lock(a) -> None:
+    from .stages import s0_frames
+    store = ProjectStore.open(a.project)
+    key = s0_frames.lock(store, a.shot, None if a.unlock else a.frame)
+    print(f"{a.shot}: locked on {key}" if key else f"{a.shot}: unlocked")
+
+
+def cmd_frames_refs(a) -> None:
+    from . import review
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    spec = sw_site.shot_spec(store, a.shot)
+    upd = {}
+    if a.clear:
+        upd["refs"] = []
+    if a.set:
+        upd["refs"] = [review.rel(store, r) for r in a.set]
+    if a.strength is not None:
+        upd["ref_strength"] = a.strength
+    if upd:
+        spec = sw_site.update_shot(store, a.shot, **upd)
+    print(f"{a.shot}: {len(spec.refs)} design reference(s) at {spec.ref_strength}")
+    for r in spec.refs:
+        print(f"    {r}")
+
+
 def cmd_frames_show(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
     stars = set(s0_frames.approved(store))
     mood = s0_frames.mood_shots(store)
+    locked = s0_frames.locked(store)
     for shot in a.shots or [s["id"] for s in sw_site.load_greybox(store)["shots"]]:
         bs = s0_frames.batches(store, shot)
         n = sum(len(b["frames"]) for b in bs)
         print(f"{shot}: {n} frame(s), {sum(1 for b in bs for f in b['frames'] if f['key'] in stars)} approved"
-              + ("  (mood only: no assets)" if shot in mood else ""))
+              + ("  (mood only: no assets)" if shot in mood else "")
+              + (f"  LOCKED on {locked[shot]}" if shot in locked else ""))
         if a.prompt:
             try:
                 print(f"    prompt: {s0_frames.prompt_for(store, shot)}")
@@ -902,6 +939,7 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--ref-strength", type=float, default=0.08)
             p.add_argument("--no-material-refs", action="store_true",
                            help="materials by wording only (skip their masked reference images)")
+            p.add_argument("--force", action="store_true", help="also generate locked shots named explicitly")
         p.add_argument("--model", choices=["union", "depth_lora"])
         p.add_argument("--depth", type=float, help="depth control strength")
         p.add_argument("--depth-end", type=float, help="depth control stops at this fraction of the steps")
@@ -923,6 +961,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("role", choices=["design-ref", "source", "rejected", "none"])
     p.add_argument("--note", help="what it's for (empty string clears)")
     p.set_defaults(fn=cmd_frames_role)
+    p = frsub.add_parser("lock", help="finish a shot on one frame: never regenerated or re-placed")
+    p.add_argument("project")
+    p.add_argument("shot")
+    p.add_argument("frame", nargs="?", help="project-relative frame of that shot")
+    p.add_argument("--unlock", action="store_true")
+    p.set_defaults(fn=cmd_frames_lock)
+    p = frsub.add_parser("refs", help="show or set a shot's design references (frames added to the Redux anchor)")
+    p.add_argument("project")
+    p.add_argument("shot")
+    p.add_argument("--set", nargs="+", metavar="FRAME", help="replace them with these project-relative frames")
+    p.add_argument("--clear", action="store_true")
+    p.add_argument("--strength", type=float, help="their total extra Redux strength")
+    p.set_defaults(fn=cmd_frames_refs)
     p = frsub.add_parser("show", help="frames per shot with approval and edge match")
     p.add_argument("project")
     p.add_argument("shots", nargs="*")

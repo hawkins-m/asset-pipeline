@@ -129,18 +129,22 @@ def plan_city(store: ProjectStore) -> dict:
 
 
 USER_SHOT_FIELDS = ("prompt_append", "prompt_override", "nudge_pos", "nudge_target", "lens_override",
-                    "tier_override", "refs", "ref_strength")
+                    "tier_override", "refs", "ref_strength", "locked")
 
 
 def set_city_shots(store: ProjectStore, only: list[str] | None = None) -> list[ShotSpec]:
     """Replace the layout's shots with the auto-placed city shots (rebuild to apply), or
     only the shots in `only` (the others keep their cameras). The user's edits to a shot
-    (prompt, references, nudges, lens, tier) carry over by id."""
+    (prompt, references, nudges, lens, tier) carry over by id; a locked shot keeps its
+    camera (its frame is done)."""
     layout = load_layout(store)
     old = {s.id: s for s in layout.shots}
     shots = city_shots(layout)
+    auto = {s.id for s in shots}
+    shots = [old[s.id] if s.id in old and old[s.id].locked else s for s in shots]
+    shots += [s for s in layout.shots if s.locked and s.id not in auto]
     for s in shots:
-        if s.id in old:
+        if s.id in old and not s.locked:
             for k in USER_SHOT_FIELDS:
                 setattr(s, k, getattr(old[s.id], k))
     if only is not None:

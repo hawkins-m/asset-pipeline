@@ -278,15 +278,34 @@ def controls(store: ProjectStore, shot: str, fs: FrameSettings) -> list[ControlI
     return out
 
 
+def locked(store: ProjectStore) -> dict[str, str]:
+    """shot id -> its locked frame."""
+    return {s.id: s.locked for s in sw_site.load_layout(store).shots if s.locked}
+
+
+def lock(store: ProjectStore, shot: str, frame: str | None) -> str | None:
+    """Lock a shot on an approved frame of its own (None unlocks); returns the key."""
+    key = review.rel(store, frame) if frame else None
+    if key and not key.startswith(f"{FRAMES}/{shot}/"):
+        raise ValueError(f"{key} is not a frame of {shot}")
+    sw_site.update_shot(store, shot, locked=key)
+    return key
+
+
 def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None,
              fs: FrameSettings | None = None, refs: list[str] | None = None, ref_strength: float = 0.08,
-             prompt: str | None = None, out: Path | None = None, material_refs: bool = True) -> Path:
+             prompt: str | None = None, out: Path | None = None, material_refs: bool = True,
+             force: bool = False) -> Path:
     """n concept frames for one shot into a new batch dir; returns the dir.
 
     refs: project-relative images (e.g. an approved wide frame) added to the Redux anchor
     with `ref_strength` more total strength, on top of the shot's own design references
     (ShotSpec.refs at ShotSpec.ref_strength). material_refs: apply the visible materials'
-    and landmark typologies' reference images, masked to their slots (False: wording only)."""
+    and landmark typologies' reference images, masked to their slots (False: wording only).
+    A locked shot is refused unless `force`."""
+    spec = _shot_spec(store, shot)
+    if spec and spec.locked and not force:
+        raise ValueError(f"shot {shot} is locked on {spec.locked} (unlock it, or force)")
     meta = _shot_meta(store, shot)
     if sw_shots.is_stale(meta, sw_site.load_greybox(store), shot):
         raise ValueError(f"shot {shot}'s passes are stale (the greybox or its camera changed): ap shots render first")
@@ -296,7 +315,6 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     source = "given" if prompt else prompt_parts(store, shot)["source"]
     prompt = prompt or prompt_for(store, shot)
     anchor = project.anchor
-    spec = _shot_spec(store, shot)
     own = list(spec.refs) if spec else []
     extra = [r for r in refs or [] if r not in own]
     refs = own + extra

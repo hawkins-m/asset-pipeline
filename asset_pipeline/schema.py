@@ -433,6 +433,9 @@ class ShotSpec(BaseModel):
     tier_override: Tier | None = None
     refs: list[str] = Field(default_factory=list)   # design-reference frames (Redux) for this shot
     ref_strength: float = Field(default=0.05, ge=0, le=1)  # their total extra strength
+    # the approved frame (project-relative) that finishes this shot: never regenerated,
+    # never re-placed; other shots may use it as a design reference
+    locked: str | None = None
 
     def camera_edited(self) -> bool:
         return (any(self.nudge_pos) or any(self.nudge_target) or self.lens_override is not None

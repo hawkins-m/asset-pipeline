@@ -667,6 +667,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
 
     def _frames_listing(store: ProjectStore, slug: str) -> dict:
         out = []
+        locked = s0_frames.locked(store)
         for r in sw_shots.status(store):
             d = f"{sw_shots.SHOTS}/{r['id']}"
             key = _frames_key(store, r["id"])
@@ -687,7 +688,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                          "view": view, "control": s0_frames.settings(store).for_view(view).model_dump(exclude={"views"})}
                 frames_cache[(slug, r["id"])] = (key, extra)
             out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
-                            "mood": r["tier"] in s0_frames.MOOD_TIERS} | copy.deepcopy(extra))
+                            "mood": r["tier"] in s0_frames.MOOD_TIERS, "locked": locked.get(r["id"])}
+                       | copy.deepcopy(extra))
         return {"shots": out, "settings": s0_frames.settings(store).model_dump()}
 
     # Per-shot prompt and batch listing, keyed on the times of every file they read: the
@@ -705,6 +707,10 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             todo = [req.shot]
         else:
             todo = [s for s in rows if not s0_frames.batches(store, s)]
+        locked = s0_frames.locked(store)
+        if req.shot in locked:
+            raise HTTPException(409, f"{req.shot} is locked on {locked[req.shot]}")
+        todo = [s for s in todo if s not in locked]
         bad = [s for s in todo if not rows[s]["rendered"] or rows[s]["stale"]]
         if bad:
             raise HTTPException(400, f"render the passes first (missing or stale): {', '.join(bad)}")
@@ -765,6 +771,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         rows = {r["id"]: r for r in sw_shots.status(store)}
         if shot not in rows:
             raise HTTPException(404, f"no shot {shot}")
+        if shot in (locked := s0_frames.locked(store)):
+            raise HTTPException(409, f"{shot} is locked on {locked[shot]}")
 
         def run():
             r = {x["id"]: x for x in sw_shots.status(store)}[shot]

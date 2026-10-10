@@ -421,6 +421,25 @@ def test_a_shots_design_refs_go_into_every_generation(world, monkeypatch):
     assert r.anchor.images[-1].name == "frame_000.png" and r.anchor.strength == pytest.approx(base + 0.05)
 
 
+def test_a_locked_shot_is_never_regenerated(world, monkeypatch):
+    fake = FakeBackend()
+    monkeypatch.setattr(s0_frames, "backend_for", lambda stage, project: fake)
+    out = s0_frames.generate(world, "a", n=1)
+    key = s0_frames.lock(world, "a", out / "frame_000.png")
+    assert s0_frames.locked(world) == {"a": key}
+    with pytest.raises(ValueError, match="locked"):
+        s0_frames.generate(world, "a", n=1)
+    s0_frames.generate(world, "a", n=1, force=True)
+    assert len(s0_frames.batches(world, "a")) == 2
+    other = world.root / "frames/b/batch_001/frame_000.png"
+    other.parent.mkdir(parents=True)
+    Image.new("L", (8, 8)).save(other)
+    with pytest.raises(ValueError, match="not a frame of a"):     # only the shot's own frames
+        s0_frames.lock(world, "a", other)
+    s0_frames.lock(world, "a", None)
+    assert s0_frames.locked(world) == {}
+
+
 def test_district_limited_materials_stay_out_of_other_shots(world):
     _with_materials(world)
     layout = sw_site.load_layout(world)
