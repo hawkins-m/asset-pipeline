@@ -290,3 +290,89 @@ def test_way_ids_are_unique():
     P = city.plan(L, heights(L))
     ids = [w.id for w in P.ways]
     assert len(ids) == len(set(ids))
+
+
+def forum_city() -> SiteLayout:
+    L = small_city()
+    L.city.nodes[1] = L.city.nodes[1].model_copy(update={"centre": "forum", "radius": 140, "radials": 6, "rot": 10})
+    return L
+
+
+def _local(nd, x, y):
+    return greybox._rot(x - nd.center[0], y - nd.center[1], -nd.rot)
+
+
+def test_forum_square_porticoes_gates_on_the_radials_and_a_stall_grid():
+    L = forum_city()
+    nd = L.city.nodes[1]
+    h = heights(L)
+    P = city.plan(L, h)
+    plots = [p for p in P.layout.plots if p.district == "b"]
+    por = [p for p in plots if p.type == "portico"]
+    gates = [p for p in plots if p.type == "forum_gate"]
+    assert len(por) == 4 and len(gates) == 6 and [p.type for p in plots].count("fountain") == 1
+    assert all(p.typology == city.FORUM_TYPOLOGY for p in plots)
+    # the ranges' outer corners stay inside the core; no ring road or civic ring row there
+    cl, cw = city.forum_dims(nd)
+    assert math.hypot(cl / 2 + city.FORUM_RANGE_M, cw / 2 + city.FORUM_RANGE_M) < 0.7 * nd.radius + 6
+    assert not [r for r in P.layout.rings if r.district == "b"] and not [r for r in P.layout.rows if r.district == "b"]
+    # every gate stands where a radial comes in, and the radial starts outside the ranges
+    angles = sorted((math.degrees(math.atan2(g.center[1] - nd.center[1], g.center[0] - nd.center[0])) - nd.rot) % 360
+                    for g in gates)
+    assert np.allclose(angles, [0, 60, 120, 180, 240, 300], atol=0.5)
+    rads = [r for r in P.layout.radials if r.id.startswith("b-r")]
+    assert all(r.r_from >= cw / 2 + city.FORUM_RANGE_M - 0.01 for r in rads)
+    # each range's gaps sit where its gates are
+    spec = greybox.build_spec(L, h)
+    slots = {s["id"]: s for s in spec["slots"]}
+    for p in por:
+        assert len(p.gaps) == {"long": 2, "short": 1}["long" if "long" in p.id else "short"]
+        cols = [q for q in slots[p.id]["pieces"] if "column-shaft" in q["piece"]]
+        assert cols and all(abs(q["loc"][0] - gx) > gw / 2 for q in cols for gx, gw in p.gaps)
+        # the colonnade faces the court: its columns are on the centre's side of the range
+        assert all(q["loc"][1] < 0 for q in cols)
+    # stalls: in the court, clear of the fountain, small, of every kind, sharing meshes
+    court, stalls = next((sq, st) for sq, st in P.markets if sq.contains(shapely.geometry.Point(nd.center)))
+    assert {b.kind for b in stalls} == {"hut", "tent", "table"} and len(stalls) > 50
+    assert all(court.contains(shapely.geometry.Point(b.x, b.y)) for b in stalls)
+    assert all(math.dist((b.x, b.y), nd.center) > city.FORUM_FOUNTAIN_M / 2 + 4 for b in stalls)
+    assert max(b.h for b in stalls) < 3.0
+    mk = next(s for s in spec["slots"] if s["type"] == "market" and math.dist(s["loc"][:2], nd.center) < 1)
+    huts = [q for q in mk["pieces"] if q["piece"] == "market:hut"]
+    assert len({json.dumps(q["prim"], sort_keys=True) for q in huts}) == 1
+    # olive rows along the long sides, inside the court
+    olives = [t for t in P.trees if court.contains(shapely.geometry.Point(t[0], t[1]))]
+    assert olives and {t[5] for t in olives} == {"olive"}
+    # the eye-level shot stands inside the court; the raised one looks down into it
+    shots = {s.id: s for s in city.shots(L, h)}
+    x, y = _local(nd, *shots["med-b"].pos[:2])
+    assert abs(x) < cl / 2 and abs(y) < cw / 2
+    hi = shots["med-b-high"]
+    down = math.degrees(math.atan2(hi.pos[2] - hi.look_at[2], math.dist(hi.pos[:2], hi.look_at[:2])))
+    assert 20 < down < 35
+
+
+def test_forum_leaves_the_rest_of_the_city_alone():
+    L0 = small_city()
+    L1 = forum_city()
+    L0.city.nodes[1] = L1.city.nodes[1].model_copy(update={"centre": "auto"})
+    h = heights(L0)
+    a = {s["id"]: s for s in greybox.build_spec(L0, h)["slots"]}
+    b = {s["id"]: s for s in greybox.build_spec(L1, h)["slots"]}
+    same = [k for k in set(a) & set(b) if a[k]["district"] != "b" and not k.startswith("radial-b")
+            and json.dumps(a[k], sort_keys=True) == json.dumps(b[k], sort_keys=True)]
+    others = [k for k in set(a) & set(b) if a[k]["district"] != "b" and not k.startswith("radial-b")]
+    assert len(same) >= len(others) - 2      # at most a park or two the forum's olive rows join
+
+
+@pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
+def test_forum_builds_in_blender(tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    store = ProjectStore.create("f")
+    path = tmp_path / "layout.json"
+    path.write_text(forum_city().model_copy(update={"city": forum_city().city.model_copy(update={"trees": False})})
+                    .model_dump_json())
+    sw_site.init(store, path)
+    data = sw_site.build(store)
+    got = {s["id"]: s for s in data["slots"]}
+    assert len(got["b-gate-0"]["pieces"]) == 2 and len(got["b-portico-longp"]["pieces"]) > 100

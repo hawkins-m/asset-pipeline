@@ -29,6 +29,7 @@ stay small; it is never a per-building asset.
 """
 import hashlib
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -281,6 +282,13 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
             organic_core(L, nd, f, kit)
             continue
         centre = nd.centre if nd.centre != "auto" else ("paved" if nd.monument or nd.role == "market" else "pool")
+        if centre == "forum":     # the square's ranges replace the ring road and the civic ring row
+            edge = forum_core(L, nd, kit, f)
+            for k in range(nd.radials):
+                a = nd.rot + 360 * k / nd.radials
+                L.radials.append(Radial(id=f"{nd.id}-r{k}", center=c, angle=a, width=L.city.avenue_w,
+                                        r_from=edge(a), r_to=r["core"]))
+            continue
         if centre == "quad":
             quad_core(L, nd, pr, kit, f)
         else:
@@ -342,6 +350,141 @@ def quad_core(L: SiteLayout, nd: CivicNode, pr: float, kit: Kit, f: Fields) -> N
         L.plots.append(Plot(id=f"{nd.id}-cloister-{k}", type="cloister", center=tuple(m), rot=a - 90,
                             size=(2 * half + 2 * CLOISTER_DEPTH_M, CLOISTER_DEPTH_M, 9.0), kit=kit.id,
                             district=nd.id))
+
+
+FORUM_RANGE_M = 12.0        # a forum range: a 6 m portico walk and 6 m shops behind it
+FORUM_GATE_W = 20.0
+FORUM_GATE_H = 18.0
+FORUM_FOUNTAIN_M = 14.0     # basin diameter
+FORUM_TYPOLOGY = "market_forum"   # catalog entry its slots belong to (a landmark reference)
+
+
+def forum_dims(nd: CivicNode) -> tuple[float, float]:
+    """The square's open court (long along nd.rot, short across). Its ranges' outer corners
+    stay inside the node's core cut (0.7 R + 6)."""
+    return round(0.83 * nd.radius / 4) * 4, round(0.5 * nd.radius / 4) * 4
+
+
+def _forum_hit(nd: CivicNode, a: float, hl: float, hw: float) -> tuple[float, str, float]:
+    """Where the ray from the centre at angle a leaves the rectangle of half sizes (hl along
+    nd.rot, hw across): (distance, side 'long' | 'short', offset along that side)."""
+    t = math.radians(a - nd.rot)
+    cx, cy = math.cos(t), math.sin(t)
+    tl = hl / abs(cx) if abs(cx) > 1e-9 else math.inf     # through a short end (|x| = hl)
+    tw = hw / abs(cy) if abs(cy) > 1e-9 else math.inf     # through a long side (|y| = hw)
+    if tl <= tw:
+        return tl, "short", tl * cy
+    return tw, "long", tw * cx
+
+
+def forum_core(L: SiteLayout, nd: CivicNode, kit: Kit, f: Fields) -> Callable[[float], float]:
+    """An enclosed rectangular square (an imperial forum): four two-storey portico ranges
+    with shops behind, facing an open court; a monumental gate arch wherever a radial comes
+    in; a fountain in the middle. Returns edge(angle): the distance from the centre to the
+    outside of the ranges along that angle (where the radial avenue starts)."""
+    c = np.array(nd.center, float)
+    cl, cw = forum_dims(nd)
+    D = FORUM_RANGE_M
+    hl, hw = cl / 2 + D / 2, cw / 2 + D / 2          # the ranges' centre lines
+    gaps: dict[tuple[str, int], list] = {}
+    gates = []
+    for k in range(nd.radials):
+        a = nd.rot + 360 * k / nd.radials
+        dist, side, off = _forum_hit(nd, a, hl, hw)
+        if abs(off) > (cw if side == "short" else cl) / 2 - FORUM_GATE_W / 2:
+            continue       # into a corner: no gate
+        t = math.radians(a - nd.rot)
+        sign = int(np.sign(math.cos(t) if side == "short" else math.sin(t)))
+        gaps.setdefault((side, sign), []).append(off)
+        gates.append((a, dist, side))
+    tags = {"kit": kit.id, "district": nd.id, "typology": FORUM_TYPOLOGY}
+    ax, ac = _dir(nd.rot), _dir(nd.rot + 90)
+    lv_top = portico_top(kit)
+    for sign in (1, -1):
+        # long ranges run the full outer length (they take the corners); short ones fit between
+        for side, m, rot, w in (("long", c + sign * hw * ac, nd.rot + (0 if sign > 0 else 180), cl + 2 * D),
+                                ("short", c + sign * hl * ax, nd.rot + (-90 if sign > 0 else 90), cw)):
+            # a plot's front (local -Y) faces rot - 90: towards the court. Its local x runs along
+            # _dir(rot): +-the long axis on the long sides, -+the short axis on the short ends
+            local_sign = sign if side == "long" else -sign
+            offs = gaps.get((side, sign), [])
+            L.plots.append(Plot(id=f"{nd.id}-portico-{side}{'p' if sign > 0 else 'n'}", type="portico",
+                                center=tuple(m), rot=rot, size=(w, D, lv_top),
+                                gaps=[(local_sign * o, FORUM_GATE_W) for o in offs], **tags))
+    for i, (a, dist, side) in enumerate(gates):
+        dc, sd, off = _forum_hit(nd, a, hl, hw)
+        p = c + dc * _dir(a)
+        t = math.radians(a - nd.rot)
+        if side == "short":
+            rot = nd.rot + (-90 if math.cos(t) > 0 else 90)
+        else:
+            rot = nd.rot + (0 if math.sin(t) > 0 else 180)
+        L.plots.append(Plot(id=f"{nd.id}-gate-{i}", type="forum_gate", center=tuple(p), rot=rot,
+                            size=(FORUM_GATE_W, D + 1.0, FORUM_GATE_H), **tags))
+    L.plots.append(Plot(id=f"{nd.id}-fountain", type="fountain", center=tuple(c), rot=nd.rot,
+                        size=(FORUM_FOUNTAIN_M, FORUM_FOUNTAIN_M, 6.6), **tags))
+    out_l, out_w = cl / 2 + D, cw / 2 + D
+    return lambda a: round(_forum_hit(nd, a, out_l, out_w)[0], 2)
+
+
+def portico_top(kit: Kit) -> float:
+    from .greybox import portico_levels
+    lv = portico_levels(kit)
+    return lv["top"] + lv["attic"]
+
+
+def forum_court(nd: CivicNode) -> Polygon:
+    cl, cw = forum_dims(nd)
+    x, y = nd.center
+    return shapely.affinity.rotate(sbox(x - cl / 2, y - cw / 2, x + cl / 2, y + cw / 2), nd.rot, origin=(x, y))
+
+
+STALL_ROW_M = 6.5           # stall rows across the court: a 4 m aisle between rows of 2.5 m stalls
+
+
+def forum_market(f: Fields, c: CitySpec, nd: CivicNode, rng) -> tuple[Polygon, list[Box], list[tuple]]:
+    """A Christmas-market grid in a forum's court: rows of small closed stalls (pitched-roof
+    huts, tents) and rows of open tables under canopies along the long axis, aisles between
+    them, the cross axes and the gate axes kept clear, a ring clear round the fountain, and
+    a tree row along each long side. Returns (court, stalls, trees)."""
+    cl, cw = forum_dims(nd)
+    o = np.array(nd.center, float)
+    ax, ac = _dir(nd.rot), _dir(nd.rot + 90)
+    z = float(f.z(*o))
+    # gate axes on the long sides (the radials' offsets along the long axis)
+    hw = cw / 2 + FORUM_RANGE_M / 2
+    gate_x = [_forum_hit(nd, nd.rot + 360 * k / nd.radials, cl / 2 + FORUM_RANGE_M / 2, hw)
+              for k in range(nd.radials)]
+    gate_x = [off for _, side, off in gate_x if side == "long"]
+    # half widths kept clear: round the fountain, and a 10 m aisle in from each long-side gate
+    clear_x = [(0.0, FORUM_FOUNTAIN_M / 2 + 5)] + [(gx, 5.0) for gx in gate_x]
+    stalls, trees_out = [], []
+    rows = []
+    y = 6.0
+    while y <= cw / 2 - 12:
+        rows += [y, -y]
+        y += STALL_ROW_M
+    kinds = ["hut", "table", "tent", "hut", "table"]
+    for i, ry in enumerate(sorted(rows, key=abs)):
+        kind = kinds[(i // 2) % len(kinds)]
+        pitch = 3.6 if kind != "table" else 5.0
+        x = -cl / 2 + 8
+        while x <= cl / 2 - 8:
+            if not any(abs(x - cx) < r + 1.6 for cx, r in clear_x):     # + half a stall
+                k = kind if kind == "table" or rng.random() > 0.25 else ("tent" if kind == "hut" else "hut")
+                p = o + x * ax + ry * ac
+                w, d, h = {"hut": (3.0, 2.4, 2.3), "tent": (3.0, 3.0, 2.8), "table": (4.4, 3.2, 2.7)}[k]
+                stalls.append(Box(float(p[0]), float(p[1]), w, d, nd.rot, z, h, k, nd.id))
+            x += pitch
+    for sy in (cw / 2 - 7, -(cw / 2 - 7)):            # shade: a tree row along each long side
+        x = -cl / 2 + 6
+        while x <= cl / 2 - 6:
+            if not any(abs(x - gx) < FORUM_GATE_W / 2 + 1 for gx in gate_x):
+                p = o + x * ax + sy * ac
+                trees_out.append((float(p[0]), float(p[1]), z, float(rng.uniform(5.5, 6.5)),
+                                  float(rng.uniform(5.0, 6.0)), "olive"))
+            x += 8.0
+    return forum_court(nd), stalls, trees_out
 
 
 def organic_core(L: SiteLayout, nd: CivicNode, f: Fields, kit: Kit) -> None:
@@ -996,8 +1139,19 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             break
         if all(math.dist((pt.x, pt.y), s[:2]) > 450 for s in spots):
             spots.append((pt.x + 30, pt.y + 30, rng.uniform(0, 90), 56.0, nearest_node(c, pt.x, pt.y), False))
+    forums = {n.id: n for n in c.nodes if n.role == "market" and n.centre == "forum"}
+    forum_trees = []
     for x, y, rot, size, dist, on_plaza in spots:
-        P.markets.append(market(f, c, x, y, rot, size, rng, dist))
+        if on_plaza and dist in forums:
+            # the loose market's draws still come off the city's stream, so everything planned
+            # after it (other markets, trees) stays where it was; the forum has its own stream
+            market(f, c, x, y, rot, size, rng, dist)
+            frng = np.random.default_rng([c.seed, int(hashlib.sha256(dist.encode()).hexdigest()[:8], 16)])
+            court, stalls, tr = forum_market(f, c, forums[dist], frng)
+            P.markets.append((court, stalls))
+            forum_trees += tr
+        else:
+            P.markets.append(market(f, c, x, y, rot, size, rng, dist))
     market_cut = unary_union([m[0].buffer(4) for m in P.markets if m]) if P.markets else Polygon()
 
     # massing, or parks; the city frays out below the threshold
@@ -1028,7 +1182,7 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             P.piers += piers(L, f, nd)
 
     if c.trees:
-        P.trees = trees(P, f, rng)
+        P.trees = trees(P, f, rng) + forum_trees
     P.stats = stats(P)
     return P
 
@@ -1264,7 +1418,7 @@ def add_slots(P: CityPlan, new, hs) -> None:
         o = pts[0]
         sb.add("paving", poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
         for b in stalls:
-            sb.add("market:stall", UNIT_BOX, (b.x, b.y, b.z), b.rot, (b.w, b.d, b.h))
+            stall_pieces(sb, b)
     if P.piers:
         b0 = P.piers[0]
         sb = new("quay", "quay", (b0.x, b0.y, b0.z), district=b0.district)
@@ -1286,6 +1440,32 @@ UNIT = {"box": {"kind": "box", "w": 1.0, "d": 1.0, "h": 1.0},
         "vault": {"kind": "vault", "w": 1.0, "d": 1.0, "h": 1.0, "seg": 12},
         "cyl": {"kind": "cylinder", "r": 0.5, "h": 1.0, "seg": 24},
         "dome": {"kind": "dome", "r": 0.5, "seg": 24}}
+
+
+def stall_pieces(sb, b: Box) -> None:
+    """A market stall from unit primitives (all stalls share their meshes): a loose box, a
+    pitched-roof hut (box + gable), a tent (one steep gable on the ground), or an open
+    table under a canopy (four posts, a thin roof, two tables)."""
+    from .greybox import UNIT_BOX
+    x, y, z, r = b.x, b.y, b.z, b.rot
+    if b.kind == "hut":
+        wall = round(b.h * 0.62, 2)
+        sb.add("market:hut", UNIT_BOX, (x, y, z), r, (b.w, b.d, wall))
+        # the gable's ridge runs along its Y: turned so the ridge runs along the row
+        sb.add("market:hut-roof", UNIT["gable"], (x, y, z + wall), r + 90, (b.d + 0.5, b.w + 0.4, b.h - wall))
+    elif b.kind == "tent":
+        sb.add("market:tent", UNIT["gable"], (x, y, z), r + 90, (b.d, b.w, b.h))
+    elif b.kind == "table":
+        for sx in (-1, 1):
+            for sy in (-1, 1):
+                px, py = np.array([x, y]) + sx * (b.w / 2 - 0.15) * _dir(r) + sy * (b.d / 2 - 0.15) * _dir(r + 90)
+                sb.add("market:canopy-post", UNIT_BOX, (float(px), float(py), z), r, (0.15, 0.15, b.h))
+        sb.add("market:canopy", UNIT_BOX, (x, y, z + b.h), r, (b.w + 0.4, b.d + 0.4, 0.15))
+        for sy in (-0.6, 0.6):
+            px, py = np.array([x, y]) + sy * _dir(r + 90)
+            sb.add("market:table", UNIT_BOX, (float(px), float(py), z), r, (b.w - 0.8, 0.8, 0.78))
+    else:
+        sb.add("market:stall", UNIT_BOX, (x, y, z), r, (b.w, b.d, b.h))
 
 
 def unit_prim(pt) -> tuple[dict, list | None]:
@@ -1456,14 +1636,29 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
             out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
                                 look_at=(*look, cz + 4.0), lens_mm=24.0, district=nd.id,
                                 notes="eye-level view along the arcades of a courtyard"))
+        elif nd.centre == "forum":
+            # inside the square near the corner nearer the sea, in the clear strip between the
+            # stalls and the tree row: diagonally across the stalls and the fountain, one
+            # portico range receding along the side
+            cl, cw = forum_dims(nd)
+            ax, ac = _dir(nd.rot), _dir(nd.rot + 90)
+            end = 1.0 if float(np.dot(ax, u)) >= 0 else -1.0
+            p = centre + end * (cl / 2 - 4) * ax + (cw / 2 - 11) * ac
+            look = centre - end * (cl / 2) * ax - 0.1 * cw * ac
+            out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
+                                look_at=(*look, cz + 6.0), lens_mm=24.0, district=nd.id,
+                                notes="eye-level view down an enclosed market square, stalls under two-storey porticoes"))
         else:
             p = centre + r["ring1"] * _dir(a)
             target_h = 14.0 if nd.monument else 6.0
             out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
                                 look_at=(*nd.center, cz + target_h), lens_mm=24.0, district=nd.id,
                                 notes=f"eye-level view across the {nd.role} plaza"))
-        p = centre + (nd.radius * 1.15) * _dir(a + 25)
-        out.append(ShotSpec(id=f"med-{nd.id}-high", tier="medium", pos=(*p, float(hs(*p)) + 55),
+        p, up = centre + (nd.radius * 1.15) * _dir(a + 25), 55.0
+        if nd.centre == "forum":     # closer and higher, on a diagonal: the ranges hide the court otherwise
+            end = 0.0 if float(np.dot(_dir(nd.rot), u)) >= 0 else 180.0
+            p, up = centre + (nd.radius * 0.9) * _dir(nd.rot + end + 30), 65.0
+        out.append(ShotSpec(id=f"med-{nd.id}-high", tier="medium", pos=(*p, float(hs(*p)) + up),
                             look_at=(*centre, cz), lens_mm=24.0, district=nd.id,
                             notes=f"raised view over the {nd.role} quarter"))
         if nd.monument:

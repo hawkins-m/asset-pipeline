@@ -47,7 +47,7 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "housing": "building", "houses": "building", "street": "terrain", "park": "terrain",
             "market": "structure", "quay": "structure", "colonnade": "structure", "lagoon": "structure",
             "cloister": "building", "lane": "terrain", "stair": "terrain", "wall": "structure",
-            "gate": "structure"}
+            "gate": "structure", "portico": "building", "forum_gate": "structure", "fountain": "structure"}
 DEFAULT_KIT = Kit(id="default")
 
 
@@ -334,6 +334,82 @@ def _cloister(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
     sb.add_local("cloister:walk-roof", box(w, walk + 0.4, 0.5), 0, -d / 2 + walk / 2, ah)
 
 
+PORTICO_WALK_M = 6.0
+
+
+def _segments(w: float, gaps) -> list[tuple[float, float]]:
+    """[-w/2, w/2] minus the gaps (centre, width), as (x0, x1) runs."""
+    runs, x = [], -w / 2
+    for gx, gw in sorted(gaps):
+        if gx - gw / 2 > x:
+            runs.append((x, gx - gw / 2))
+        x = max(x, gx + gw / 2)
+    if x < w / 2:
+        runs.append((x, w / 2))
+    return [(a, b) for a, b in runs if b - a > 0.5]
+
+
+def portico_levels(kit: Kit) -> dict:
+    """Heights of a two-storey portico: lower order, its entablature (the upper gallery's
+    floor), the upper order (a lighter column), its entablature, and the attic."""
+    h1 = kit.storey_m
+    ent1 = round(1.1 * kit.column_d_m, 2)
+    h2 = round(0.75 * h1, 1)
+    ent2 = round(0.9 * kit.column_d_m, 2)
+    top = h1 + ent1 + h2 + ent2
+    return {"h1": h1, "ent1": ent1, "z2": h1 + ent1, "h2": h2, "ent2": ent2, "top": top, "attic": 2.0}
+
+
+def _portico(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """One range of an enclosed forum: shops at the back, two storeys of colonnade facing
+    the square (local -Y) with roofed walks on both levels, an attic over the front.
+    `p.gaps` leaves openings for the gate arches."""
+    w, d, _ = p.size
+    walk = PORTICO_WALK_M
+    L = portico_levels(kit)
+    upper = _scaled_kit(kit, round(0.75 * kit.column_d_m, 2))
+    yf = -d / 2
+    ycol = yf + 0.9
+    runs = _segments(w, p.gaps)
+    for a, b in runs:
+        cx, rw = (a + b) / 2, b - a
+        sb.add_local("mass", box(rw, d - walk, L["top"]), cx, walk / 2, 0)              # shops
+        sb.add_local("cornice", box(rw, d - walk + 1.2, 0.45), cx, walk / 2, L["top"] - 0.45)
+        sb.add_local("portico:gallery-floor", box(rw, walk, 0.5), cx, yf + walk / 2, L["h1"] + L["ent1"] - 0.5)
+        sb.add_local("portico:roof", box(rw, walk, 0.4), cx, yf + walk / 2, L["top"] - 0.4)
+        sb.add_local("portico:attic", box(rw, 1.6, L["attic"]), cx, yf + 0.8, L["top"])
+    xs, _ = _grid(w - 2 * kit.module_m, kit.module_m)
+    keep = [x for x in xs if any(a + 0.6 <= x <= b - 0.6 for a, b in runs)]
+    for x in keep:
+        _column(sb, kit, L["h1"], x, ycol, 0)
+        _column(sb, upper, L["h2"], x, ycol, L["z2"])
+    kept = set(keep)
+    for a, b in zip(xs, xs[1:]):
+        if a in kept and b in kept:
+            sb.add_local(f"{kit.id}:entablature", box(kit.module_m, 1.3 * kit.column_d_m, L["ent1"]),
+                         (a + b) / 2, ycol, L["h1"])
+            sb.add_local(f"{upper.id}:entablature", box(kit.module_m, 1.3 * upper.column_d_m, L["ent2"]),
+                         (a + b) / 2, ycol, L["z2"] + L["h2"])
+
+
+def _forum_gate(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """A monumental gate arch through a portico range: one deep archway, an attic on top."""
+    w, d, h = p.size
+    span = round(min(0.45 * w, 10.0), 2)
+    sb.add_local("forum:gate-arch", {"kind": "archwall", "w": round(w, 2), "d": round(d, 2), "h": round(h, 2),
+                                     "span": span, "spring": round(max(h - span / 2 - 4.5, 3.0), 2)}, 0, 0, 0)
+    sb.add_local("forum:gate-attic", box(w + 1.0, d + 1.0, 3.0), 0, 0, h)
+
+
+def _fountain(sb: SlotBuilder, p: Plot, kit: Kit) -> None:
+    """A round basin with a statue on a plinth in its middle."""
+    r = p.size[0] / 2
+    sb.add_local("fountain:kerb", cyl(r, 0.6, 48), 0, 0, 0)
+    sb.add_local("pool-water", cyl(r - 0.5, 0.12, 48), 0, 0, 0.5)
+    sb.add_local("fountain:plinth", box(4.0, 6.0, 3.2), 0, 0, 0)
+    sb.add_local("fountain:statue", box(1.8, 3.6, 3.4), 0, 0, 3.2)
+
+
 def snap_radius(kit: Kit, r: float) -> float:
     return min(kit.ring_radii, key=lambda x: abs(x - r)) if kit.ring_radii else r
 
@@ -571,7 +647,7 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
         x, y = p.center
         sb = new(pid, p.type, (x, y, hs(x, y)), p.rot, p.kit, p.district or district_at(layout, x, y), **tags)
         {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda,
-         "cloister": _cloister}[p.type](sb, p, kit)
+         "cloister": _cloister, "portico": _portico, "forum_gate": _forum_gate, "fountain": _fountain}[p.type](sb, p, kit)
     if city_plan is not None:
         city.add_slots(city_plan, new, hs)
     return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},

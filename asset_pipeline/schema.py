@@ -145,7 +145,8 @@ class AssetPlan(BaseModel):
 
 Vec2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
-BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa", "colonnade", "cloister"]
+BuildingType = Literal["temple", "block", "villa", "rotunda", "stoa", "colonnade", "cloister",
+                       "portico", "forum_gate", "fountain"]
 
 
 DensityBand = Literal["core", "middle", "edge"]
@@ -304,6 +305,8 @@ class Plot(BaseModel):
     material: str | None = None           # tags the slot (else layout materials match by type)
     typology: str | None = None           # catalog entry it belongs to (a landmark ensemble)
     variant: str | None = None            # block: "plain" (no pier-and-arch front)
+    # portico: openings (local x centre, width) left for gates, where no column, bay or shop stands
+    gaps: list[tuple[float, float]] = Field(default_factory=list)
 
 
 class RingRow(BaseModel):
@@ -372,7 +375,9 @@ class CivicNode(BaseModel):
     # the slope, no rings
     layout: Literal["radial", "organic"] = "radial"
     seed: int = 0                         # re-roll an organic node (its paths' angles and lengths)
-    centre: Literal["auto", "plaza", "pool", "quad"] = "auto"   # quad: an arcaded courtyard
+    # quad: an arcaded courtyard; forum: an enclosed rectangular square (two-storey porticoes,
+    # gate arches where the radials enter, a central fountain; a market node fills it with stalls)
+    centre: Literal["auto", "plaza", "pool", "quad", "forum"] = "auto"
     stoa_share: float = Field(default=1.0, ge=0, le=1)          # share of radial gaps with a stoa
     civic_ring: Literal["arcade", "plain", "none"] = "arcade"   # the ring row of civic blocks
 
