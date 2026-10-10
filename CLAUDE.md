@@ -507,3 +507,21 @@ reflects what was actually verified.
 - `1536_cascade` runs out of GPU memory in CuMesh `fill_holes` → `get_edges`. That is a
   genuine OOM error, not silent corruption. Not investigated yet.
 - `1024` (non-cascade) has not been re-verified since the GEMM guard went in.
+
+## Walled city and locked shots (2026-10-10)
+- `CitySpec.enclosure`: blocks only inside a ring road behind a circular wall (archwall
+  bays of one mesh, on land only, open at the gates), density floored inside (no fraying
+  edge), a greenbelt outside in hole-free wedges (a lawn is drawn from its outline: an
+  annulus would cover the city). `towns`: small settlements with lanes and a square;
+  `terrain.bay_*` puts a bay between. A 2 km ring with 6 nodes: ~2.3k buildings, build 14 s.
+- Steep hills inside a compact ring leave bare patches (slope cut); hill_height 170 m over
+  500-3200 m inland filled them.
+- The aerial of a walled city is a high oblique (`aerial_pitch`, 35-42 deg); its distance
+  must fit the near and far edges in the frame's height, not just the width
+  (`city.aerial_distance`). A wide looking down >= 28 deg is an "aerial" view.
+- `ShotSpec.locked`: approved shot, never regenerated nor re-placed (`ap frames lock`).
+- Concrete wording A/B (2 shots x 2 seeds, wording only): smooth fair-faced, "board-marked
+  cast concrete, cool grey, fine horizontal formwork lines, no timber" and "porous
+  concrete" gave near-identical frames per seed, none with wood (the round-1 wood came
+  from "board-formed"). The cream cast comes from "pale"/"ivory"/"warm" words, not the
+  material name.
