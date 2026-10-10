@@ -1531,15 +1531,14 @@ def _enclosure_wides(c: CitySpec, f: Fields, hs) -> list:
     G = C + (0.5 * (lat.max() + lat.min()) - C @ v) * 0.6 * v      # towards the towns, the city first
     town = " and a smaller town nearby" if c.towns else ""
     out = []
-    back = 2.2 * e.radius + 700
+    back = 1.5 * e.radius + 600
     p = G - u * back
     z = max(float(hs(*p)) + 150, zc + back * math.tan(math.radians(16)))
     out.append(ShotSpec(id="wide-hills", tier="wide", pos=(*p, z), look_at=(*(G + u * 0.2 * e.radius), zc),
                         lens_mm=round(_fit_lens(width, back), 1),
                         notes=f"a compact walled city by the sea seen from the hills{town}"))
     s0 = float(f._shore(float(G @ v)))
-    off = max(1800.0, 1.1 * width)
-    p = (s0 + off) * u + float(G @ v) * v
+    p = (s0 + 1800.0) * u + float(G @ v) * v
     dist = float(np.linalg.norm(p - G))
     out.append(ShotSpec(id="wide-sea", tier="wide", pos=(*p, zc + dist * math.tan(math.radians(12))),
                         look_at=(*G, zc + 20), lens_mm=round(_fit_lens(width, dist), 1),
