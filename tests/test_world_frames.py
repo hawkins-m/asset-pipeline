@@ -471,6 +471,7 @@ def test_views_from_camera_pitch_and_tier():
     assert [view(-5, "medium"), view(2, "medium"), view(15, "medium"), view(15, "tight")] == \
         ["level", "level", "raised", "raised"]
     assert [view(15, "wide"), view(50, "wide"), view(50, "medium")] == ["level", "aerial", "aerial"]
+    assert [view(30, "wide"), view(30, "medium")] == ["aerial", "raised"]     # a high oblique wide
 
 
 def test_raised_and_aerial_shots_generate_with_their_views_settings(world, monkeypatch):

@@ -20,6 +20,9 @@ into a CityPlan; `greybox.build_spec` turns that into slots. Steps:
      middle ring, detached houses at the edge. Every building is a scaled unit box.
   7. Green corridors follow valleys (steepest descent from the hills to the sea), some
      blocks stay parks, markets sit at avenue crossings, a harbour node gets piers.
+  8. Optionally (`enclosure`) a walled city: blocks only inside a circle, dense up to a
+     ring road behind the wall, monumental gates where avenues leave, a greenbelt
+     outside; and (`towns`) smaller neighbouring towns with their own lanes and square.
 
 Housing is grouped into slots per tile (`tile_m`) so the id pass and the engine import
 stay small; it is never a per-building asset.
@@ -35,7 +38,8 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box as sb
 from shapely.geometry.polygon import orient
 from shapely.ops import polygonize, split, unary_union
 
-from .schema import CitySpec, CivicNode, District, Kit, Plaza, Plot, Radial, Ring, RingRow, SiteLayout, TerrainSpec
+from .schema import (CitySpec, CivicNode, District, Enclosure, Kit, Plaza, Plot, Radial, Ring, RingRow, SiteLayout,
+                     TerrainSpec)
 
 PAD_BLEND_M = 160.0          # a node's terrace grades into the terrain over this distance
 STEP_M = 20.0                # avenue tracing step
@@ -95,6 +99,19 @@ class Way:
 
 
 @dataclass
+class WallPart:
+    """One piece of a city wall or gate; `group` is its slot (wall-<k> | gate-<k>)."""
+    group: str
+    piece: str
+    prim: dict
+    x: float
+    y: float
+    z: float
+    rot: float
+    scale: list | None = None
+
+
+@dataclass
 class CityPlan:
     layout: SiteLayout                       # the input plus the civic cores (rings, plots...)
     ways: list[Way] = field(default_factory=list)
@@ -105,6 +122,8 @@ class CityPlan:
     piers: list[Box] = field(default_factory=list)
     trees: list[tuple] = field(default_factory=list)  # x y z width height species (pine | cypress | olive)
     typed: list = field(default_factory=list)  # city_types.Building, when the layout has a typology catalog
+    walls: list[WallPart] = field(default_factory=list)   # the enclosure's wall and gates
+    gates: list[float] = field(default_factory=list)      # gate angles (deg)
     stats: dict = field(default_factory=dict)
 
 
@@ -162,6 +181,13 @@ class Fields:
         j = np.clip(((x / e + 0.5) * (nn - 1)).astype(int), 0, nn - 1)
         i = np.clip(((0.5 - y / e) * (nn - 1)).astype(int), 0, nn - 1)
         dens = dens + 0.1 * self.noise[i, j]
+        if c.enclosure:        # dense right up to the wall, nothing outside it
+            e = c.enclosure
+            d = np.hypot(x - e.center[0], y - e.center[1])
+            dens = np.maximum(dens, e.density_floor) * (1 - _smooth(e.radius - 60, e.radius - 20, d))
+        for tw in c.towns:
+            d = np.hypot(x - tw.center[0], y - tw.center[1])
+            dens = np.maximum(dens, tw.density * (1 - _smooth(0.55 * tw.radius, tw.radius, d)))
         dens = dens * (1 - _smooth(0.5 * c.max_slope, c.max_slope, self.slope(x, y)))
         return np.clip(dens, 0, 1)
 
@@ -403,10 +429,127 @@ def _trace(f: Fields, start, heading, length, curve, target=None, free_m=0.0, st
     return LineString(pts) if len(pts) > 1 else None
 
 
+# --- enclosure: a walled city -------------------------------------------------------------------
+
+WALL_BAY_M = 9.0             # one wall bay (chord); whole bays go round the circle
+TOWN_PLAZA_M = 30.0
+
+
+def ring_road_r(c: CitySpec) -> float:
+    """The ring road just inside the wall; blocks stop at its inner edge."""
+    e = c.enclosure
+    return e.radius - e.wall_d / 2 - 6 - c.arterial_w / 2
+
+
+def gate_angles(c: CitySpec, f: Fields) -> list[float]:
+    """The gates' angles: as given, or `gate_count` spread around the side facing inland;
+    each moved (<= 60 deg) to where the wall stands on land, well clear of the shore."""
+    e = c.enclosure
+    if e.gates:
+        want = list(e.gates)
+    else:
+        inl = math.degrees(math.atan2(-f.u[1], -f.u[0]))
+        want = [inl - 180 + 360 * (k + 0.5) / e.gate_count for k in range(e.gate_count)]
+    out: list[float] = []
+    for a in want:
+        for d in sorted(range(-60, 61, 2), key=abs):
+            p = np.array(e.center) + e.radius * _dir(a + d)
+            if float(f.inland(*p)) > 80 and bool(f.land(*p)):
+                if all(abs(_angdiff(a + d, o)) > 15 for o in out):
+                    out.append(round((a + d) % 360, 2))
+                break
+    return sorted(out)
+
+
+def wall_parts(c: CitySpec, f: Fields, gates: list[float]) -> list[WallPart]:
+    """The wall as bays of one mesh round the circle (on land, open at the gates), each on
+    the ground at its centre, so the top steps with the terrain; and the gates: a tall
+    arch between two towers, across the avenue."""
+    e = c.enclosure
+    R = e.radius
+    n = max(8, round(2 * math.pi * R / WALL_BAY_M))
+    step = 360 / n
+    chord = round(2 * R * math.sin(math.radians(step / 2)) + 0.1, 2)
+    clear = math.degrees((e.gate_w / 2 + 12) / R)
+    out: list[WallPart] = []
+    order = sorted(gates)
+
+    def stretch(a):        # which stretch between gates a bay is in
+        return sum(1 for g in order if g <= a % 360) % max(len(order), 1)
+
+    for i in range(n):
+        a = i * step
+        if any(abs(_angdiff(a, g)) < clear for g in gates):
+            continue
+        x, y = np.array(e.center) + R * _dir(a)
+        if float(f.inland(x, y)) < 15 or not bool(f.land(x, y)):
+            continue
+        z = float(f.z(x, y)) - 0.5
+        g = f"wall-{stretch(a)}"
+        if e.kind == "wall":
+            span = round(WALL_BAY_M * 0.55, 2)
+            out.append(WallPart(g, "wall:bay", {"kind": "archwall", "w": chord, "d": e.wall_d, "h": e.wall_h,
+                                                 "span": span, "spring": round(max(e.wall_h - span / 2 - 3.5, 2.0), 2)},
+                                float(x), float(y), z, a + 90))
+            out.append(WallPart(g, "wall:parapet", {"kind": "box", "w": chord, "d": e.wall_d + 0.8, "h": 1.2},
+                                float(x), float(y), z + e.wall_h, a + 90))
+        elif e.kind == "colonnade":
+            ch = round(e.wall_h * 0.75, 1)
+            for off in (0.0, -6.0):
+                cx, cy = np.array(e.center) + (R + off) * _dir(a - step / 2)
+                out.append(WallPart(g, "wall:column", {"kind": "cylinder", "r": 0.75, "h": ch, "seg": 12},
+                                    float(cx), float(cy), z, a))
+            out.append(WallPart(g, "wall:entablature", {"kind": "box", "w": chord, "d": 8.0, "h": 1.6},
+                                *(np.array(e.center) + (R - 3) * _dir(a)), z + ch, a + 90))
+        else:              # greenbelt: a low wall in a park ring
+            out.append(WallPart(g, "wall:low", {"kind": "box", "w": chord, "d": 1.2, "h": 2.5},
+                                float(x), float(y), z, a + 90))
+    for k, a in enumerate(gates):
+        x, y = np.array(e.center) + R * _dir(a)
+        t = _dir(a + 90)
+        zs = [float(f.z(*(np.array([x, y]) + s * t))) for s in (-e.gate_w / 2, 0, e.gate_w / 2)]
+        z = min(zs) - 0.3
+        d = round(e.wall_d * 3, 2)
+        span = round(min(c.avenue_w * 0.9, e.gate_w * 0.55), 2)
+        out.append(WallPart(f"gate-{k}", "gate:arch", {"kind": "archwall", "w": e.gate_w, "d": d, "h": e.gate_h,
+                                                       "span": span,
+                                                       "spring": round(max(e.gate_h - span / 2 - 5, 3.0), 2)},
+                            float(x), float(y), z, a + 90))
+        for side in (-1, 1):
+            tx, ty = np.array([x, y]) + side * (e.gate_w / 2 + 5) * t
+            out.append(WallPart(f"gate-{k}", "gate:tower", {"kind": "box", "w": 10.0, "d": d + 4, "h": e.gate_h + 6},
+                                float(tx), float(ty), z, a + 90))
+    return out
+
+
+def greenbelt(c: CitySpec, region: Polygon, cut) -> list[Polygon]:
+    """The park ring outside the wall, in wedges (a lawn is drawn from its outline, so no
+    piece may have a hole)."""
+    e = c.enclosure
+    if not e.greenbelt_w:
+        return []
+    ring = Point(e.center).buffer(e.radius + e.greenbelt_w, quad_segs=48).difference(
+        Point(e.center).buffer(e.radius + e.wall_d / 2 + 2, quad_segs=48))
+    out = []
+    far = e.radius + e.greenbelt_w + 50
+    for k in range(24):
+        a0, a1 = 15 * k, 15 * (k + 1)
+        wedge = Polygon([e.center] + [tuple(np.array(e.center) + far * _dir(a)) for a in np.linspace(a0, a1, 5)])
+        g = ring.intersection(wedge).intersection(region)
+        if not cut.is_empty:
+            g = g.difference(cut)
+        out += [q for q in _polys(g) if q.area > 400]
+    return out
+
+
 def ways(L: SiteLayout, f: Fields) -> list[Way]:
     c = L.city
     x0, y0, x1, y1 = c.bounds
-    inside = lambda p: x0 <= p[0] <= x1 and y0 <= p[1] <= y1  # noqa: E731
+    e = c.enclosure
+    rr = ring_road_r(c) if e else 0.0
+    in_bounds = lambda p: x0 <= p[0] <= x1 and y0 <= p[1] <= y1  # noqa: E731
+    # inside a walled city, avenues end at the ring road
+    inside = (lambda p: in_bounds(p) and math.dist(p, e.center) < rr - 10) if e else in_bounds
     out: list[Way] = []
     nodes = c.nodes
 
@@ -444,13 +587,76 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
         ln = _trace(f, start, hd, 3 * math.dist(start, end), 0.0, target=end)
         if ln is not None and ln.length > 40:
             out.append(Way(f"art-{a_id}-{b_id}", "arterial", ln, c.arterial_w, a_id))
-    # promenade: the shoreline, 30 m inland
+    if e:
+        out += enclosure_ways(L, f, rr)
+    for tw in c.towns:
+        out += town_lanes(tw, f, c, lambda p, tw=tw: not in_bounds(p) or math.dist(p, tw.center) > tw.radius)
+    # promenade: the shoreline, 30 m inland (a walled city: inside the wall, and each town's)
     lat = np.arange(-f.t.extent_m / 2, f.t.extent_m / 2, STEP_M)
     s = f._shore(lat) - 30 - c.promenade_w / 2
     pts = np.outer(s, f.u) + np.outer(lat, f.v)
-    keep = [p for p in pts if inside(p)]
-    if len(keep) > 1:
-        out.append(Way("promenade", "promenade", LineString(keep), c.promenade_w, None))
+    if e:
+        ok = lambda p: inside(p) or any(math.dist(p, tw.center) < tw.radius for tw in c.towns)  # noqa: E731
+    else:
+        ok = inside
+    runs, run = [], []
+    for p in pts:
+        if ok(p):
+            run.append(p)
+        elif run:
+            runs.append(run)
+            run = []
+    runs.append(run)
+    runs = [r for r in runs if len(r) > 1]
+    for i, r in enumerate(runs):
+        out.append(Way("promenade" if len(runs) == 1 else f"promenade{i}", "promenade", LineString(r),
+                       c.promenade_w, None))
+    return out
+
+
+def enclosure_ways(L: SiteLayout, f: Fields, rr: float) -> list[Way]:
+    """The ring road behind the wall (on land), an avenue from each gate in to its nearest
+    node, and a road out of each gate (towards a town within 3 km)."""
+    c, e = L.city, L.city.enclosure
+    out: list[Way] = []
+    land = _land_region(L, f, 20)
+    ring = Point(e.center).buffer(rr, quad_segs=64).exterior.intersection(land)
+    for k, g in enumerate(getattr(ring, "geoms", [ring])):
+        if isinstance(g, LineString) and g.length > 40:
+            out.append(Way(f"enclosure-ring{k}", "ring", g, c.arterial_w, None))
+    for k, a in enumerate(gate_angles(c, f)):
+        gp = np.array(e.center) + rr * _dir(a)
+        if c.nodes:
+            nd = min(c.nodes, key=lambda n: math.dist(n.center, gp))
+            hd = math.degrees(math.atan2(nd.center[1] - gp[1], nd.center[0] - gp[0]))
+            end = np.array(nd.center) - nd.radius * _dir(hd)
+            if math.dist(end, gp) > 60:
+                ln = _trace(f, gp, hd, 3 * math.dist(end, gp), 0.0, target=end)
+                if ln is not None and ln.length > 40:
+                    out.append(Way(f"gate{k}-av", "avenue", ln, c.avenue_w, nd.id))
+        town = min(c.towns, key=lambda t: math.dist(t.center, gp), default=None)
+        target = None
+        if town is not None and math.dist(town.center, gp) < 3000:
+            hd = math.degrees(math.atan2(town.center[1] - gp[1], town.center[0] - gp[0]))
+            target = np.array(town.center) - town.radius * _dir(hd)
+        length = e.greenbelt_w + 400 if target is None else 1.6 * math.dist(target, gp)
+        ln = _trace(f, gp, a, length, 0.0, target=target, free_m=e.radius - rr + e.greenbelt_w)
+        if ln is not None and ln.length > 40:
+            out.append(Way(f"gate{k}-road", "arterial", ln, c.arterial_w, None))
+    return out
+
+
+def town_lanes(tw, f: Fields, c: CitySpec, stop) -> list[Way]:
+    """A neighbouring town's lanes out of its square, jittered, steered to gentle grades."""
+    rng = np.random.default_rng(int(hashlib.sha256(f"{c.seed}:{tw.id}".encode()).hexdigest()[:8], 16))
+    out = []
+    n = max(tw.radials, 0)
+    for k in range(n):
+        a = 360 * k / n + rng.uniform(-0.3, 0.3) * 360 / n
+        start = np.array(tw.center) + (TOWN_PLAZA_M + 2) * _dir(a)
+        ln = _trace(f, start, a, tw.radius, rng.uniform(-6, 6), free_m=0.0, stop=stop)
+        if ln is not None and ln.length > 40:
+            out += split_by_grade(f, ln, f"{tw.id}-lane{k}", "lane", c.street_w * 1.3, tw.id)
     return out
 
 
@@ -715,6 +921,10 @@ def piers(L: SiteLayout, f: Fields, nd: CivicNode) -> list[Box]:
 # --- the plan --------------------------------------------------------------------------------
 
 def nearest_node(c: CitySpec, x, y) -> str | None:
+    """The district at a point: a town's within 1.4 x its radius, else the nearest node's."""
+    for tw in c.towns:
+        if math.dist(tw.center, (x, y)) < 1.4 * tw.radius:
+            return tw.id
     return min(c.nodes, key=lambda n: math.dist(n.center, (x, y))).id if c.nodes else None
 
 
@@ -730,16 +940,27 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
 
     # superblocks: faces between the ways, on land, minus the ways and the civic cores
     region = _land_region(L, f, 30 + c.promenade_w)
+    if c.enclosure:    # a walled city: blocks inside the ring road, and in the towns
+        e = c.enclosure
+        region = region.intersection(unary_union(
+            [Point(e.center).buffer(ring_road_r(c) - c.arterial_w / 2, quad_segs=64)]
+            + [Point(tw.center).buffer(tw.radius, quad_segs=32) for tw in c.towns]))
     lines = [w.line for w in P.ways] + [region.boundary]
     faces = [g for g in polygonize(unary_union(lines)) if region.contains(g.representative_point())]
     cut = unary_union([w.line.buffer(w.width / 2, cap_style="flat") for w in P.ways]
                       + [Point(summit(n, f.z)).buffer(organic_plaza_r(n) + 6, quad_segs=24) if n.layout == "organic"
-                         else Point(n.center).buffer(_rings(n)["core"], quad_segs=24) for n in c.nodes])
+                         else Point(n.center).buffer(_rings(n)["core"], quad_segs=24) for n in c.nodes]
+                      + [Point(tw.center).buffer(TOWN_PLAZA_M, quad_segs=24) for tw in c.towns])
     green_lines = corridors(L, f, rng)
     green = unary_union([g.buffer(c.corridor_w / 2) for g in green_lines]).intersection(region) \
         if green_lines else Polygon()
     supers = [q for g in faces for q in _polys(g.difference(cut).difference(green))]
     P.parks += [q for q in _polys(green.difference(cut)) if q.area > 400]
+    if c.enclosure:
+        P.gates = gate_angles(c, f)
+        P.walls = wall_parts(c, f, P.gates)
+        P.parks += greenbelt(c, _land_region(L, f, 30).difference(
+            unary_union([Point(tw.center).buffer(tw.radius) for tw in c.towns]) if c.towns else Polygon()), cut)
 
     streets: list = []
     for sb in supers:
@@ -758,17 +979,20 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     for nd in c.nodes:
         if nd.role == "market":
             spots.append((nd.center[0], nd.center[1], nd.rot, _rings(nd)["plaza"] * 1.4, nd.id, True))
+    for tw in c.towns:    # the town square
+        spots.append((tw.center[0], tw.center[1], 0.0, TOWN_PLAZA_M * 1.6, tw.id, True))
     cand = []
     for i, a in enumerate(avs):
         for b in avs[i + 1:]:
             g = a.line.intersection(b.line)
             for pt in getattr(g, "geoms", [g]):
                 if isinstance(pt, Point) and 0.35 <= float(f.density(pt.x, pt.y)) <= 0.85 \
-                        and all(math.dist(n.center, (pt.x, pt.y)) > n.radius + 40 for n in c.nodes):
+                        and all(math.dist(n.center, (pt.x, pt.y)) > n.radius + 40 for n in c.nodes) \
+                        and region.contains(pt):
                     cand.append(pt)
     rng.shuffle(cand)
     for pt in cand:
-        if len(spots) >= c.markets + sum(1 for n in c.nodes if n.role == "market"):
+        if len(spots) >= c.markets + sum(1 for n in c.nodes if n.role == "market") + len(c.towns):
             break
         if all(math.dist((pt.x, pt.y), s[:2]) > 450 for s in spots):
             spots.append((pt.x + 30, pt.y + 30, rng.uniform(0, 90), 56.0, nearest_node(c, pt.x, pt.y), False))
@@ -1039,6 +1263,14 @@ def add_slots(P: CityPlan, new, hs) -> None:
         sb = new("quay", "quay", (b0.x, b0.y, b0.z), district=b0.district)
         for b in P.piers:
             sb.add("quay:pier", UNIT_BOX, (b.x, b.y, b.z), b.rot, (b.w, b.d, b.h))
+    walls: dict[str, list[WallPart]] = {}
+    for wp in P.walls:
+        walls.setdefault(wp.group, []).append(wp)
+    for g, parts in walls.items():
+        p0 = parts[len(parts) // 2]
+        sb = new(g, g.split("-")[0], (p0.x, p0.y, p0.z), district=nearest_node(c, p0.x, p0.y))
+        for wp in parts:
+            sb.add(wp.piece, wp.prim, (wp.x, wp.y, wp.z), wp.rot, wp.scale)
 
 
 TREE = {"kind": "cylinder", "r": 0.5, "h": 1.0, "seg": 8}
@@ -1075,7 +1307,7 @@ def _xy(it) -> tuple[float, float]:
 
 PLAN_COLORS = {"sea": (46, 84, 110), "land": (196, 188, 168), "park": (110, 150, 90), "way": (236, 232, 222),
                "housing": (150, 110, 90), "houses": (190, 150, 120), "civic": (240, 240, 235),
-               "market": (215, 170, 60), "node": (250, 250, 250), "tree": (70, 110, 60)}
+               "market": (215, 170, 60), "node": (250, 250, 250), "tree": (70, 110, 60), "wall": (60, 55, 50)}
 
 
 def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float = 400.0):
@@ -1086,6 +1318,8 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
     c, t = P.layout.city, P.layout.terrain
     x0, y0, x1, y1 = c.bounds
     x0, y0, x1, y1 = x0 - margin, y0 - margin, x1 + margin, y1 + margin
+    half = t.extent_m / 2          # never past the terrain
+    x0, y0, x1, y1 = max(x0, -half), max(y0, -half), min(x1, half), min(y1, half)
     s = px / (x1 - x0)
     W, H = px, int(round((y1 - y0) * s))
     xs = np.linspace(x0, x1, W)
@@ -1151,7 +1385,13 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
     for tr in P.trees[::3]:
         x, y = to(tr[0], tr[1])
         d.point((x, y), fill=PLAN_COLORS["tree"])
-    for n in c.nodes:
+    for wp in P.walls:     # wall bays and gates: their footprint, rotated
+        if wp.prim["kind"] == "cylinder":
+            continue
+        u, v = _dir(wp.rot) * wp.prim["w"] / 2, _dir(wp.rot + 90) * wp.prim["d"] / 2
+        pts = [np.array([wp.x, wp.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        d.polygon([to(*p) for p in pts], fill=PLAN_COLORS["wall"])
+    for n in list(c.nodes) + list(c.towns):
         x, y = to(*n.center)
         d.text((x + 6, y - 6), n.id, fill=(20, 20, 20))
     return im
@@ -1182,27 +1422,7 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
     C = (np.array([n.center for n in c.nodes]) * w[:, None]).sum(0) / w.sum()
     zc = float(hs(*C))
     deep = float(f.inland(corners[:, 0], corners[:, 1]).max())
-    out = []
-    # from the hills behind the city, towards the sea, looking down ~18 deg
-    p = C - u * (deep * 0.45 + 1200)
-    dist = float(np.linalg.norm(p - C))
-    z = max(float(hs(*p)) + 150, zc + dist * math.tan(math.radians(18)))
-    out.append(ShotSpec(id="wide-hills", tier="wide", pos=(*p, z), look_at=(*(C + u * 300), zc),
-                        lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
-                        notes="the whole city from the hills, spreading down to the sea"))
-    # from the sea
-    s0 = float(f._shore(float(C @ v)))
-    p = (s0 + 1800) * u + float(C @ v) * v
-    dist = float(np.linalg.norm(p - (C - u * 600)))
-    out.append(ShotSpec(id="wide-sea", tier="wide", pos=(*p, zc + dist * math.tan(math.radians(13))),
-                        look_at=(*(C - u * 600), zc + 20),
-                        lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
-                        notes="the coastal city seen from the sea, rising up the hills"))
-    main = max(c.nodes, key=lambda n: n.weight * n.radius)
-    m = np.array(main.center)
-    p = m + u * 1500
-    out.append(ShotSpec(id="wide-aerial", tier="wide", pos=(*p, float(hs(*m)) + 2300), look_at=(*(m - u * 300), float(hs(*m))),
-                        lens_mm=24.0, notes="high aerial view of the city's radial plan"))
+    out = _enclosure_wides(c, f, hs) if c.enclosure else _wides(c, f, hs, C, zc, deep, width)
     for nd in c.nodes:
         r = _rings(nd)
         cz = float(hs(*nd.center))
@@ -1247,4 +1467,86 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
             out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, max(mz, float(hs(*p))) + 1.7),
                                 look_at=(*mon.center, mz + rr * 0.45), lens_mm=50.0, district=nd.id,
                                 notes=f"the {nd.monument} up close, shallow depth of field"))
+    return out
+
+
+def _wides(c: CitySpec, f: Fields, hs, C, zc: float, deep: float, width: float) -> list:
+    """An open city's wides: from the hills, from the sea, and a high aerial over the main
+    node for the plan."""
+    from .schema import ShotSpec
+    u, v = f.u, f.v
+    out = []
+    # from the hills behind the city, towards the sea, looking down ~18 deg
+    p = C - u * (deep * 0.45 + 1200)
+    dist = float(np.linalg.norm(p - C))
+    z = max(float(hs(*p)) + 150, zc + dist * math.tan(math.radians(18)))
+    out.append(ShotSpec(id="wide-hills", tier="wide", pos=(*p, z), look_at=(*(C + u * 300), zc),
+                        lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
+                        notes="the whole city from the hills, spreading down to the sea"))
+    # from the sea
+    s0 = float(f._shore(float(C @ v)))
+    p = (s0 + 1800) * u + float(C @ v) * v
+    dist = float(np.linalg.norm(p - (C - u * 600)))
+    out.append(ShotSpec(id="wide-sea", tier="wide", pos=(*p, zc + dist * math.tan(math.radians(13))),
+                        look_at=(*(C - u * 600), zc + 20),
+                        lens_mm=round(_fit_lens(width, float(np.linalg.norm(p - C))), 1),
+                        notes="the coastal city seen from the sea, rising up the hills"))
+    main = max(c.nodes, key=lambda n: n.weight * n.radius)
+    m = np.array(main.center)
+    p = m + u * 1500
+    out.append(ShotSpec(id="wide-aerial", tier="wide", pos=(*p, float(hs(*m)) + 2300), look_at=(*(m - u * 300), float(hs(*m))),
+                        lens_mm=24.0, notes="high aerial view of the city's radial plan"))
+    return out
+
+
+def aerial_distance(r: float, pitch: float, lens: float, sensor=(36.0, 36.0 * 768 / 1344)) -> float:
+    """How far a camera looking down at `pitch` (rad) at a disc's centre must be for the
+    whole disc of radius r to fit the frame: its sides in the width, its near and far
+    edges in the height."""
+    hh, vh = math.atan(sensor[0] / 2 / lens), math.atan(sensor[1] / 2 / lens)
+    dist = r / math.tan(hh)
+    while dist < 100 * r:
+        H, X = dist * math.sin(pitch), dist * math.cos(pitch)
+        near = math.atan2(H, X - r) if X > r else math.pi / 2
+        if near <= pitch + vh and math.atan2(H, X + r) >= pitch - vh:
+            break
+        dist *= 1.03
+    return dist
+
+
+def _enclosure_wides(c: CitySpec, f: Fields, hs) -> list:
+    """A walled city's wides frame the whole circle and its neighbouring towns: from the
+    hills behind, from the sea (across the bay to a town), and a high oblique over the
+    city at `aerial_pitch` that just fits the circle (24 mm)."""
+    from .schema import ShotSpec
+    u, v = f.u, f.v
+    e = c.enclosure
+    C = np.array(e.center, float)
+    zc = float(hs(*C))
+    # what the wides must show: the circle, and the towns
+    pts = [C + e.radius * _dir(a) for a in range(0, 360, 15)]
+    pts += [np.array(tw.center) + tw.radius * _dir(a) for tw in c.towns for a in range(0, 360, 30)]
+    lat = np.array([p @ v for p in pts])
+    width = float(np.ptp(lat))
+    G = C + (0.5 * (lat.max() + lat.min()) - C @ v) * 0.6 * v      # towards the towns, the city first
+    town = " and a smaller town nearby" if c.towns else ""
+    out = []
+    back = 2.2 * e.radius + 700
+    p = G - u * back
+    z = max(float(hs(*p)) + 150, zc + back * math.tan(math.radians(16)))
+    out.append(ShotSpec(id="wide-hills", tier="wide", pos=(*p, z), look_at=(*(G + u * 0.2 * e.radius), zc),
+                        lens_mm=round(_fit_lens(width, back), 1),
+                        notes=f"a compact walled city by the sea seen from the hills{town}"))
+    s0 = float(f._shore(float(G @ v)))
+    off = max(1800.0, 1.1 * width)
+    p = (s0 + off) * u + float(G @ v) * v
+    dist = float(np.linalg.norm(p - G))
+    out.append(ShotSpec(id="wide-sea", tier="wide", pos=(*p, zc + dist * math.tan(math.radians(12))),
+                        look_at=(*G, zc + 20), lens_mm=round(_fit_lens(width, dist), 1),
+                        notes=f"a compact walled city seen from the sea, its ring wall and gates{town}"))
+    lens, pitch = 24.0, math.radians(c.aerial_pitch)
+    dist = aerial_distance(1.1 * e.radius, pitch, lens)
+    p = C + u * dist * math.cos(pitch)            # over the sea, looking inland and down
+    out.append(ShotSpec(id="wide-aerial", tier="wide", pos=(*p, zc + dist * math.sin(pitch)), look_at=(*C, zc),
+                        lens_mm=lens, notes="high oblique aerial of a walled city's circular plan"))
     return out

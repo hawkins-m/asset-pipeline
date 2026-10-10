@@ -344,6 +344,9 @@ class TerrainSpec(BaseModel):
     hill_to_m: float = 900.0
     coast_amp_m: float = 0.0              # shoreline irregularity (bays and points), +-
     coast_wavelength_m: float = 1500.0
+    bay_m: float = 0.0                    # a bay: the shore pulled this far inland ...
+    bay_lateral_m: float = 0.0            # ... centred at this lateral position (along the coast)
+    bay_width_m: float = 400.0
     city_radius_m: float = 470.0          # flattened plateau (0: none; city mode uses pads)
     city_z: float = 18.0
     heightmap: str | None = None          # project-relative PNG instead of generating
@@ -372,6 +375,33 @@ class CivicNode(BaseModel):
     centre: Literal["auto", "plaza", "pool", "quad"] = "auto"   # quad: an arcaded courtyard
     stoa_share: float = Field(default=1.0, ge=0, le=1)          # share of radial gaps with a stoa
     civic_ring: Literal["arcade", "plain", "none"] = "arcade"   # the ring row of civic blocks
+
+
+class Enclosure(BaseModel):
+    """A walled city (city mode): a hard circular edge with monumental gates, dense up to
+    the wall, countryside (or a greenbelt) outside. The wall runs only on land."""
+    center: Vec2 = (0.0, 0.0)
+    radius: float = Field(default=1000.0, gt=100)
+    kind: Literal["wall", "colonnade", "greenbelt"] = "wall"   # greenbelt: a low wall in a park ring
+    gates: list[float] = Field(default_factory=list)  # angles (deg); empty: `gate_count` facing inland
+    gate_count: int = Field(default=4, ge=0, le=12)
+    wall_h: float = Field(default=14.0, gt=0)
+    wall_d: float = Field(default=6.0, gt=0)
+    gate_w: float = Field(default=40.0, gt=0)
+    gate_h: float = Field(default=26.0, gt=0)
+    greenbelt_w: float = Field(default=120.0, ge=0)   # park ring outside the wall
+    density_floor: float = Field(default=0.5, ge=0, le=1)  # inside: no fraying edge
+
+
+class Town(BaseModel):
+    """A smaller neighbouring settlement (city mode): its own district, dense lanes and
+    blocks around a market square, no monument."""
+    id: str
+    center: Vec2
+    radius: float = Field(default=450.0, gt=50)
+    density: float = Field(default=0.55, ge=0, le=1)  # at its centre, falling off to its edge
+    radials: int = Field(default=5, ge=0, le=12)
+    notes: str = ""
 
 
 class CitySpec(BaseModel):
@@ -405,6 +435,9 @@ class CitySpec(BaseModel):
     variation: Variation = Field(default_factory=Variation)
     checks: RepetitionChecks = Field(default_factory=RepetitionChecks)
     user_fields: list[str] = Field(default_factory=list)   # catalog sections edited in the UI
+    enclosure: Enclosure | None = None    # a walled city: hard edge, gates (None: frays out)
+    towns: list[Town] = Field(default_factory=list)
+    aerial_pitch: float = Field(default=40.0, ge=20, le=85)  # wide-aerial of a walled city: deg down
 
 
 Tier = Literal["wide", "medium", "tight"]

@@ -46,7 +46,8 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             # city mode (asset_pipeline/city.py)
             "housing": "building", "houses": "building", "street": "terrain", "park": "terrain",
             "market": "structure", "quay": "structure", "colonnade": "structure", "lagoon": "structure",
-            "cloister": "building", "lane": "terrain", "stair": "terrain"}
+            "cloister": "building", "lane": "terrain", "stair": "terrain", "wall": "structure",
+            "gate": "structure"}
 DEFAULT_KIT = Kit(id="default")
 
 
@@ -83,9 +84,11 @@ def sea_axes(t: TerrainSpec) -> tuple[np.ndarray, np.ndarray]:
 
 def shore_at(t: TerrainSpec, lateral):
     """Distance from the origin to the shoreline, towards the sea, at a lateral position:
-    the headland plus seeded bays and points (sum of three sines)."""
+    the headland, a bay, plus seeded bays and points (sum of three sines)."""
     lateral = np.asarray(lateral, dtype=np.float64)
     out = t.shore_m + t.headland_m * np.exp(-(lateral / t.headland_width_m) ** 2)
+    if t.bay_m:
+        out = out - t.bay_m * np.exp(-((lateral - t.bay_lateral_m) / t.bay_width_m) ** 2)
     if t.coast_amp_m:
         rng = np.random.default_rng(t.seed + 101)
         for k, share in ((1.0, 0.6), (2.3, 0.28), (5.1, 0.12)):

@@ -6,10 +6,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import shapely.geometry
 
 from asset_pipeline import city, greybox
 from asset_pipeline.project import ProjectStore
-from asset_pipeline.schema import CitySpec, CivicNode, Kit, SiteLayout, TerrainSpec
+from asset_pipeline.schema import CitySpec, CivicNode, Enclosure, Kit, SiteLayout, TerrainSpec, Town
 from asset_pipeline.stages import sw_site
 
 REAL_BLENDER = Path("/snap/bin/blender")
@@ -121,6 +122,74 @@ def test_city_shots_frame_the_city_and_each_node():
     assert [s.id for s in shots if s.tier == "tight"] == ["tight-a"]           # only the monument node
     sea = next(s for s in shots if s.id == "wide-sea")
     assert sea.pos[1] < -700                                                    # offshore (sea to the south)
+
+
+def walled_city() -> SiteLayout:
+    """small_city inside a ring wall, with a town across a bay to the east."""
+    L = small_city(enclosure=Enclosure(center=(-200, -250), radius=520, wall_h=10),
+                   towns=[Town(id="t", center=(1000, -300), radius=220)])
+    L.city.bounds = (-1000, -900, 1400, 600)
+    L.terrain.bay_m, L.terrain.bay_lateral_m, L.terrain.bay_width_m = 380, 620, 160
+    return L
+
+
+def test_bay_pulls_the_shore_inland_at_its_lateral_position():
+    t = walled_city().terrain
+    plain = t.model_copy(update={"bay_m": 0})
+    lat = np.array([620.0, -800.0])
+    d = greybox.shore_at(plain, lat) - greybox.shore_at(t, lat)
+    assert d[0] == pytest.approx(380) and d[1] == pytest.approx(0, abs=1e-6)
+
+
+def test_walled_city_is_dense_inside_a_wall_with_gates_and_a_town_across_the_bay():
+    L = walled_city()
+    h = heights(L)
+    P = city.plan(L, h)
+    e, tw = L.city.enclosure, L.city.towns[0]
+    f = city.Fields(L, h)
+    # nothing built outside the wall but the town; the town has its own district and square
+    assert all(math.dist((b.x, b.y), e.center) < e.radius or math.dist((b.x, b.y), tw.center) < 1.2 * tw.radius
+               for b in P.buildings)
+    assert sum(b.district == "t" for b in P.buildings) > 30
+    assert any(sq.contains(shapely.geometry.Point(tw.center)) for sq, _ in P.markets)
+    # dense up to the wall: no detached houses inside it
+    assert not [b for b in P.buildings if b.kind == "houses" and math.dist((b.x, b.y), e.center) < e.radius]
+    # gates on land, each with an avenue in and a road out through it
+    assert len(P.gates) == 4
+    for k, a in enumerate(P.gates):
+        g = shapely.geometry.Point(np.array(e.center) + e.radius * city._dir(a))
+        assert {f"gate{k}-av", f"gate{k}-road"} <= {w.id for w in P.ways if w.line.distance(g) < 30}
+    # the wall: whole bays of one mesh on the circle, on land, open at the gates
+    bays = [w for w in P.walls if w.piece == "wall:bay"]
+    assert len({str(w.prim) for w in bays}) == 1
+    assert all(abs(math.dist((w.x, w.y), e.center) - e.radius) < 0.5 for w in bays)
+    assert all(f.inland(w.x, w.y) >= 15 for w in bays)
+    assert all(min(abs(city._angdiff(math.degrees(math.atan2(w.y - e.center[1], w.x - e.center[0])), a))
+                   for a in P.gates) * math.pi / 180 * e.radius > e.gate_w / 2 for w in bays)
+    # a greenbelt outside, in hole-free pieces (lawns are drawn from their outline)
+    belt = [pk for pk in P.parks if math.dist(pk.representative_point().coords[0], e.center) > e.radius]
+    assert belt and all(not pk.interiors for pk in P.parks)
+    spec = greybox.build_spec(L, h)
+    assert {"wall", "gate"} <= {s["type"] for s in spec["slots"]}
+
+
+def test_walled_city_wides_frame_the_circle_and_the_aerial_is_a_high_oblique():
+    from asset_pipeline.stages import s0_frames
+    L = walled_city()
+    shots = {s.id: s for s in city.shots(L, heights(L))}
+    a = shots["wide-aerial"]
+    d = np.array(a.look_at) - np.array(a.pos)
+    pitch = math.degrees(math.atan2(d[2], math.hypot(d[0], d[1])))
+    assert pitch == pytest.approx(-L.city.aerial_pitch, abs=0.5)
+    # the whole circle fits the 24 mm frame: its near and far edges too
+    dist, R, p = np.linalg.norm(d), L.city.enclosure.radius, math.radians(L.city.aerial_pitch)
+    vh = math.atan(36 * 768 / 1344 / 2 / a.lens_mm)
+    X, H = dist * math.cos(p), dist * math.sin(p)
+    assert math.atan2(H, X - R) <= p + vh and math.atan2(H, X + R) >= p - vh
+    fwd = d / np.linalg.norm(d)
+    m = [[0, 0, -fwd[0]], [0, 0, -fwd[1]], [0, 0, -fwd[2]]]       # a camera looks down its local -Z
+    assert s0_frames.view_of({"matrix": m, "tier": "wide"}) == "aerial"
+    assert shots["wide-sea"].pos[1] < -900 and shots["wide-hills"].pos[1] > 600
 
 
 @pytest.fixture

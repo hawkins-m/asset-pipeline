@@ -54,13 +54,16 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
               "street": "narrow streets", "park": "parks and green corridors of Italian stone pines with broad flat canopies, cypresses and olive trees",
               "market": "a market square with stalls", "quay": "harbour piers",
-              "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers"}
+              "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers",
+              "wall": "a monumental ring wall around the city", "gate": "monumental city gates"}
 SUFFIX = "cinematic architectural concept art"
 # A shot looking down more steeply than AERIAL_PITCH is an aerial; a medium or tight one
 # looking down more than RAISED_PITCH is raised. Wides look down 13-18 deg and hold their
-# layout at the level settings, so they stay level unless they're aerials.
+# layout at the level settings, so they stay level unless they're aerials; a wide looking
+# down more than WIDE_AERIAL_PITCH is a high oblique over a whole (walled) city: aerial.
 RAISED_PITCH = -3.0
 AERIAL_PITCH = -35.0
+WIDE_AERIAL_PITCH = -28.0
 
 
 def frames_dir(store: ProjectStore, shot: str) -> Path:
@@ -256,7 +259,7 @@ def pitch(shot: dict) -> float:
 def view_of(shot: dict) -> str:
     """level | raised | aerial, for a shot as stored in greybox.json / the passes' meta."""
     p = pitch(shot)
-    if p <= AERIAL_PITCH:
+    if p <= AERIAL_PITCH or (shot.get("tier") == "wide" and p <= WIDE_AERIAL_PITCH):
         return "aerial"
     if p <= RAISED_PITCH and shot.get("tier") != "wide":
         return "raised"
