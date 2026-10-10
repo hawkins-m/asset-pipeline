@@ -15,6 +15,9 @@ async function api(path, body, method = "POST") {
     throw new Error(Array.isArray(d) ? d.map(e => `${e.loc.filter(x => x !== "body").join(" › ")}: ${e.msg}`).join("\n")
       : d || r.statusText);
   }
+  // every job this UI starts gets its progress dialog (loaders.js)
+  if (method === "POST" && j && typeof j.id === "number" && j.kind && j.status && typeof openJobDialog === "function")
+    setTimeout(() => openJobDialog(j.id), 0);
   return j;
 }
 

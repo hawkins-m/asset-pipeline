@@ -336,10 +336,9 @@ function progressBar(p) {
   return `<div class="progress${det ? "" : " marquee"}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
     ${det ? `aria-valuenow="${pct}"` : ""}><div class="fill" style="${det ? `width:${pct}%` : ""}"></div></div>`;
 }
-function openJobDialog() { /* job dialogs: phase 5 */ }
 
 // --- what's out of date, and Apply changes ----------------------------------------------
-// catalog (saved edits) -> plan (city_plan.png) -> greybox (greybox.json) -> shot passes.
+// catalog (saved edits) -> plan (city_plan.png) and greybox (greybox.json) -> shot passes.
 // Catalog saves are noted per project in this browser (edit.js), since the layout file also
 // changes for shot prompt and camera edits, which need none of this.
 const catSavedKey = () => `ap.catSaved.${slug}`;
@@ -350,8 +349,8 @@ function outOfDate() {
   if (!siteData || !siteData.layout || !statusData) return {plan: false, greybox: false, passes: 0, any: false};
   const st = statusData, saved = catalogSavedAt();
   const plan = isCity() && saved > (st.plan_mtime || 0) + 1;
-  const greybox = !!siteData.summary && (plan || (isCity() && (st.plan_mtime || 0) > (st.greybox_mtime || 0) + 1) ||
-    saved > (st.greybox_mtime || 0) + 1);
+  // the plan is a report on the layout: re-planning alone never makes the greybox stale
+  const greybox = !!siteData.summary && saved > (st.greybox_mtime || 0) + 1;
   const passes = (siteData.shots || []).filter(r => !r.rendered || r.stale).length;
   return {plan, greybox, passes, any: plan || greybox || passes > 0};
 }
@@ -482,4 +481,5 @@ function renderShell() {
   $("#sb-right").className = !right && comfy === false ? "error" : "";
   if (comfy != null) $("#status-line").textContent += comfy ? " · ComfyUI connected" : " · ComfyUI not running";
   renderApplyBar();
+  updateJobDialog();
 }

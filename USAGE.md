@@ -98,6 +98,50 @@ silent NaNs, and the script refuses to start if it is set.
 
 ---
 
+# The UI: Terraformer Pipeline
+
+`ap ui` serves it at http://127.0.0.1:8700 (`--port` for another). It looks like a classic
+desktop app:
+
+- **Menu bar** (Alt+F, E, V, P, T, H; arrows and Enter inside), with *Help › Keyboard
+  shortcuts*. The *Pipeline* menu holds every long action. *Export to Unreal* and *Back up
+  Unreal project* are greyed out: they're command line only for now (`ap export`, `ap ue
+  backup`).
+- **Toolbar:** the project, *New…*, *Apply changes*, *Re-plan*, *Rebuild greybox*, *Render
+  passes*, *Generate missing frames*, *Stop jobs*.
+- **Side panel:**
+  - *Status*: ready or working, and whether ComfyUI is reachable.
+  - *Stages*: 1 Style … 7 Unreal, each Done, Out of date or Running; click one to open it.
+  - *Jobs*: one row per lane (GPU 0, GPU 1, CPU) with a progress bar, time left, *Details*
+    and *Stop*.
+
+  On the Frames tab it shows the shot tree instead.
+- **Tabs:** Style, Site, City, Shots, Frames, Library (scene plans and reference sheets),
+  Views and 3D, Unreal.
+- **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
+  job, and ComfyUI or the tab's keys.
+
+**Apply changes.** An amber bar says what's out of date, e.g. "Catalog changed: the plan and
+the greybox are out of date". *Apply changes* (Ctrl+Enter) runs only the steps needed, one
+job after the other: re-plan → rebuild greybox → render passes.
+- A catalog edit counts once it's saved from this browser; the browser remembers the save
+  time per project.
+- Passes are stale per shot, which the server knows.
+
+**Job dialogs.** Every long job opens a small window:
+- a picture of the kind of work (animated; still under the system's reduce-motion setting);
+- a detail line, a progress bar, and a count with the time left;
+- *Cancel*, the same as Stop.
+
+How progress is measured:
+- **Counted:** frames, shot passes, reference sheets and cut views. The server counts the
+  files the job has written since it started, so the time left is an estimate from the
+  rate so far.
+- **Not counted:** greybox builds, re-plans, analysis, TRELLIS and cleanup. These show a
+  moving bar and the elapsed time.
+
+The close box only hides the window; *Details* in the Jobs panel brings it back.
+
 # World mode: site greybox and shots
 
 For one environment seen in many shots. The layout fixes the geometry, a Blender greybox is
@@ -139,7 +183,7 @@ Each shot gets these in `shots/<shot>/`:
 
 Warnings flag a camera that sees no geometry, flat depth, untagged meshes, or passes
 that disagree. Passes go stale whenever the greybox changes. The UI's **Site · Shots**
-tab does all of this with thumbnails.
+and **Shots** tabs do all of this with thumbnails.
 
 ## City mode: typology catalog
 
@@ -199,8 +243,10 @@ ap site build my-project                            # then the greybox
 
   The generator itself backs off a type as it nears its cap; what's left are warnings.
 
-**In the UI** (Site · Shots): districts, typologies, materials, zones, checks and
-variation are editable and saved to `site/layout.json`. Fields you changed are marked
+**In the UI** (City tab): building types, districts, materials, zones and rules (checks and
+variation) are editable and saved to `site/layout.json`. Each is a table plus a detail form
+(building types: Massing, Placement, Look, Limits); *Plan report* shows the report and the
+plan image. Fields you changed are marked
 *yours*; imported or generated ones are *auto*. Saved edits apply after *Re-plan*, and
 show in the shots after *Rebuild greybox*.
 
@@ -210,32 +256,41 @@ From a catalog edit to new frames. Each step only redoes what the previous one c
 Hover any field in the editors for what it does, its unit, and whether it's city-wide or
 per district.
 
-1. **Edit and Save** a section in Site · Shots (districts, typology catalog, materials,
-   zones, checks, variation).
+1. **Edit and Save** (Ctrl+S) in the City tab: pick a section, pick a row, edit the form.
    - Saved to `site/layout.json` and validated: an unknown typology or material name is
      refused and nothing is saved.
    - The fields you changed are marked *yours*.
-   - Nothing else changes yet. Unsaved edits survive the page refreshing while jobs run;
-     *Discard changes* drops them.
-2. **Re-plan** (*Plan report*, about 3 s, no Blender).
+   - Nothing else changes yet. Unsaved edits survive the page refreshing while jobs run
+     (the status bar lists them); *Revert* drops them.
+   - Steps 2–4 are what *Apply changes* runs.
+2. **Re-plan** (F5, about 3 s, no Blender).
    - Rewrites `site/city_plan.png` and the report (`site/city.json`): type shares,
      diversity, runs, columns, warnings.
    - Iterate steps 1–2 until the report and the plan image look right; this is the cheap
      loop.
-3. **Rebuild greybox** (Site · Shots, about 30 s on the CPU).
+3. **Rebuild greybox** (about 30 s on the CPU).
    - Replaces `site/greybox.blend`; the previous one is kept as `greybox.prev.blend`.
    - If the .blend was edited by hand in Blender, it asks before replacing it.
    - Every shot's passes become stale, because the geometry changed.
-4. **Render passes:** *Render all passes* (about 20 s per shot at city scale), or one
-   shot's *Render passes*.
-5. **Generate frames** (Frames tab, about 40 s per frame on GPU 1; ComfyUI must be
+4. **Render passes:** all of them, or one shot's *Render passes* in the Shots tab (about
+   20 s per shot at city scale).
+5. **Generate frames** (Frames tab, about 48 s per frame on GPU 1; ComfyUI must be
    running):
-   - *Regenerate this shot* re-renders that shot's passes if they're stale, then makes
-     new frames;
-   - *+ N* adds frames to a shot whose passes are current;
-   - *Generate for shots without frames* covers the rest.
+   - *Regenerate shot* asks for the number of frames and an optional extra reference,
+     re-renders the shot's passes if they're stale, then makes the frames;
+   - *Generate missing frames* (toolbar or Pipeline menu) covers shots without frames.
+6. **Review** each frame in the Frames tab:
+   - pick the shot in the tree (*★2* = starred frames, *4 new* = not reviewed, *redo* =
+     stale passes or every frame rejected);
+   - look at it as Frame, Greybox, Depth, Edges or Split;
+   - choose **Use this frame as**: *Shot frame* (an asset-library source), *Design
+     reference* (look only), or *Reject*;
+   - tick *Starred*, set *Landmark reference for* (it sets those building types' `ref`),
+     and write a note;
+   - *Save and next* (Enter).
 
-   Star the frames that set the look.
+   Keys: S star, 1 / 2 / 3 use as, ← → frame, ↑ ↓ shot. A frame's edits are saved when you
+   move on.
 
 **Which steps a change needs:**
 
@@ -268,10 +323,12 @@ goes in:
 - up to 2 materials covering at least 3% of the frame;
 - the focus district's identity line.
 
-**Frame roles** (a selector and a note on each frame card, or
-`ap frames role PROJECT FRAME design-ref|source|none --note ...`):
+**Frame roles** (*Use this frame as* in the Frames tab, or
+`ap frames role PROJECT FRAME design-ref|source|rejected|none --note ...`):
 - **design ref** frames guide generation: as a shot's design references (below), or as a
   typology's landmark reference (`ref` in the catalog). They never seed the asset library.
+- **rejected** frames were reviewed and turned down. Rejecting unstars them; they're never
+  sources or references.
 - Batches made on an older greybox are **archived**: kept, starred and viewable under
   "Older layouts" on the shot's card, but never asset sources.
 
@@ -286,7 +343,7 @@ goes in:
   the auto shots (`ap site plan --shots`) keeps them, and each field shows *yours* or
   *auto*.
 - **Saving a camera** writes it into the .blend. Only that shot's passes go stale.
-- **Regenerate this shot** re-renders its passes if needed, then makes new frames.
+- **Regenerate shot** re-renders its passes if needed, then makes new frames.
 
 ```
 ap style text my-project "honed pale stone, bronze, deep shade, lush planting, photoreal"
@@ -387,7 +444,7 @@ ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with
 ap ui                 # then open http://127.0.0.1:8700
 ```
 
-1. **New project.** Give it a slug and a brief, e.g. `my-project` and "a misty fishing
+1. **New project** (File › New project, Ctrl+N). Give it a slug and a brief, e.g. `my-project` and "a misty fishing
    harbour at dawn, painterly, muted blues and rust".
 2. **Explore scenes.** Click *Generate scenes*. Each image is a 1344×768 environment
    concept, at about 45 s per batch of 4. Star the scenes worth keeping (☆ → ★). Starred
@@ -481,7 +538,7 @@ blocked unless `AP_ALLOW_PAID_APIS=1` is set.
 
 ## In the browser
 
-`ap ui`, then the **1 · Plan** tab.
+`ap ui`, then **Library › Scene plans**.
 
 1. **Scenes** lists the starred stage-0 scenes plus any you upload. Pick one and click
    *Analyse scene*. It runs as a background job; the plan appears when it's done.
@@ -542,7 +599,7 @@ Every included asset in every plan gets reference images on white, in the projec
 | Pieces sharing a *Kit* name in one plan | `kit-<name>` | All pieces in one sheet, so trim and proportions match |
 | Ground surface (category `terrain`) | its id | A square, top-down texture swatch (style text only) |
 
-**In the browser:** the **2 · References** tab. *Generate missing* makes sheets for every
+**In the browser:** **Library › Reference sheets**. *Generate missing* makes sheets for every
 asset that has none (2 each by default); *+ 2 more* adds variants for one asset. Star the
 sheets worth keeping; stage 3 cuts the views out of starred sheets.
 
@@ -565,7 +622,7 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
 
 # Stages 3–4: views, review and 3D
 
-**In the browser:** the **3–4 · Review** tab.
+**In the browser:** the **Views and 3D** tab.
 
 1. Star the good sheets in **References**, then click **Cut views** here. Each starred sheet
    is cut into its separate views (SAM 3.1 finds them; each view is cropped on white so
@@ -598,7 +655,7 @@ with the stats JSON, the TRELLIS input image and `trellis.log`. The chosen views
 
 # Stage 6: cleanup (Blender)
 
-**Clean up** in the Review tab (or `ap cleanup`) turns an asset's newest 3D result into a
+**Clean up** in the Views and 3D tab (or `ap cleanup`) turns an asset's newest 3D result into a
 cleaned GLB, in headless Blender on the CPU (so it never waits for or slows the GPUs):
 
 - **Every asset:** scaled uniformly to the plan's real-world size and given a pivot at the
@@ -625,10 +682,12 @@ after, scale, faces, warnings) and `blender.log`.
 
 # Stopping a running action
 
-Every long action in the UI has a **Stop** button next to it while it runs or waits:
-scene generation, derive, reference sheets (*Generate missing* and each *+ N more*), cutting
-views, box refinement, 3D and cleanup. The header also lists running jobs, each with its own Stop.
-Stop affects only that action:
+Every long action in the UI can be stopped while it runs or waits:
+- with **Cancel** in its job dialog;
+- with **Stop** in the side panel's Jobs list or next to the action;
+- with *Stop jobs* (toolbar, or Esc, which asks first) for all of them.
+
+Stopping affects only that action:
 
 - A job still waiting in the UI's queue is dropped.
 - Its ComfyUI prompt is removed if it's still waiting in ComfyUI's queue, or interrupted if
@@ -647,7 +706,7 @@ The UI runs ComfyUI work (GPU 1) and GPU 0 work (analysis, 3D) in two separate q
 
 # Hero assets (prototype)
 
-Tag an asset **hero** in the Review tab for the planned multi-view path (PLAN.md). Until it
+Tag an asset **hero** in the Views and 3D tab for the planned multi-view path (PLAN.md). Until it
 exists, hero assets go through TRELLIS like the others. The first step can be tried from
 the command line:
 

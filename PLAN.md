@@ -195,6 +195,17 @@ Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.
 - Whether a moodboard-derived anchor helps beyond the style text.
 
+UI (2026-10-09): the browser UI is now Terraformer Pipeline, a classic desktop layout:
+- menus, toolbar, a side panel with stage states and per-lane jobs, and tabs (Style,
+  Site, City, Shots, Frames, Library, Views and 3D, Unreal);
+- an *Apply changes* chain (re-plan → rebuild → passes), the City tab as a table plus a
+  detail form, and frame review with a shot tree and one-key decisions (new `rejected`
+  role);
+- a progress dialog per job. Progress is counted from the files a job writes; the jobs
+  themselves are unchanged.
+
+Not in the UI yet: export, UE import and backup (CLI only).
+
 Open items after frame review round 2 (2026-10-08):
 - **med-harbour's design references** are round-1 frames that contain palms. Drop them, or
   lower their strength, before the next round.
