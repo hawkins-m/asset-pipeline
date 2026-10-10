@@ -298,13 +298,14 @@ def lock(store: ProjectStore, shot: str, frame: str | None) -> str | None:
 def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None,
              fs: FrameSettings | None = None, refs: list[str] | None = None, ref_strength: float = 0.08,
              prompt: str | None = None, out: Path | None = None, material_refs: bool = True,
-             force: bool = False) -> Path:
+             force: bool = False, own_ref_strength: float | None = None) -> Path:
     """n concept frames for one shot into a new batch dir; returns the dir.
 
     refs: project-relative images (e.g. an approved wide frame) added to the Redux anchor
     with `ref_strength` more total strength, on top of the shot's own design references
     (ShotSpec.refs at ShotSpec.ref_strength). material_refs: apply the visible materials'
     and landmark typologies' reference images, masked to their slots (False: wording only).
+    own_ref_strength overrides ShotSpec.ref_strength for this run.
     A locked shot is refused unless `force`."""
     spec = _shot_spec(store, shot)
     if spec and spec.locked and not force:
@@ -324,7 +325,8 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
     ref_paths = [store.root / review.rel(store, r) for r in refs]
     if ref_paths:
         base = anchor or StyleAnchor(strength=0.0)
-        add = (spec.ref_strength if own else 0.0) + (ref_strength if extra else 0.0)
+        own_s = spec.ref_strength if own_ref_strength is None else own_ref_strength
+        add = (own_s if own else 0.0) + (ref_strength if extra else 0.0)
         anchor = StyleAnchor(images=list(base.images) + ref_paths, strength=base.strength + add,
                              style_text=base.style_text, lora=base.lora)
     w, h = meta["shot"]["resolution"]
@@ -357,6 +359,41 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
             "frames": results, "complete": len(results) == n})
         store.log_run({"stage": "frames.generate", "shot": shot, "dir": str(out), "n": len(results),
                        "model": fs.model, "seconds": round(time.time() - t, 1)})
+    return out
+
+
+REFINE_WORDS = "photograph, soft natural light, light atmospheric haze, realistic materials and weathering"
+
+
+def refine(store: ProjectStore, shot: str, frame: str, denoise: float = 0.3, seed: int | None = None,
+           out: Path | None = None, words: str = REFINE_WORDS) -> Path:
+    """A realism pass over one frame: img2img at a low denoise, no structure control (the
+    frame holds the layout), the frame's own prompt and Redux anchor plus photographic
+    words. Writes refined.png (and meta.json) into `out` (default: a new batch); returns it."""
+    src = store.root / review.rel(store, frame)
+    bmeta = read_json(src.parent / "meta.json", default={}) or {}
+    prompt = f"{bmeta.get('prompt') or prompt_for(store, shot)}, {words}" if words else bmeta.get("prompt")
+    anchor = StyleAnchor(**bmeta["anchor"]) if bmeta.get("anchor") else store.load().anchor
+    out = out or _next_batch(frames_dir(store, shot))
+    out.mkdir(parents=True, exist_ok=True)
+    backend = backend_for("frames", store.load())
+    t = time.time()
+    req = GenRequest(prompt=prompt, seed=seed, steps=(bmeta.get("settings") or {}).get("steps", 28),
+                     anchor=anchor, init_image=src, denoise=denoise)
+    r = backend.generate(req, out, prefix="tmp")[0]
+    final = out / "frame_000.png"
+    r.path.rename(final)
+    meta = _shot_meta(store, shot)
+    write_json(out / "meta.json", {
+        "shot": shot, "prompt": prompt, "prompt_source": "refine", "view": bmeta.get("view"),
+        "settings": bmeta.get("settings"), "anchor": anchor.model_dump(mode="json") if anchor else None,
+        "refs": bmeta.get("refs", []), "material_refs": [], "refined_from": review.rel(store, src),
+        "denoise": denoise, "greybox_sha256": meta["greybox_sha256"], "geometry_sha256": meta.get("geometry_sha256"),
+        "size": list(Image.open(final).size), "backend": backend.name, "complete": True,
+        "frames": [{"file": final.name, "seed": r.seed,
+                    "edge_match": edge_match(final, sw_shots.shot_dir(store, shot) / "canny.png")}]})
+    store.log_run({"stage": "frames.refine", "shot": shot, "dir": str(out), "from": review.rel(store, src),
+                   "denoise": denoise, "seconds": round(time.time() - t, 1)})
     return out
 
 

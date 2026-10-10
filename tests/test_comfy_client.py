@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from asset_pipeline.comfy.client import ComfyClient, ComfyError, ComfyUnavailable
-from asset_pipeline.imagegen.base import BackendCapabilityError, GenRequest
+from asset_pipeline.imagegen.base import BackendCapabilityError, ControlImage, GenRequest
 from asset_pipeline.imagegen.comfyui import ComfyUIBackend
 from asset_pipeline.schema import LoraRef, StyleAnchor
 
@@ -34,7 +34,7 @@ class FakeComfy:
                 return httpx.Response(200, json={})
             status = {"status_str": "error" if self.fail_execution else "success",
                       "completed": not self.fail_execution, "messages": []}
-            n = self.queued[-1]["5"]["inputs"]["batch_size"]
+            n = self.queued[-1]["5"]["inputs"].get("batch_size", 1)   # img2img: one init image
             images = [{"filename": f"r_{i}.png", "subfolder": "", "type": "temp"} for i in range(n)]
             return httpx.Response(200, json={"p1": {"status": status,
                                                     "outputs": {"9": {"images": images}}}})
@@ -47,7 +47,7 @@ class FakeComfy:
         return httpx.Response(404)
 
 
-WORKFLOWS = {"t2i": "flux_t2i", "t2i_anchor": "flux_t2i_anchor"}
+WORKFLOWS = {"t2i": "flux_t2i", "t2i_anchor": "flux_t2i_anchor", "img2img": "flux_img2img"}
 
 
 def make_client(fake):
@@ -149,3 +149,22 @@ def test_style_text_appended_to_prompt(tmp_path, monkeypatch):
     res = backend.generate(GenRequest(prompt="a barrel.", anchor=anchor), tmp_path / "out")
     assert fake.queued[0]["6"]["inputs"]["text"] == "a barrel, ukiyo-e print, flat colours"
     assert res[0].meta["prompt"] == "a barrel, ukiyo-e print, flat colours"
+
+
+def test_img2img_encodes_the_init_image_and_binds_denoise(tmp_path, monkeypatch):
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    fake = FakeComfy()
+    backend = ComfyUIBackend(make_client(fake), WORKFLOWS)
+    init = tmp_path / "frame.png"
+    init.write_bytes(b"png")
+    anchor = StyleAnchor(images=_anchor_files(tmp_path, 2), strength=0.1)
+    res = backend.generate(GenRequest(prompt="city", anchor=anchor, init_image=init, denoise=0.3, seed=3),
+                           tmp_path / "out")
+    g = fake.queued[0]
+    assert res[0].meta["workflow"] == "flux_img2img"
+    assert g["30"]["inputs"]["image"] == "frame.png" and "frame.png" in fake.uploads
+    assert g["5"]["class_type"] == "VAEEncode" and g["3"]["inputs"]["latent_image"] == ["5", 0]
+    assert g["3"]["inputs"]["denoise"] == 0.3 and g["3"]["inputs"]["positive"] == ["24_1", 0]
+    with pytest.raises(BackendCapabilityError):
+        backend.generate(GenRequest(prompt="x", init_image=init, control=[ControlImage(kind="depth", image=init)]),
+                         tmp_path / "out")

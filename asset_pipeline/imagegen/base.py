@@ -40,6 +40,10 @@ class GenRequest(BaseModel):
     # FLUX.1-Depth-dev LoRA (depth only, strict). See CLAUDE.md "Concept frames".
     control_model: Literal["union", "depth_lora"] = "union"
     regional: list[RegionalRef] = Field(default_factory=list)  # union only
+    # img2img: start from this image instead of noise and only resample the last `denoise`
+    # of the schedule (no control: the image itself holds the layout)
+    init_image: Path | None = None
+    denoise: float = Field(default=1.0, gt=0, le=1)
 
 
 class GenResult(BaseModel):

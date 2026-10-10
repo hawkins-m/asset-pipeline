@@ -65,7 +65,13 @@ class ComfyUIBackend:
         anchor = self._anchor_values(req)
         control = self._control_values(req) if req.control else {}
         regional = self._regional_values(req)
-        if control:
+        if req.init_image is not None:
+            if control or regional:
+                raise BackendCapabilityError("img2img takes no control images or regional refs")
+            if not Path(req.init_image).is_file():
+                raise FileNotFoundError(f"init image missing: {req.init_image}")
+            name = self.workflows["img2img"]
+        elif control:
             name = self.workflows["control_union" if req.control_model == "union" else "depth_lora"]
         else:
             name = self.workflows["t2i_anchor"] if (anchor or lora) else self.workflows["t2i"]
@@ -80,10 +86,12 @@ class ComfyUIBackend:
             values["anchor"] = anchor
             values["lora"] = lora.model_dump() if lora else None
         values |= control
+        if req.init_image is not None:
+            values |= {"init": self.client.upload_image(Path(req.init_image)), "denoise": req.denoise}
         if control and req.control_model == "union":
             values["regional"] = regional
-        # the depth LoRA's latent takes its size from the control image
-        values = {k: v for k, v in values.items() if k in manifest["bindings"] or k not in ("width", "height")}
+        # the depth LoRA's latent takes its size from the control image, img2img's from its init image
+        values = {k: v for k, v in values.items() if k in manifest["bindings"] or k not in ("width", "height", "n")}
         images = self.client.run(workflow.fill(graph, manifest, values), manifest["outputs"])
 
         out_dir.mkdir(parents=True, exist_ok=True)

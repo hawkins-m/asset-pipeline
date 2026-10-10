@@ -1,6 +1,7 @@
 """A/B of the concept-frame structure controls on a few shots of a world-mode project.
 
-    python scripts/diag/frames_ab.py PROJECT SHOT [SHOT ...] [--seed 11 ...] [--set control|above|concrete]
+    python scripts/diag/frames_ab.py PROJECT SHOT [SHOT ...] [--seed 11 ...] [--set control|above|concrete|realism]
+        [--target FRAME] [--refine SHOT=KEY ... --denoise 0.25 0.3]
 
 Variants (same prompt and seeds per shot):
   control  ControlNet Union Pro 2.0 depth strength x end grid with canny at half the depth
@@ -9,6 +10,9 @@ Variants (same prompt and seeds per shot):
   above    for raised and aerial shots: the default, stronger depth, depth + canny, and
            the relief depth image (sw_shots.depth_relief) at two strengths.
   above2   relief + canny, and relief released at half the steps.
+  realism  raised shots: the project's view settings with the depth released earlier
+           and/or the shot's own references (its locked medium) at a higher strength;
+           --refine adds a low-denoise img2img pass (no control) over a chosen variant.
   concrete wording only, at the project's settings: the concrete material's words (named
            in the prompt, or appended when the shot doesn't name it).
 Writes frames/_ab[_<set>]/<shot>/<variant>[_s<seed>]/ in the project, a contact sheet per
@@ -57,6 +61,18 @@ WORDINGS = {"concrete": {
     "porous": {"concrete": "porous concrete"},
 }}
 SETS |= {k: dict.fromkeys(v) for k, v in WORDINGS.items()}
+# realism: raised shots that look like white CG scale models. Variants change the shot's own
+# view settings: the depth control released earlier (end) and/or the shot's own design
+# references (its district's locked medium) pulled harder (own ref strength).
+REALISM = {
+    "base": {},
+    "end0.5": {"depth_end": 0.5},
+    "end0.6": {"depth_end": 0.6},
+    "ref0.10": {"ref": 0.10},
+    "ref0.15": {"ref": 0.15},
+    "end0.5_ref0.12": {"depth_end": 0.5, "ref": 0.12},
+}
+SETS["realism"] = REALISM
 
 
 def _reworded(store, shot: str, words: dict[str, str]) -> str:
@@ -75,14 +91,26 @@ def main():
     ap.add_argument("--seed", type=int, nargs="+", default=[11])
     ap.add_argument("--set", choices=SETS, default="control")
     ap.add_argument("--no-material-refs", action="store_true")
+    ap.add_argument("--target", help="project-relative frame shown second on every sheet (the look to aim for)")
+    ap.add_argument("--refine", nargs="+", default=[], metavar="SHOT=KEY",
+                    help="realism pass (img2img, no control) over a variant's frame, at --denoise")
+    ap.add_argument("--denoise", type=float, nargs="+", default=[0.25, 0.3])
     a = ap.parse_args()
     store = ProjectStore.open(a.project)
     root = store.root / s0_frames.FRAMES / ("_ab" if a.set == "control" else f"_ab_{a.set}")
     results = json.loads((root / "results.json").read_text()) if (root / "results.json").exists() else {}
     for shot in a.shots:
         tiles = [("greybox", sw_shots.shot_dir(store, shot) / "preview.png", None)]
-        tiles += [None] * (len(a.seed) - 1)          # one row per variant when there are seeds
+        if a.target:
+            tiles.append(("target: " + "/".join(a.target.split("/")[1:2]), store.root / a.target, None))
+        tiles += [None] * ((-len(tiles)) % len(a.seed)) if len(a.seed) > 1 else []  # one row per variant
+        view = s0_frames.view_of(json.loads((sw_shots.shot_dir(store, shot) / "meta.json").read_text())["shot"])
         for name, fs in SETS[a.set].items():
+            own = None
+            if a.set == "realism":     # the project's settings for this shot's view, varied
+                var = dict(fs)
+                own = var.pop("ref", None)
+                fs = s0_frames.settings(store).for_view(view).model_copy(update=var)
             for seed in a.seed:
                 key = name if len(a.seed) == 1 else f"{name}_s{seed}"
                 out = root / shot / key
@@ -90,11 +118,28 @@ def main():
                     t = time.time()
                     prompt = _reworded(store, shot, WORDINGS[a.set][name]) if a.set in WORDINGS else None
                     s0_frames.generate(store, shot, n=1, seed=seed, fs=fs, out=out, prompt=prompt,
-                                       material_refs=not a.no_material_refs)
+                                       material_refs=not a.no_material_refs, force=True, own_ref_strength=own)
                     print(f"{shot} {key}: {time.time() - t:.0f}s", flush=True)
                 rec = s0_frames.edge_match(out / "frame_000.png", sw_shots.shot_dir(store, shot) / "canny.png")
                 results.setdefault(shot, {})[key] = rec
                 tiles.append((f"{key}  match {rec:.2f}", out / "frame_000.png", rec))
+                (root / "results.json").write_text(json.dumps(results, indent=1))
+        for pair in a.refine:
+            rshot, key = pair.split("=", 1)
+            if rshot != shot:
+                continue
+            for d in a.denoise:
+                rkey = f"{key}+refine{d:g}"
+                out = root / shot / rkey
+                if not (out / "frame_000.png").exists():
+                    t = time.time()
+                    seed = int(key.rsplit("_s", 1)[1]) if "_s" in key else 11
+                    s0_frames.refine(store, shot, str(root / shot / key / "frame_000.png"), denoise=d, seed=seed,
+                                     out=out)
+                    print(f"{shot} {rkey}: {time.time() - t:.0f}s", flush=True)
+                rec = s0_frames.edge_match(out / "frame_000.png", sw_shots.shot_dir(store, shot) / "canny.png")
+                results.setdefault(shot, {})[rkey] = rec
+                tiles.append((f"{rkey}  match {rec:.2f}", out / "frame_000.png", rec))
                 (root / "results.json").write_text(json.dumps(results, indent=1))
         w, h, cols = 640, 366, len(a.seed) if len(a.seed) > 1 else 4
         sheet = Image.new("RGB", (w * cols, h * ((len(tiles) + cols - 1) // cols)), "white")
