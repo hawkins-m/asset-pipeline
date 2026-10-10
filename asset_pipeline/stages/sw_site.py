@@ -17,7 +17,9 @@ import hashlib
 import json
 import math
 import shutil
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -301,10 +303,32 @@ def geometry_sha(data: dict) -> str:
     return hashlib.sha256(json.dumps(data["slots"], sort_keys=True).encode()).hexdigest()
 
 
+_greybox_memo = threading.local()
+
+
+@contextmanager
+def reuse_greybox():
+    """Within this block, on this thread only, load_greybox parses greybox.json once per
+    project and hands every caller the same dict. For read-only listings that call it many
+    times (the UI's frames listing: ~35 parses of a city greybox, ~6 s). Code inside must
+    not modify what it gets; other threads (jobs) are unaffected."""
+    prev = getattr(_greybox_memo, "d", None)
+    _greybox_memo.d = {}
+    try:
+        yield
+    finally:
+        _greybox_memo.d = prev
+
+
 def load_greybox(store: ProjectStore) -> dict:
+    memo = getattr(_greybox_memo, "d", None)
+    if memo is not None and str(store.root) in memo:
+        return memo[str(store.root)]
     data = read_json(site_dir(store) / "greybox.json")
     if data is None:
         raise FileNotFoundError("no site/greybox.json (run `ap site build`)")
+    if memo is not None:
+        memo[str(store.root)] = data
     return data
 
 

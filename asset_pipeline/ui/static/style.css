@@ -262,3 +262,24 @@ details summary { cursor: default; }
 .wbody { padding: 12px; overflow: auto; }
 .wbuttons { display: flex; justify-content: flex-end; gap: 6px; padding: 0 12px 12px; }
 .wbuttons:empty { display: none; }
+
+/* --- City tab: table + detail ----------------------------------------------------------- */
+.tabpanel[data-tab="city"] { overflow: hidden; }
+.city { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.city-top { margin-bottom: 6px; }
+.city-top .spacer { flex: 1; }
+.city-body { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 8px; flex: 1; min-height: 0; }
+.city-left { display: flex; flex-direction: column; min-height: 0; }
+.list-wrap { flex: 1; min-height: 120px; overflow: auto; background: var(--field); border: 1px solid var(--border-dark);
+             box-shadow: inset 1px 1px rgba(0,0,0,.08); }
+.list-wrap:focus-within { outline: 1px dotted #000; outline-offset: 1px; }
+#city-table { outline: none; }
+.city-detail { overflow: auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding-right: 2px; }
+.detail-head { display: flex; gap: 8px; align-items: center; }
+.city-detail .form > label { min-width: 80px; }
+.slider { display: flex; align-items: center; gap: 8px; }
+.slider input[type=range] { flex: 1; min-width: 120px; }
+.slider output { width: 3.5em; text-align: right; }
+[aria-invalid="true"] { border-color: var(--danger) !important; background: #EDD5D2 !important; }
+@media (max-width: 900px) { .city-body { grid-template-columns: minmax(0, 1fr); } .tabpanel[data-tab="city"] { overflow: auto; } }
+.form > label.mine { border-left: 0; padding-left: 0; color: var(--select); }

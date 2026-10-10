@@ -135,3 +135,17 @@ def test_status_counts_frames_written_by_a_running_job(world, client, monkeypatc
     go.set()
     _wait(client, job["id"])
     assert client.get("/api/projects/w/status").json()["progress"] == {}
+
+
+def test_frames_listing_cache_follows_new_frames_and_roles(world, client):  # noqa: F811
+    """The per-shot listing is cached on file times: a new batch or a role change shows."""
+    assert all(not r["batches"] for r in client.get("/api/projects/w/frames").json()["shots"])
+    d = world.root / "frames/a/batch_001"
+    d.mkdir(parents=True)
+    (d / "frame_000.png").write_bytes(b"x")
+    write_json(d / "meta.json", {"frames": [{"file": "frame_000.png", "seed": 1, "edge_match": 0.5}]})
+    shot = next(r for r in client.get("/api/projects/w/frames").json()["shots"] if r["id"] == "a")
+    assert [f["key"] for f in shot["batches"][0]["frames"]] == ["frames/a/batch_001/frame_000.png"]
+    assert client.post("/api/projects/w/role", json={"path": "frames/a/batch_001/frame_000.png", "role": "design_ref"}).status_code == 200
+    shot = next(r for r in client.get("/api/projects/w/frames").json()["shots"] if r["id"] == "a")
+    assert shot["batches"][0]["frames"][0]["role"] == "design_ref"

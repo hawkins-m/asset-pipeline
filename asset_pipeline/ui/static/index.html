@@ -145,12 +145,20 @@
       <section class="tabpanel" data-tab="city" id="city-tab" hidden>
         <div class="applybar-slot"></div>
         <p id="city-none" class="hint">This project has no city spec (start one with <code>ap site init --city</code>).</p>
-        <div id="catalog" hidden>
-          <section id="cat-report"></section>
-          <section id="cat-districts"></section>
-          <section id="cat-typologies"></section>
-          <section id="cat-materials"></section>
-          <section id="cat-overlays"></section>
+        <div id="catalog" class="city" hidden>
+          <div class="row city-top">
+            <label>Edit: <select id="city-section" aria-label="Catalog section"></select></label>
+            <span class="spacer"></span>
+            <label>Find: <input type="search" id="city-find" placeholder="name or family"></label>
+          </div>
+          <div class="city-body">
+            <div id="city-left" class="city-left">
+              <div class="list-wrap"><table class="grid-table" id="city-table" tabindex="0" aria-label="Catalog rows"></table></div>
+              <div class="row" style="margin:6px 0 0"><button type="button" id="city-add">Add</button>
+                <button type="button" id="city-dup">Duplicate</button><button type="button" id="city-remove">Remove</button></div>
+            </div>
+            <div id="city-detail" class="city-detail"></div>
+          </div>
         </div>
       </section>
 
@@ -287,6 +295,7 @@
 <script src="/static/refs.js"></script>
 <script src="/static/plan.js"></script>
 <script src="/static/edit.js"></script>
+<script src="/static/city.js"></script>
 <script src="/static/site.js"></script>
 <script src="/static/frames.js"></script>
 <script>loadProjects();</script>

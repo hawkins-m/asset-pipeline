@@ -8,6 +8,7 @@ const LANES = [["gpu0", "GPU 0"], ["comfy", "GPU 1"], ["cpu", "CPU"]];
 let currentTab = "style";
 const saveHandlers = {};      // tab -> () => void: Edit › Save (Ctrl+S) on that tab
 const revertHandlers = {};    // tab -> () => void: Edit › Revert
+const statusLeft = {};        // tab -> () => text for the status bar's first cell ("" = the tab name)
 
 // --- tabs ------------------------------------------------------------------------------
 function showTab(tab) {
@@ -406,7 +407,7 @@ function renderApplyBar() {
   } else {
     const what = [o.plan && "the plan", o.greybox && "the greybox", o.passes && `${o.passes} shot pass${o.passes === 1 ? "" : "es"}`].filter(Boolean);
     const list = what.length > 1 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : what[0];
-    bar.innerHTML = `<span class="msg">${o.plan ? "Catalog changed: " : ""}${esc(list.replace(/^./, c => c.toUpperCase()))} ${what.length > 1 || o.passes > 1 ? "are" : "is"} out of date.</span>`;
+    bar.innerHTML = `<span class="msg">${o.plan ? `Catalog changed: ${esc(list)}` : esc(list.replace(/^./, c => c.toUpperCase()))} ${what.length > 1 || o.passes > 1 ? "are" : "is"} out of date.</span>`;
     const b = document.createElement("button"); b.type = "button"; b.className = "default"; b.textContent = "Apply changes";
     b.title = "Re-plan → rebuild greybox → render passes, each only if needed (Ctrl+Enter)";
     b.disabled = !ACTIONS.applyAll.enabled() || siteBusy();
@@ -468,7 +469,7 @@ function renderShell() {
   const comfyRun = active.find(j => j.lane === "comfy" && j.status === "running");
   const cp = comfyRun && jobProgress(comfyRun);
   $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";
-  $("#sb-left").textContent = `${TAB_NAMES[currentTab]}`;
+  $("#sb-left").textContent = (statusLeft[currentTab] && statusLeft[currentTab]()) || TAB_NAMES[currentTab];
   const r = catalogData && catalogData.report;
   $("#sb-mid").textContent = r && r.buildings ? `${r.buildings.toLocaleString("en")} buildings · ${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}` : "";
   const comfy = statusData && statusData.comfy;

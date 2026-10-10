@@ -2,6 +2,7 @@
 
 All state is on disk (project.json, review.json); the server holds only job status.
 """
+import copy
 import time
 from pathlib import Path
 from typing import Literal
@@ -201,6 +202,24 @@ def _comfy_up() -> bool:
             _comfy_cache["up"] = False
         _comfy_cache["t"] = time.time()
     return _comfy_cache["up"]
+
+
+def _frames_key(store: ProjectStore, shot: str) -> tuple:
+    """Modification times of everything a shot's prompt and frame listing depend on."""
+    sd, fd = sw_site.site_dir(store), s0_frames.frames_dir(store, shot)
+    paths = [sd / "layout.json", sd / "greybox.json", store.root / "project.json", store.root / "review.json",
+             sw_shots.shot_dir(store, shot) / "ids.json", sw_shots.shot_dir(store, shot) / "meta.json", fd]
+    if fd.is_dir():
+        for b in sorted(fd.glob("batch_*")):
+            paths += [b, b / "meta.json"]
+    out = []
+    for p in paths:
+        try:
+            st = p.stat()
+            out.append((p.name, st.st_mtime_ns, st.st_size))
+        except FileNotFoundError:
+            out.append((p.name, None))
+    return tuple(out)
 
 
 def _newer(paths, t0: float) -> int:
@@ -608,18 +627,33 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         store = _store(slug)
         if not (sw_site.site_dir(store) / "greybox.json").is_file():
             return {"shots": [], "settings": s0_frames.settings(store).model_dump()}
+        with sw_site.reuse_greybox():
+            return _frames_listing(store, slug)
+
+    def _frames_listing(store: ProjectStore, slug: str) -> dict:
         out = []
         for r in sw_shots.status(store):
             d = f"{sw_shots.SHOTS}/{r['id']}"
-            try:
-                parts = s0_frames.prompt_parts(store, r["id"])
-            except FileNotFoundError:
-                parts = None
+            key = _frames_key(store, r["id"])
+            hit = frames_cache.get((slug, r["id"]))
+            if hit and hit[0] == key:
+                extra = hit[1]
+            else:
+                try:
+                    parts = s0_frames.prompt_parts(store, r["id"])
+                except FileNotFoundError:
+                    parts = None
+                extra = {"prompt": parts["prompt"] if parts else None, "prompt_parts": parts,
+                         "edit": _shot_edit(store, r["id"]), "batches": s0_frames.batches(store, r["id"])}
+                frames_cache[(slug, r["id"])] = (key, extra)
             out.append(r | {"depth": f"{d}/depth.png", "canny": f"{d}/canny.png", "preview": f"{d}/preview.png",
-                            "prompt": parts["prompt"] if parts else None, "prompt_parts": parts,
-                            "edit": _shot_edit(store, r["id"]), "batches": s0_frames.batches(store, r["id"]),
-                            "mood": r["tier"] in s0_frames.MOOD_TIERS})
+                            "mood": r["tier"] in s0_frames.MOOD_TIERS} | copy.deepcopy(extra))
         return {"shots": out, "settings": s0_frames.settings(store).model_dump()}
+
+    # Per-shot prompt and batch listing, keyed on the times of every file they read: the
+    # auto prompt parses greybox.json (large in city mode) several times per shot, which
+    # made the listing take ~10 s, and the UI reloads it every 2 s while jobs run.
+    frames_cache: dict[tuple[str, str], tuple] = {}
 
     @app.post("/api/projects/{slug}/frames/generate")
     def frames_generate(slug: str, req: FramesReq):
