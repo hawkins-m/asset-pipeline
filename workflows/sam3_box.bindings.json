@@ -1,0 +1,12 @@
+{
+  "outputs": ["6"],
+  "bindings": {
+    "image":     {"node": "1", "input": "image"},
+    "text":      {"node": "3", "input": "text"},
+    "threshold": {"node": "4", "input": "threshold"},
+    "x":         {"node": "7", "input": "x"},
+    "y":         {"node": "7", "input": "y"},
+    "width":     {"node": "7", "input": "width"},
+    "height":    {"node": "7", "input": "height"}
+  }
+}

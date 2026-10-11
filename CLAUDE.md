@@ -569,3 +569,17 @@ reflects what was actually verified.
   Round 2 frames whose view didn't change (match unchanged) still pass.
 - Trees and stalls are pieces inside a slot: the id pass can't separate them, so their
   crops are the whole slot (flagged as approximate).
+- Crop refinement A/B (2026-10-10, `scripts/diag/crop_refine_ab.py` on the 5 worst crops;
+  env `envs/segdepth` from `scripts/install_segdepth.sh`, GPU 0, ~1 s per frame per model
+  warm): ID region ∩ ADE20K building-like labels, minus painted-depth occluders (Depth
+  Anything V2 fitted affinely to the greybox's 1/Z), then SAM 3.1 inside the box
+  (`workflows/sam3_box`, `segment.detect_box`).
+  - Where the frame paints the asset, it cleans the crop (sky and trees out): 47-82% of
+    the id region kept. Where it doesn't (an asset behind trees, a hillside drawn as a
+    terrace wall), only 5-21% is kept: a reliable "no usable crop" signal.
+  - OneFormer and Mask2Former (Swin-L ADE20K) agree within a few points; OneFormer's
+    weights are MIT, Mask2Former's HF card says "other". Depth Anything V2 Small is
+    Apache-2.0 (Base/Large/Giant are CC-BY-NC-4.0).
+  - The SAM box step changed one crop of five (+14% on a clean facade).
+  - transformers 5.19 reports the Swin backbone's final layernorm as missing for both:
+    the heads read the stage outputs, and the labels are right (checked on a frame).

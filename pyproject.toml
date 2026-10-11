@@ -15,6 +15,7 @@ dependencies = [
     "google-genai",
     "anthropic",
     "pyyaml",
+    "scipy",
 ]
 
 [project.optional-dependencies]

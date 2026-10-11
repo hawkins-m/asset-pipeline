@@ -79,6 +79,33 @@ def detect(client: ComfyClient, image: Path, noun: str, max_dets: int = 8,
     return sorted(dets, key=lambda d: -d.area_frac)
 
 
+def detect_box(client: ComfyClient, image: Path, noun: str, box: tuple[int, int, int, int],
+               threshold: float = 0.3, min_area_frac: float = 0.0005) -> list[Detection]:
+    """SAM 3 inside a box prompt (x0, y0, x1, y1 pixels) for `noun`: the objects it finds
+    there, largest first (workflows/sam3_box)."""
+    graph, manifest = workflow.load_template("sam3_box")
+    x0, y0, x1, y1 = (int(v) for v in box)
+    graph = workflow.fill(graph, manifest, {"image": client.upload_image(image), "text": noun,
+                                            "threshold": threshold, "x": max(0, x0), "y": max(0, y0),
+                                            "width": max(1, x1 - x0), "height": max(1, y1 - y0)})
+    size = Image.open(image).size
+    try:
+        outputs = client.run(graph, manifest["outputs"])
+    except ComfyError as e:
+        if _no_detections(e):
+            return []
+        raise
+    dets = []
+    for out in outputs:
+        m = np.asarray(Image.open(io.BytesIO(out.data)).convert("L")) > 127
+        if m.shape[::-1] != size:
+            m = np.asarray(Image.fromarray(m).resize(size, Image.NEAREST))
+        if m.mean() >= min_area_frac:
+            edge = bool(m[0].any() or m[-1].any() or m[:, 0].any() or m[:, -1].any())
+            dets.append(Detection(mask=m, bbox=_bbox(m), area_frac=float(m.mean()), touches_border=edge))
+    return sorted(dets, key=lambda d: -d.area_frac)
+
+
 def _no_detections(e: ComfyError) -> bool:
     """SAM 3 finding nothing makes the graph fail: the empty mask batch crashes the image
     output node ("index 0 is out of bounds for dimension 0 with size 0")."""
