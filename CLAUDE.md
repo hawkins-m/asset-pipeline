@@ -619,3 +619,19 @@ reflects what was actually verified.
   an edge profile counts both edges of every window) is only clean on near-frontal views.
   Three-quarter views gave 33-42 "storeys", so rhythms outside 2.5-15 m bays and 2.6-7 m
   storeys are dropped and the generator defaults apply.
+- **Every procedural mesh was inside-out until 2026-10-10.** `_quad_prism` wound its faces
+  inwards. Cycles shades both sides and hid it; Unreal culls back faces.
+  `tests/test_building_proc.py::test_built_meshes_face_outwards` checks the signed volume.
+  The Blender prism now orients each polygon counter-clockwise itself.
+- Facade grammar (`building_parts.facade`) and per-form defaults (`building_gen.TYPE_FEATURES`).
+  A part missing from a build goes into the type defaults, so every building of that form
+  gets it; the brief's `features` override them per asset.
+- Sheets are drawn at their own scale: a 65 m catalog-middle insula against a sheet whose front
+  measures about 37 m at its own storey height made a long low slab. To match a sheet's massing,
+  take the front width from storeys x storey height (the measured storey period); keep it inside
+  the catalog range.
+- Mirror-tiling a small sheet patch that has a gradient gives kaleidoscope patterns. Tiles now
+  use the patch's high-pass detail on the storey band's median colour, made seamless by a
+  cross-fade with a half-rolled copy and sized to the patch's real extent.
+- Frontality (the share of strong edges within 4 degrees of square) picks the near-front view.
+  Curved buildings (vaults) score low even on true elevations; pick those by eye.

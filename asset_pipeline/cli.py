@@ -626,10 +626,20 @@ def cmd_library_brief(a) -> None:
         form = "basilica" if e["typology"] == "basilica" else form
     if not form or not dims:
         raise SystemExit("give --form and --dims (no catalog form with a generator, or no size)")
-    b = brief(store, a.entry, a.sheet, a.view, form, dims, json.loads(a.params) if a.params else None)
+    from .building_proc import front_view
+    view = a.view
+    if view == "front":
+        fv = front_view(store, [a.sheet], a.entry)
+        if not fv["best"]:
+            raise SystemExit(f"no near-front view on {a.sheet}: " + ", ".join(f"view {p} {s:.2f}" for _, p, s in fv["scores"])
+                             + " (pick one: 0 / 1 / 2 / all)")
+        view = fv["best"][1]
+    elif view != "all":
+        view = int(view)
+    b = brief(store, a.entry, a.sheet, view, form, dims, json.loads(a.params) if a.params else None)
     m = b["measured"]
-    print(f"{a.entry}: {form} {b['dims']}, view {b['view']}; measured bays {m.get('bays')} storeys {m.get('storeys')}"
-          f" patch {m.get('patch_px')}")
+    print(f"{a.entry}: {form} {b['dims']}, view {b['view']} (frontality {m.get('frontality')}); measured storeys "
+          f"{m.get('storeys')}, bay {m.get('bay_m')} m")
 
 
 def cmd_library_build(a) -> None:
@@ -1102,7 +1112,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("entry")
     p.add_argument("sheet", help="project path of the reference sheet")
-    p.add_argument("view", type=int, choices=[0, 1, 2], help="which view: 0 left, 1 middle, 2 right")
+    p.add_argument("view", help="which view: 0 left, 1 middle, 2 right, all (the whole sheet), or front "
+                                "(the most frontal view of the sheet)")
     p.add_argument("--form", choices=["hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row"],
                    help="generator (default: from the entry's catalog form)")
     p.add_argument("--dims", type=float, nargs=3, help="w d h metres (default: the entry's size)")

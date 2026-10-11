@@ -1,9 +1,12 @@
 """Procedural buildings (building_proc): convex pierced walls, generators, brief measures."""
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from asset_pipeline import building_gen as bg
+from asset_pipeline import building_parts as bparts
 from asset_pipeline import building_proc as bp
 
 
@@ -28,24 +31,24 @@ def _convex(poly):
     ([{"kind": "round", "cx": 2.0, "cz": 3.0, "r": 1.0}], math.pi),
 ])
 def test_pierced_wall_covers_the_wall_minus_its_openings_with_convex_pieces(ops, open_area):
-    parts = [p for p in bp.pierced(-5, 5, 0, 6, 0, 0.5, ops) if p["mat"] == "wall"]
+    parts = [p for p in bparts.pierced(-5, 5, 0, 6, 0, 0.5, ops) if p["mat"] == "wall"]
     assert all(_convex(p["xz"]) for p in parts)
     solid = sum(_area(p["xz"]) for p in parts)
     assert solid == pytest.approx(60 - open_area, rel=0.01)       # curves: 12 segments per half circle
-    glass = [p for p in bp.pierced(-5, 5, 0, 6, 0, 0.5, ops) if p["mat"] == "glass"]
+    glass = [p for p in bparts.pierced(-5, 5, 0, 6, 0, 0.5, ops) if p["mat"] == "glass"]
     assert len(glass) == 1 and 0 < glass[0]["y0"] < 0.5
 
 
 def test_open_openings_have_no_glass():
     ops = [{"kind": "arch", "cx": 0.0, "w": 3.0, "z0": 0.0, "h": 4.0, "glass": False}]
-    assert not [p for p in bp.pierced(-4, 4, 0, 6, 0, 1, ops) if p["mat"] == "glass"]
+    assert not [p for p in bparts.pierced(-4, 4, 0, 6, 0, 1, ops) if p["mat"] == "glass"]
 
 
 @pytest.mark.parametrize("form,dims", [("hall_vault", [43, 28, 10.6]), ("cube", [48, 48, 16]),
                                        ("basilica", [87, 50, 23.6]), ("podium_tower", [37, 28, 47]),
                                        ("perimeter", [65, 65, 23.8]), ("row", [30, 14, 13.6])])
 def test_generators_stay_near_their_dimensions(form, dims):
-    parts = bp.GENERATORS[form](dims, {})
+    parts = bg.GENERATORS[form](dims, {}, bg.features(form, None))
     pts = []
     for p in parts:
         rz, at = math.radians(p.get("rz", 0)), p.get("at", [0, 0, 0])
@@ -63,6 +66,7 @@ def test_generators_stay_near_their_dimensions(form, dims):
     assert size[0] == pytest.approx(w, abs=0.15 * w + 2.5) and size[1] == pytest.approx(d, abs=0.15 * d + 3.0)
     assert size[2] == pytest.approx(h, abs=0.2 * h + 4.0)        # roofs: parapets, pergolas, crowns
     assert {"wall"} <= {p["mat"] for p in parts}
+    assert not [p for p in parts if p["kind"] == "prism" and len(p["xz"]) < 3]
 
 
 def test_measure_finds_bays_palette_and_a_plain_patch(tmp_path):
@@ -75,9 +79,64 @@ def test_measure_finds_bays_palette_and_a_plain_patch(tmp_path):
             a[y:y + 30, x:x + 25] = (40, 45, 50)
     p = tmp_path / "v.png"
     Image.fromarray(a).save(p)
-    m = bp.measure(p, [52.0, 14.0, 13.6])
-    assert m["bays"] == 8 and m["storeys"] == 4
+    m = bp.measure(p, [52.0, 14.0, 13.6], storey_h=3.4)
+    assert m["storeys"] == 4
+    assert m["bay_m"] == pytest.approx(3.4 * 65 / 57, rel=0.05)          # bay period / storey period x storey height
     assert m["palette"][0]["rgb"] == pytest.approx([200, 190, 175], abs=6)
+    assert m["frontality"] > 0.8                                   # an elevation: edges square (window corners aside)
     x0, y0, x1, y1 = m["patch_px"]
     patch = a[y0:y1, x0:x1].reshape(-1, 3)
     assert (patch == (200, 190, 175)).all(1).mean() > 0.95
+
+
+def test_segmental_openings_and_curved_tops():
+    seg = {"kind": "seg", "cx": 0.0, "w": 4.0, "z0": 0.0, "h": 3.0, "rise": 0.8}
+    ps = [p for p in bparts.pierced(-4, 4, 0, 5, 0, 0.5, [seg]) if p["mat"] == "wall"]
+    R = (4 + 0.64) / 1.6                                           # circle through the springs and the crown
+    seg_area = R * R * math.acos((R - 0.8) / R) - (R - 0.8) * math.sqrt(2 * R * 0.8 - 0.64)
+    assert sum(_area(p["xz"]) for p in ps) == pytest.approx(40 - (4 * 2.2 + seg_area), rel=0.01)
+    vault = bparts.pierced(-3, 3, 0, lambda x: 4 * math.sqrt(max(0, 1 - (x / 3) ** 2)), 0, 0.5, [])
+    assert sum(_area(p["xz"]) for p in vault) == pytest.approx(math.pi * 3 * 4 / 2, rel=0.01)
+
+
+def test_facade_grammar_parts():
+    F = bparts.merged(bparts.FACADE, {"storeys": 4, "pattern": ["loggia", "window"],
+                                    "balcony": {"kind": "slab", "depth": 1.2, "planters": True, "on": "window"},
+                                    "ground": {"kind": "pilotis", "canopy": 2.5, "planters": True},
+                                    "pilasters": {"every": 2, "w": 0.5, "proj": 0.12}, "courses": {"every": 2},
+                                    "recess": [{"x0": 0.4, "x1": 0.6, "depth": 2.0}], "loggia": {"planters": True}})
+    ps = bparts.facade(30.0, F)
+    mats = {p["mat"] for p in ps}
+    assert {"planting", "frame", "rail_glass", "glass", "trim"} <= mats
+    assert min(p["y0"] for p in ps if p["kind"] == "box") <= -2.5 + 1e-6          # the canopy stands out
+    H = bparts.height(F)
+    returns = [p for p in ps if p["kind"] == "box" and p["y1"] >= 2.0 and p["z1"] - p["z0"] >= H - 1e-6]
+    assert len(returns) == 2                                                      # the recess's return walls
+
+
+@pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
+def test_built_meshes_face_outwards(tmp_path):
+    """Every piece is a closed prism or shell with outward normals (positive signed volume).
+    Until 2026-10-10 every prism came out inside-out, which Cycles' two-sided shading hid."""
+    import json
+    import subprocess
+    from asset_pipeline import kit_proc
+    ps = bg.GENERATORS["cube"]([20, 20, 12], {}, bg.features("cube", None))
+    mats = {m: {"uv": "plain", "color": [0.5, 0.5, 0.5], "rough": 0.5} for m in {p["mat"] for p in ps}}
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"name": "t", "out": str(tmp_path / "t.glb"), "parts": ps, "materials": mats}))
+    check = tmp_path / "check.py"
+    check.write_text("""
+import bpy, bmesh, sys
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=sys.argv[sys.argv.index("--") + 1])
+o = [o for o in bpy.context.scene.objects if o.type == "MESH"][0]
+bm = bmesh.new(); bm.from_mesh(o.data)
+print("VOL", bm.calc_volume(signed=True))
+""")
+    subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(kit_proc.SCRIPT), "--", str(job)],
+                   check=True, capture_output=True, timeout=300)
+    r = subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(check), "--", str(tmp_path / "t.glb")],
+                       capture_output=True, text=True, check=True, timeout=300)
+    vol = float(next(ln for ln in r.stdout.splitlines() if ln.startswith("VOL")).split()[1])
+    assert vol > 0.5 * 20 * 20 * 12 * 0.2                                # solid walls: a good share of the cube, positive

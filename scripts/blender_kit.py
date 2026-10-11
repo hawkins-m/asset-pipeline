@@ -39,11 +39,13 @@ def _quad_prism(bm, xz, y0, y1):
     """A convex polygon in XZ extruded from y0 to y1 (front face at y0)."""
     f = [bm.verts.new((x, y0, z)) for x, z in xz]
     b = [bm.verts.new((x, y1, z)) for x, z in xz]
-    out = [bm.faces.new(f[::-1]), bm.faces.new(b)]
+    # xz counter-clockwise (x right, z up): the front face as given faces -Y, the back reversed
+    # faces +Y, the sides go b-then-f so they face out (checked by signed volume in the tests)
+    out = [bm.faces.new(f), bm.faces.new(b[::-1])]
     n = len(xz)
     for i in range(n):
         j = (i + 1) % n
-        out.append(bm.faces.new((f[i], f[j], b[j], b[i])))
+        out.append(bm.faces.new((f[i], b[i], b[j], f[j])))
     return out
 
 
@@ -72,7 +74,7 @@ def archband(bm, p):
         a, b = math.pi * i / seg, math.pi * (i + 1) / seg
         q = [(cx - r0 * math.cos(a), sp + r0 * math.sin(a)), (cx - r0 * math.cos(b), sp + r0 * math.sin(b)),
              (cx - r1 * math.cos(b), sp + r1 * math.sin(b)), (cx - r1 * math.cos(a), sp + r1 * math.sin(a))]
-        faces += _quad_prism(bm, q[::-1], p["y0"], p["y1"])
+        faces += _quad_prism(bm, q, p["y0"], p["y1"])
     return faces
 
 
@@ -90,8 +92,13 @@ def lathe(bm, p):
 
 
 def prism(bm, p):
-    """A convex polygon in XZ (from kit_proc's pierced walls) extruded from y0 to y1."""
-    return _quad_prism(bm, [tuple(q) for q in p["xz"]], p["y0"], p["y1"])
+    """A convex polygon in XZ (from the pierced walls) extruded from y0 to y1, turned
+    counter-clockwise whatever order it came in (so its faces point out)."""
+    q = [tuple(v) for v in p["xz"]]
+    if len(q) < 3:
+        return []
+    area = sum(x0 * z1 - x1 * z0 for (x0, z0), (x1, z1) in zip(q, q[1:] + q[:1]))
+    return _quad_prism(bm, q if area > 0 else q[::-1], p["y0"], p["y1"])
 
 
 def shell(bm, p):
