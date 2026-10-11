@@ -252,7 +252,7 @@ So:
 
 | Route | Assets | Geometry | Surfaces |
 |---|---|---|---|
-| **Procedural (default for architecture)** | Arches, gates, colonnades, walls, cornices, facade bays; whole buildings of the catalog's forms (perimeter blocks, rows, towers, halls, cubes, basilicas, baths...) | Blender from parameters at real dimensions (greybox and catalog), with proportions, bay rhythm and storeys read from the sheet | PBR maps from the sheet: base colour (delit elevation or seamless tile), normal and roughness from luminance, palette for trim and glass. **Since 2026-10-11:** a material library instead of sheet tiles: the sheet picks a type (concrete, limestone, marble, render, brick, timber) and colour per storey band; ambientCG CC0 scans tinted to it in Blender, Megascans in Unreal (`material_lib`, `--surface library`) |
+| **Procedural (default for architecture)** | Arches, gates, colonnades, walls, cornices, facade bays; whole buildings of the catalog's forms (perimeter blocks, rows, towers, halls, cubes, basilicas, baths...) | Blender from parameters at real dimensions (greybox and catalog), with proportions, bay rhythm and storeys read from the sheet | PBR maps from the sheet: base colour (delit elevation or seamless tile), normal and roughness from luminance, palette for trim and glass. **Default since 2026-10-11:** a material library instead of sheet tiles: the sheet picks a type (concrete, limestone, marble, render, brick, timber) and colour per storey band; ambientCG CC0 scans tinted to it (colour and contrast) in Blender, Megascans in Unreal when the project has them (`material_lib`; `--surface patch` keeps the old tiles) |
 | **TRELLIS** | Irregular assets: rotunda-type landmarks, props, ornament (statues, capitals, fountains) | TRELLIS.2 from a three-quarter view where the sheet has one | Its own textures; stage 6 cleanup |
 
 - The sheet's job on the procedural route is the **design brief**: proportions, bay rhythm,
@@ -273,6 +273,51 @@ So:
   `ap library review apply` turns the round into one task list for Claude Code;
   `--done` marks the handled assets Ready for review and opens the next round. Size changes that
   touch locked frames warn first.
+- **Outcomes 2026-10-11.**
+  - **Material library is the default** for procedural buildings. Limestone is a large
+    dressed-block scan (ambientCG Tiles143), with two registered alternatives (ashlar, smooth
+    travertine). Each band's tint matches the sheet's colour and its luminance spread. A trim
+    slot (slab edges, balcony fronts, parapets, copings) takes smooth render or concrete, never
+    the wall stone. GLBs carry 1K maps; Unreal material instances use the shared full-resolution
+    maps, with tint and contrast as parameters.
+  - **Doubled-face fix.** Coplanar same-facing faces from different parts rendered black in
+    Cycles and z-fought in Unreal. They came from roof slabs under copings, attics and accents
+    on court facades, and recess returns at wing junctions. Before every Blender build, the
+    builder pulls the losing face back 2 mm. Tests cover every form: no coplanar twins, and
+    every face has a material.
+  - **Frame reconcile.** A locked frame is segmented and its ground read back onto the plan
+    through the shot camera (`frame_plan`), then compared with the layout, slots, catalog and
+    builds. One medium shot was re-locked on a newer frame that fits the current layout (its
+    old lock predated the relayout). Its plaza and one block were reworked to follow it.
+  - **Layout features.** A `basins` plaza type: two long basins either side of a paved walk on
+    a radial, lawn beds with gravel edges. `CitySpec.sites` carve a fixed civic ensemble out of
+    the planned fill on its own random stream. A full-layout diff confirmed only the buildings
+    on the site's footprint changed.
+  - **New procedural forms and entries.** The `civic_block` (colonnade, centred loggia,
+    parapet), `arcade_hall` and `campanile` generators, with three new library entries built
+    from them: a civic ring block, a civic hall and a bell tower. Fill entries can now be built
+    per instance, at each building's own footprint and storeys (`library_instances`).
+  - **Unreal look scenes.** `ue.look_scene` rebuilds a shot with library builds in every
+    visible slot that has a brief, the greybox as context, a sun read off the frame, manual
+    exposure set on a frame region, and fog. The city level is not touched.
+- **Open gaps from the last look test (by impact).**
+  1. **Light colour:** still warmer and hazier than the frame. A low sun through the sky
+     atmosphere carries its own orange. Try the sun at 18–20° with a cooler camera white
+     balance.
+  2. **Far hills:** the terrain falls to the sea where the frame paints mountains. A look-test
+     ridge is hidden by the haze. Push the fog start beyond 2 km, or decide whether the terrain
+     and coastline change (a layout decision).
+  3. **Ground surfaces:** paving and water are untextured, and the greybox meshes have no UVs.
+     Needs a world-aligned paving material and a proper water material.
+  4. **Vegetation:** greybox trees, bare lawns and planters. Waits on the Megascans and PCG pass.
+  5. **Gravel placement:** the frame puts the strips on the lawns' outer edges, not the walk
+     edges.
+  6. **Buildings without briefs:** a few fill and civic types stay greybox, and one fill entry
+     uses a stand-in brief.
+  7. **Civic site interior:** the hall and tower cover about 15% of the carved site; the rest
+     is open ground.
+  8. **Pipeline:** heavy look scenes crashed GPU 0 (device lost) and rendered on GPU 1.
+     Interchange imports every GLB's embedded textures; strip them for Unreal imports.
 
 Step order, each a reviewable milestone:
 
