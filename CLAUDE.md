@@ -583,3 +583,28 @@ reflects what was actually verified.
   - The SAM box step changed one crop of five (+14% on a clean facade).
   - transformers 5.19 reports the Swin backbone's final layernorm as missing for both:
     the heads read the stage outputs, and the labels are right (checked on a frame).
+
+## Library 3D: TRELLIS vs procedural kit (2026-10-10)
+- From one front view, TRELLIS guesses depth. A monumental gate came out as separate slabs with
+  gaps, and a stoa bay as a four-legged table with no back wall. From a three-quarter view the
+  gate's walls are solid, but it came out twice as deep as wide, with the arch on the short end.
+- Flux won't draw a three-quarter view of a thin kit module. Eight stoa-bay sheets, in two
+  wordings, gave open door frames or walls seen head-on; "side edges cut straight and open"
+  reads as a doorway. For whole buildings the three-quarter prompt
+  (`ap library sheets --view three-quarter`) works better than the turnaround: a basilica lost
+  the roof crosses the turnaround drew, and a market hall showed its depth.
+- Multi-storey facade bays (alone or on a kit sheet) come out as whole buildings; a two-column
+  bay doesn't.
+- So: simple architectural kit (arches, colonnades, walls, cornices) is procedural
+  (`asset_pipeline/kit_proc.py`, `scripts/blender_kit.py`, spec in the project's
+  `library/kits/<asset>.json`). Real size comes from the greybox, proportions are measured on
+  the sheet, and the PBR maps come from the sheet: the delit front elevation projected onto the
+  front and back faces, a mirrored seamless tile from a plain patch, and normal and roughness
+  from the luminance. About 500 faces, a few seconds on the CPU. TRELLIS stays for complex and
+  irregular assets.
+- An arched wall's piers must run its full height. The comb of trapezoids only spans the
+  opening, so piers cut at the springing line leave the sides open above it.
+- Fill typologies (tier C) are one representative building at the catalog's middle sizes (a
+  row form as 4 houses). Their slots hold whole blocks: 230 m "townhouses".
+- A square 65 m courtyard block at 7 storeys still drew a 2-3-storey villa: the insula needs
+  its storeys and the courtyard in the words.
