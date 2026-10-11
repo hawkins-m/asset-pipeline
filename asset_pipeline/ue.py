@@ -243,6 +243,26 @@ BLENDER_LOOK = {"sun_lux": 3.2 * 1.2, "sun_elevation": 40.0, "sun_yaw": -50.0, "
                 "sky_intensity": 1.0}
 
 
+def library_slots(job: Path) -> dict:
+    """The Unreal material spec per slot of a library build (its blender_kit job.json): surfaces
+    with the scan the build used (full-resolution shared maps), tint and contrast as parameters;
+    plain materials as they are."""
+    from . import material_lib
+    slots = {}
+    for name, m in read_json(job)["materials"].items():
+        if m.get("uv") == "plain":
+            slots[name] = {"plain": {"rgb_lin": m["color"], "rough": m["rough"], "metal": m.get("metal", 0.0)}}
+        elif m.get("type"):
+            src = material_lib.fetch(m["type"], acg=m.get("acg"))
+            lib = material_lib.LIBRARY[m["type"]]
+            slots[name] = {"surface": {
+                "type": m["type"], "rgb_lin": [round(float(v), 5) for v in material_lib._srgb_to_lin(np.array(m["colour"], float))],
+                "acg_id": src["acg"], "textures": {k: src[k] for k in ("color", "normal_dx", "rough")},
+                "megascans": lib["megascans"], "uv_scale": 1.0, "contrast": m.get("contrast", 1.0),
+                "uv_scale_megascans": src["tile_m"][0] / lib.get("megascans_m", 2.0)}}
+    return slots
+
+
 def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out: Path,
                      size=(900, 640), timeout_s: int = 3600) -> dict:
     """One library building in Unreal with its library materials (Megascans when the project has
@@ -253,18 +273,7 @@ def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out:
         raise RuntimeError("the Unreal editor has this project open: close it first")
     if list((config.ap_root() / "logs").glob("trellis-gpu0-*.lock")):
         raise RuntimeError("GPU 0 is busy with TRELLIS; try again when it's done")
-    slots = {}
-    for name, m in read_json(job)["materials"].items():
-        if m.get("uv") == "plain":
-            slots[name] = {"plain": {"rgb_lin": m["color"], "rough": m["rough"], "metal": m.get("metal", 0.0)}}
-        elif m.get("type"):
-            src = material_lib.fetch(m["type"])
-            lib = material_lib.LIBRARY[m["type"]]
-            slots[name] = {"surface": {
-                "type": m["type"], "rgb_lin": [round(float(v), 5) for v in material_lib._srgb_to_lin(np.array(m["colour"], float))],
-                "acg_id": src["acg"], "textures": {k: src[k] for k in ("color", "normal_dx", "rough")},
-                "megascans": lib["megascans"], "uv_scale": 1.0, "contrast": m.get("contrast", 1.0),
-                "uv_scale_megascans": lib["tile_m"][0] / lib.get("megascans_m", 2.0)}}
+    slots = library_slots(job)
     paving = material_lib.fetch("concrete")
     ground = {"type": "concrete", "rgb_lin": [0.42, 0.40, 0.37], "acg_id": paving["acg"], "tile_m": paving["tile_m"],
               "textures": {k: paving[k] for k in ("color", "normal_dx", "rough")}, "megascans": [],
@@ -385,3 +394,101 @@ def pull_layout(store: ProjectStore) -> dict:
         a["blender_matrix"] = [[round(v, 6) for v in row] for row in ue_coords.from_ue(a["transform"]).tolist()]
     write_json(sw_site.site_dir(store) / "ue_layout.json", rep)
     return rep
+
+
+def _blender_to_ue_xf(m) -> dict:
+    t = ue_coords.to_ue(m)
+    return {"loc": t["loc"], "rot": t["rot"]}
+
+
+def look_test(store: ProjectStore, asset: str, shot: str, slot: str, bbox, sun_offset_deg: float = 30.0,
+              sun_elevation_deg: float = 20.0, fog_density: float = 0.02, timeout_s: int = 3600) -> dict:
+    """A library building in its place in Unreal, in a level of its own (LookTest_<asset>): the
+    greybox around it (scripts/blender_look_context.py), its library materials, the shot's
+    camera, a sun sun_offset_deg right of the view at sun_elevation_deg (read off the frame:
+    the shot data has no sun), sky, clouds, haze; two close cameras on the building's wing
+    junction and copings. Renders to export/look/<asset>/."""
+    from . import kit_proc
+    gb = sw_site.load_greybox(store)
+    s = next(x for x in gb["shots"] if x["id"] == shot)
+    look = s7_export.export_dir(store) / "look"
+    look.mkdir(parents=True, exist_ok=True)
+    job = {"slot": slot, "piece": "insula:mass", "camera": s["matrix"], "lens_mm": s["lens_mm"], "sensor_mm": s["sensor_mm"],
+           "resolution": s["resolution"], "bbox": list(bbox), "radius": 600,
+           "out_context": str(look / "context.glb"), "out_terrain": str(look / "terrain.glb")}
+    write_json(look / "context_job.json", job)
+    lg = look / "context.log"
+    blender.run(config.REPO_ROOT / "scripts/blender_look_context.py", [look / "context_job.json"], lg, "look context",
+                blend=store.root / "site/greybox.blend")
+    line = next(ln for ln in lg.read_text().splitlines() if ln.startswith("REPORT "))
+    ctx = json.loads(line[7:])
+    pl = ctx["placement"]
+    yaw = np.radians(pl["yaw_deg"])
+    B = np.eye(4)
+    B[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+    B[:3, 3] = pl["loc"]
+    C = np.array(s["matrix"])
+    w, h = s["resolution"]
+    cams = [{"id": f"look_{shot}", "transform": _blender_to_ue_xf_cam(C), "focal_mm": s["lens_mm"],
+             "sensor_mm": [s["sensor_mm"], round(s["sensor_mm"] * h / w, 4)], "resolution": [w, h]}]
+    for cid, az, el, tgt, dist, lens in (("look_junction", -60, 0.15, (-6, -18, 10), 20, 35),
+                                         ("look_coping", -35, 0.6, (0, -4, 20), 26, 50)):
+        a = np.radians(az)
+        d = np.array([np.sin(a), -np.cos(a), el])
+        d /= np.linalg.norm(d)
+        tw = (B @ np.array([*tgt, 1.0]))[:3]
+        pw = (B @ np.array([*(np.array(tgt) + d * dist), 1.0]))[:3]
+        cams.append({"id": cid, "transform": _blender_to_ue_xf_cam(_look_at(pw, tw)), "focal_mm": lens,
+                     "sensor_mm": [36.0, 36.0 * 640 / 900], "resolution": [900, 640]})
+    # the sun: ahead of the camera and to its right (the frame is backlit), above the horizon
+    fwd, right = -C[:3, 2], C[:3, 0]
+    fwd[2], right[2] = 0, 0
+    fwd, right = fwd / np.linalg.norm(fwd), right / np.linalg.norm(right)
+    o = np.radians(sun_offset_deg)
+    to_sun = fwd * np.cos(o) + right * np.sin(o)
+    travel = -to_sun                                    # horizontal direction the light travels, Blender
+    sun = {"yaw": float(np.degrees(np.arctan2(-travel[1], travel[0]))), "pitch": -sun_elevation_deg}
+    d = kit_proc.out_dir(store, asset)
+    mask = work_dir(store) / "T_AP_White_M.png"
+    mask.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)
+    if editor_running(uproject(store)):
+        raise RuntimeError("the Unreal editor has this project open: close it first")
+    mp = f"/Game/AP/Maps/LookTest_{s7_export.pascal(asset)}"
+    rep = run_script(store, "ap_look_test.py", {
+        "asset": asset, "glb": str(d / "procedural.glb"), "context_glb": job["out_context"], "terrain_glb": job["out_terrain"],
+        "map": mp, "slots": library_slots(d / "procedural" / "job.json"), "mask_default": str(mask),
+        "building": _blender_to_ue_xf(B), "cameras": cams, "sun": sun, "fog_density": fog_density}, f"UE look test {asset}")
+    if "error" in rep:
+        raise RuntimeError(f"UE look test failed: {rep['error']}\n{rep.get('traceback', '')}")
+    bad = [ln for ln in (work_dir(store) / "ap_look_test.log").read_text(errors="replace").splitlines()
+           if "Failed to compile Material" in ln and "/AP/" in ln]
+    if bad:
+        raise RuntimeError("UE look test: a material failed to compile:\n" + "\n".join(bad[:5]))
+    from . import vlm
+    vlm.down(gpu=0)
+    out = look / asset
+    rep["render"] = _render(store, mp, [{"id": c["id"], "resolution": c["resolution"]} for c in cams], out,
+                            "ap_look_render", timeout_s)
+    rep |= {"context": ctx, "sun": sun, "cameras": cams, "map": mp}
+    write_json(out / "look_test.json", rep)
+    store.log_run({"stage": "ue.look_test", "asset": asset, "shot": shot, "ok": rep["ok"] and rep["render"]["ok"]})
+    return rep
+
+
+def _look_at(pos, tgt) -> np.ndarray:
+    """A Blender camera matrix at pos looking at tgt (camera -Z forward, +Y up)."""
+    f = np.asarray(tgt, float) - np.asarray(pos, float)
+    f /= np.linalg.norm(f)
+    r = np.cross(f, [0, 0, 1.0])
+    r /= np.linalg.norm(r)
+    u = np.cross(r, f)
+    m = np.eye(4)
+    m[:3, 0], m[:3, 1], m[:3, 2], m[:3, 3] = r, u, -f, pos
+    return m
+
+
+def _blender_to_ue_xf_cam(m) -> dict:
+    t = ue_coords.camera_to_ue(np.asarray(m).tolist())
+    return {"loc": t["loc"], "rot": t["rot"]}
+
