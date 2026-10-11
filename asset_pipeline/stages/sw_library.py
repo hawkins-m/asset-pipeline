@@ -308,6 +308,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
             slot_entry[s["id"]].append(e["id"])
 
     surfaces = Counter()
+    locks = s0_frames.locked(store)
     for shot, keys in src.items():
         ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None)
         if not ids:
@@ -332,7 +333,9 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
             for k in keys:
                 rec = {"frame": k, "shot": shot, "tier": tiers.get(shot), "share": round(pe["share"], 5),
                        "bbox": [round(x, 4) for x in pe["bbox"]], "slots": sorted(pe["slots"]),
-                       "locked": k == keys[0], "districts": dict(pe["districts"]),
+                       # the shot's own lock, not the first usable frame: a lock that predates
+                       # the layout is dropped from keys, and its first source frame isn't locked
+                       "locked": k == locks.get(shot), "districts": dict(pe["districts"]),
                        "scores": _scores(store, k, area, entries[eid]) if area is not None else None}
                 ref = read_json(_refined_path(store, eid, k).with_suffix(".json"), default=None)
                 if ref and entries[eid]["tier"] != "D":
