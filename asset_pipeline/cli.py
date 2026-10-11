@@ -552,7 +552,9 @@ def cmd_frames_role(a) -> None:
 def cmd_frames_lock(a) -> None:
     from .stages import s0_frames
     store = ProjectStore.open(a.project)
-    key = s0_frames.lock(store, a.shot, None if a.unlock else a.frame)
+    if not (a.unlock or a.frame or a.greybox):
+        raise SystemExit("give a frame, --greybox or --unlock")
+    key = s0_frames.lock(store, a.shot, None if a.unlock else s0_frames.LOCK_GREYBOX if a.greybox else a.frame)
     print(f"{a.shot}: locked on {key}" if key else f"{a.shot}: unlocked")
 
 
@@ -965,6 +967,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("shot")
     p.add_argument("frame", nargs="?", help="project-relative frame of that shot")
+    p.add_argument("--greybox", action="store_true",
+                   help="lock the camera and greybox alone, no frame (a shot rendered in Unreal instead)")
     p.add_argument("--unlock", action="store_true")
     p.set_defaults(fn=cmd_frames_lock)
     p = frsub.add_parser("refs", help="show or set a shot's design references (frames added to the Redux anchor)")

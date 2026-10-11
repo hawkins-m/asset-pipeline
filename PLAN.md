@@ -129,6 +129,8 @@ geometry is fixed first; images are generated onto it.
 3. **Concept frames per shot.** Depth/canny-guided Flux (ControlNet Union Pro 2.0; BFL
    depth LoRA for A/B), with the style anchor. Moodboard images can be imported as anchor
    sources.
+   Wide frames are mood references only: the final wides are rendered in Unreal from the
+   real assets (Phase 3, step 9).
 4. **Asset library.** All approved frames merge into one deduplicated library:
    - greybox types are keyed by slot type, with counts from the greybox;
    - props are deduplicated across shots;
@@ -268,7 +270,7 @@ Step order, each a reviewable milestone:
    - Show the crops in the Library tab; the user stars one or two per entry.
    - Starred crops go in as Redux references for that entry's sheets, so the asset
      matches the approved look.
-   - Mood (tight) shots never seed assets, as now (`asset_sources`).
+   - Mood shots (tights and wides) never seed assets, as now (`asset_sources`).
 4. **Reference sheets** (stage 2, unchanged code path).
    - `site/library.json` is an `AssetPlan`-compatible plan named `library`. Each entry
      carries `name`, `description`, `dimensions` (from the catalog size ranges and the
@@ -302,6 +304,14 @@ Step order, each a reviewable milestone:
    Layout materials stay as the per-slot `MI_mat_<id>` overrides. The master material
    gets ORM / normal textures from the assets, with the PBR parameters (tint, roughness
    multiplier, metallic, normal strength) left tunable in Unreal.
+9. **The wides, rendered in Unreal: the first UE render test** (last, after the library
+   and its UE import).
+   - Flux can't resolve a whole city at frame size, so wide shots get no approved frame:
+     their greybox and camera are locked (`ap frames lock --greybox`), and a few of their
+     Flux frames are kept only as mood references for terrain, light and vegetation.
+   - Once the real assets are imported, render the wides through their CineCameras
+     (`ap ue render`). That is the first test of lighting, terrain and vegetation in UE,
+     judged against those mood references.
 
 **UI:** a Library tab that:
 - lists entries by tier and priority;

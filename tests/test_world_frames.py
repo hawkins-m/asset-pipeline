@@ -438,6 +438,11 @@ def test_a_locked_shot_is_never_regenerated(world, monkeypatch):
         s0_frames.lock(world, "a", other)
     s0_frames.lock(world, "a", None)
     assert s0_frames.locked(world) == {}
+    # a greybox-only lock: the camera is kept and nothing regenerates, but no frame finishes it
+    assert s0_frames.lock(world, "a", s0_frames.LOCK_GREYBOX) == "greybox"
+    with pytest.raises(ValueError, match="locked on greybox"):
+        s0_frames.generate(world, "a", n=1)
+    s0_frames.lock(world, "a", None)
 
 
 def test_district_limited_materials_stay_out_of_other_shots(world):

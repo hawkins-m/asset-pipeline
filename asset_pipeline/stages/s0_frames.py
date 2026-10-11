@@ -286,10 +286,15 @@ def locked(store: ProjectStore) -> dict[str, str]:
     return {s.id: s.locked for s in sw_site.load_layout(store).shots if s.locked}
 
 
+LOCK_GREYBOX = "greybox"     # a shot locked on its greybox alone: camera kept, no frame finishes it
+                             # (e.g. wides rendered in Unreal from the real assets)
+
+
 def lock(store: ProjectStore, shot: str, frame: str | None) -> str | None:
-    """Lock a shot on an approved frame of its own (None unlocks); returns the key."""
-    key = review.rel(store, frame) if frame else None
-    if key and not key.startswith(f"{FRAMES}/{shot}/"):
+    """Lock a shot on an approved frame of its own, or on LOCK_GREYBOX (None unlocks);
+    returns the key."""
+    key = frame if frame == LOCK_GREYBOX else review.rel(store, frame) if frame else None
+    if key and key != LOCK_GREYBOX and not key.startswith(f"{FRAMES}/{shot}/"):
         raise ValueError(f"{key} is not a frame of {shot}")
     sw_site.update_shot(store, shot, locked=key)
     return key

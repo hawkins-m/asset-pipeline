@@ -10,6 +10,7 @@ Variants (same prompt and seeds per shot):
   above    for raised and aerial shots: the default, stronger depth, depth + canny, and
            the relief depth image (sw_shots.depth_relief) at two strengths.
   above2   relief + canny, and relief released at half the steps.
+  realism2 raised shots: depth released at 0.5 / 0.6 with tree-crown words ("seen from above").
   realism  raised shots: the project's view settings with the depth released earlier
            and/or the shot's own references (its locked medium) at a higher strength;
            --refine adds a low-denoise img2img pass (no control) over a chosen variant.
@@ -73,6 +74,10 @@ REALISM = {
     "end0.5_ref0.12": {"depth_end": 0.5, "ref": 0.12},
 }
 SETS["realism"] = REALISM
+# round 2: tree crowns seen from above read as dishes; name what they should look like
+PINES = "dense dark-green umbrella pine canopies, seen from above"
+SETS["realism2"] = {"end0.5_pines": {"depth_end": 0.5, "words": PINES},
+                    "end0.6_pines": {"depth_end": 0.6, "words": PINES}}
 
 
 def _reworded(store, shot: str, words: dict[str, str]) -> str:
@@ -106,10 +111,11 @@ def main():
         tiles += [None] * ((-len(tiles)) % len(a.seed)) if len(a.seed) > 1 else []  # one row per variant
         view = s0_frames.view_of(json.loads((sw_shots.shot_dir(store, shot) / "meta.json").read_text())["shot"])
         for name, fs in SETS[a.set].items():
-            own = None
-            if a.set == "realism":     # the project's settings for this shot's view, varied
+            own = words = None
+            if a.set.startswith("realism"):     # the project's settings for this shot's view, varied
                 var = dict(fs)
                 own = var.pop("ref", None)
+                words = var.pop("words", None)
                 fs = s0_frames.settings(store).for_view(view).model_copy(update=var)
             for seed in a.seed:
                 key = name if len(a.seed) == 1 else f"{name}_s{seed}"
@@ -117,6 +123,8 @@ def main():
                 if not (out / "frame_000.png").exists():
                     t = time.time()
                     prompt = _reworded(store, shot, WORDINGS[a.set][name]) if a.set in WORDINGS else None
+                    if words:
+                        prompt = f"{s0_frames.prompt_for(store, shot)}, {words}"
                     s0_frames.generate(store, shot, n=1, seed=seed, fs=fs, out=out, prompt=prompt,
                                        material_refs=not a.no_material_refs, force=True, own_ref_strength=own)
                     print(f"{shot} {key}: {time.time() - t:.0f}s", flush=True)
@@ -134,8 +142,10 @@ def main():
                 if not (out / "frame_000.png").exists():
                     t = time.time()
                     seed = int(key.rsplit("_s", 1)[1]) if "_s" in key else 11
-                    s0_frames.refine(store, shot, str(root / shot / key / "frame_000.png"), denoise=d, seed=seed,
-                                     out=out)
+                    src = root / shot / key / "frame_000.png"
+                    if not src.exists():         # a variant of another set (realism -> realism2)
+                        src = root.parent / "_ab_realism" / shot / key / "frame_000.png"
+                    s0_frames.refine(store, shot, str(src), denoise=d, seed=seed, out=out)
                     print(f"{shot} {rkey}: {time.time() - t:.0f}s", flush=True)
                 rec = s0_frames.edge_match(out / "frame_000.png", sw_shots.shot_dir(store, shot) / "canny.png")
                 results.setdefault(shot, {})[rkey] = rec

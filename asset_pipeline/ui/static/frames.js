@@ -158,7 +158,7 @@ function renderFrameMain(r, b, f) {
   const bl = batchList(r);
   const c = r.control || framesData.settings;   // this shot's view's settings
   main.innerHTML = `<div class="frames-head">
-      <b>${esc(r.id)}</b><span class="hint" style="margin:0">${esc(r.tier)} · ${r.lens_mm} mm${r.district ? ` · ${esc(r.district)} district` : ""}${r.mood ? " · mood only: never seeds assets" : ""}${r.locked ? ` · locked on ${esc(r.locked.split("/").slice(-2).join("/"))}` : ""}</span>
+      <b>${esc(r.id)}</b><span class="hint" style="margin:0">${esc(r.tier)} · ${r.lens_mm} mm${r.district ? ` · ${esc(r.district)} district` : ""}${r.mood ? " · mood only: never seeds assets" : ""}${r.locked === "greybox" ? " · greybox locked: final frame rendered in Unreal" : r.locked ? ` · locked on ${esc(r.locked.split("/").slice(-2).join("/"))}` : ""}</span>
       <span class="spacer"></span>
       <label>View: <select id="fr-view">${Object.entries(VIEWS).map(([k, v]) => `<option value="${k}"${k === fr.view ? " selected" : ""}>${v}</option>`).join("")}</select></label>
       <label>Batch: <select id="fr-batch" ${bl.length ? "" : "disabled"}>${bl.map((x, i) => `<option value="${esc(x.dir)}"${x.dir === (b && b.dir) ? " selected" : ""}>${esc(x.dir.split("_").pop())}${i === 0 && !x.archived ? " (new)" : ""}${x.archived ? " (older layout)" : ""}</option>`).join("")}</select></label>
