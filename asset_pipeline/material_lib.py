@@ -36,7 +36,7 @@ TYPES = ("concrete", "limestone", "marble", "render", "brick", "timber")
 LIBRARY = {
     "concrete":  {"acg": "Concrete034", "tile_m": [1.1, 0.55], "megascans": ["Brushed Concrete Wall", "Concrete Wall"],
                   "words": "cast or precast concrete: smooth grey panels, formwork joints, no visible blocks"},
-    "limestone": {"acg": "Bricks008", "tile_m": [1.65, 1.65], "alternatives": {"Tiles143": [2.0, 2.0], "Travertine009": [1.2, 1.2]}, "megascans": ["Roman Limestone Wall", "Limestone Wall"],
+    "limestone": {"acg": "Tiles143", "tile_m": [2.0, 2.0], "alternatives": {"Bricks008": [1.65, 1.65], "Travertine009": [1.2, 1.2]}, "megascans": ["Roman Limestone Wall", "Limestone Wall"],
                   "words": "dressed stone: ashlar blocks in regular courses, fine joints, pale cream or grey"},
     "marble":    {"acg": "Marble019", "tile_m": [2.0, 2.0], "megascans": ["White Marble", "Marble"],
                   "words": "polished marble: smooth large slabs, soft veining, bright, slight sheen"},

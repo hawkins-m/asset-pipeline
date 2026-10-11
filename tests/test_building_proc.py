@@ -140,3 +140,65 @@ print("VOL", bm.calc_volume(signed=True))
                        capture_output=True, text=True, check=True, timeout=300)
     vol = float(next(ln for ln in r.stdout.splitlines() if ln.startswith("VOL")).split()[1])
     assert vol > 0.5 * 20 * 20 * 12 * 0.2                                # solid walls: a good share of the cube, positive
+
+
+FORM_DIMS = [("cube", [48, 48, 40]), ("basilica", [87, 50, 24]), ("podium_tower", [37, 28, 47]),
+             ("perimeter", [45, 45, 24]), ("row", [30, 14, 10]), ("hall_vault", [43, 28, 19.5])]
+
+
+@pytest.mark.parametrize("form,dims", FORM_DIMS)
+def test_no_coplanar_twins_after_resolving(form, dims):
+    """Faces of two parts in one plane, facing the same way, rendered black in Cycles (shadow
+    rays hit the twin) and z-fought in Unreal: roof slabs inside walls, attics and accents on the
+    court facade, recess returns over the wall beside them (fixed 2026-10-11)."""
+    ps = bg.GENERATORS[form](dims, {}, bg.features(form, None))
+    bparts.resolve_coincident(ps)
+    assert bparts.coincident_area(ps) == []
+
+
+def test_resolve_keeps_the_trim_in_front_and_moves_only_millimetres():
+    wall = bparts.box(-5, 5, 0, 0.5, 0, 10, "wall")
+    slab = bparts.box(-5, 5, 0, 8, 9.55, 10, "roof")                  # its front face on the wall's
+    coping = bparts.box(-5, 5, 0, 0.6, 9.7, 10.0, "trim")
+    ps = [wall, slab, coping]
+    assert bparts.coincident_area(ps)
+    bparts.resolve_coincident(ps)
+    assert bparts.coincident_area(ps) == []
+    assert coping["y0"] == 0 and coping["z1"] == 10.0                            # the trim never moves
+    assert 0 < slab["y0"] <= 0.004 and 0 < wall["y0"] <= 0.004                   # the others give way, by mm
+    assert abs(wall["z1"] - 10) <= 0.006
+
+
+@pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
+def test_every_face_has_a_material(tmp_path):
+    """Every part's material is one the build makes, and every face of the built GLB has a
+    material slot with a material in it, for every form."""
+    import json
+    import subprocess
+    from asset_pipeline import kit_proc
+    names = {"wall", "base", "top", "trim", "vault", "roof", "glass", "rail_glass", "frame", "planting", "wood"}
+    check = tmp_path / "check.py"
+    check.write_text("""
+import bpy, sys, json
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=sys.argv[sys.argv.index("--") + 1])
+out = []
+for o in bpy.context.scene.objects:
+    if o.type == "MESH":
+        ms = o.data.materials
+        out.append(sum(1 for p in o.data.polygons if p.material_index >= len(ms) or ms[p.material_index] is None))
+print("NOMAT", json.dumps(out))
+""")
+    for form, dims in FORM_DIMS:
+        ps = bg.GENERATORS[form](dims, {}, bg.features(form, None))
+        used = {p["mat"] for p in ps}
+        assert used <= names, f"{form}: parts use materials the build never makes: {used - names}"
+        mats = {m: {"uv": "plain", "color": [0.5, 0.5, 0.5], "rough": 0.5} for m in used}
+        job = tmp_path / f"{form}.json"
+        job.write_text(json.dumps({"name": form, "out": str(tmp_path / f"{form}.glb"), "parts": ps, "materials": mats}))
+        subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(kit_proc.SCRIPT), "--", str(job)],
+                       check=True, capture_output=True, timeout=300)
+        r = subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(check), "--",
+                            str(tmp_path / f"{form}.glb")], capture_output=True, text=True, check=True, timeout=300)
+        nomat = json.loads(next(ln for ln in r.stdout.splitlines() if ln.startswith("NOMAT"))[6:])
+        assert nomat and not any(nomat), f"{form}: faces without a material: {nomat}"

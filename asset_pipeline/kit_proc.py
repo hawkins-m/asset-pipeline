@@ -228,6 +228,8 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
     """Build parts with materials in Blender (scripts/blender_kit.py) into glb; the report
     goes to <asset dir>/procedural.json for the asset's own GLB."""
     maps.mkdir(parents=True, exist_ok=True)
+    from .building_parts import resolve_coincident
+    resolve_coincident(parts)          # coplanar twins render black (Cycles) and z-fight (Unreal)
     job = {"name": asset, "out": str(glb), "repeat": repeat, "width": width, "parts": parts, "materials": materials}
     jp = maps / ("job.json" if repeat == 1 else f"job_x{repeat}.json")
     write_json(jp, job)

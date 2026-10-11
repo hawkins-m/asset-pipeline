@@ -492,3 +492,119 @@ def walls_around(w: float, d: float, Fs: dict, fronts=None) -> list[dict]:
             continue
         parts += placed(facade(length, F), rz, at)
     return parts
+
+
+# --- checks ------------------------------------------------------------------------------
+
+def _faces(p: dict):
+    """A box's or prism's axis-aligned faces after placement: (axis, sign, offset, rect in the
+    other two axes, handle). The handle says how to pull that face back (`_pull`). Turns that
+    aren't multiples of 90 degrees, and the slanted faces of convex pieces, are skipped."""
+    rz = round(p.get("rz", 0.0)) % 360
+    if rz % 90 or p["kind"] not in ("box", "prism"):
+        return []
+    at = p.get("at", [0.0, 0.0, 0.0])
+    if p["kind"] == "box":
+        xz = [(p["x0"], p["z0"]), (p["x1"], p["z0"]), (p["x1"], p["z1"]), (p["x0"], p["z1"])]
+    else:
+        xz = [tuple(v) for v in p["xz"]]
+    if len(xz) < 3:
+        return []
+    xs, zs = [v[0] for v in xz], [v[1] for v in xz]
+    rect = len(xz) == 4 and len({round(x, 6) for x in xs}) == 2 and len({round(z, 6) for z in zs}) == 2
+    y0, y1 = p["y0"], p["y1"]
+    x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+    cx, cz = sum(xs) / len(xs), sum(zs) / len(zs)
+    loc = []                                   # (axis, sign, offset, (a0, a1, b0, b1), handle) in the local frame
+    if rect:                                   # front and back faces only when they're rectangles
+        loc += [(1, -1, y0, (x0, x1, z0, z1), ("y0",)), (1, 1, y1, (x0, x1, z0, z1), ("y1",))]
+    for k, ((xa, za), (xb, zb)) in enumerate(zip(xz, xz[1:] + xz[:1])):
+        if abs(za - zb) < 1e-6:                # horizontal edge: a top or bottom face
+            loc.append((2, 1 if za > cz else -1, za, (min(xa, xb), max(xa, xb), y0, y1), ("edge", k, 1)))
+        elif abs(xa - xb) < 1e-6:              # vertical edge: an end face
+            loc.append((0, 1 if xa > cx else -1, xa, (y0, y1, min(za, zb), max(za, zb)), ("edge", k, 0)))
+    c, s = round(math.cos(math.radians(rz))), round(math.sin(math.radians(rz)))
+    out = []
+    for ax, sg, off, (a0, a1, b0, b1), h in loc:
+        if ax == 2:                            # horizontal: rotate the xy rect
+            pts = [(c * x - s * y + at[0], s * x + c * y + at[1]) for x in (a0, a1) for y in (b0, b1)]
+            out.append((2, sg, round(off + at[2], 3), (min(q[0] for q in pts), max(q[0] for q in pts),
+                                                         min(q[1] for q in pts), max(q[1] for q in pts)), h))
+            continue
+        n = (sg, 0) if ax == 0 else (0, sg)    # vertical: the normal and the face's horizontal span turn
+        n = (c * n[0] - s * n[1], s * n[0] + c * n[1])
+        ends = [(off, a0), (off, a1)] if ax == 0 else [(a0, off), (a1, off)]
+        pts = [(c * x - s * y + at[0], s * x + c * y + at[1]) for x, y in ends]
+        wax = 0 if abs(n[0]) else 1
+        hs = [q[1 - wax] for q in pts]
+        out.append((wax, n[wax], round(pts[0][wax], 3), (min(hs), max(hs), b0 + at[2], b1 + at[2]), h))
+    return out
+
+
+def _twins(parts: list[dict], tol: float):
+    groups = {}
+    for i, p in enumerate(parts):
+        for ax, sg, off, r, h in _faces(p):
+            groups.setdefault((ax, sg, off), []).append((r, i, h))
+    for fs in groups.values():
+        fs.sort(key=lambda f: f[0])
+        for k, (r, i, h) in enumerate(fs):
+            for r2, j, h2 in fs[k + 1:]:
+                if r2[0] >= r[1] - tol:
+                    break
+                if i == j:
+                    continue
+                w, hh = min(r[1], r2[1]) - max(r[0], r2[0]), min(r[3], r2[3]) - max(r[2], r2[2])
+                if w > tol and hh > tol:
+                    yield w * hh, (i, h), (j, h2)
+
+
+def coincident_area(parts: list[dict], tol: float = 0.01) -> list[tuple[float, int, int]]:
+    """Faces of different parts that lie in one plane, face the same way and overlap: [(m2, i, j)]
+    by area. Such twins render black in Cycles (a shadow ray leaving one hits the other) and
+    z-fight in Unreal."""
+    return sorted(((round(a, 3), fi[0], fj[0]) for a, fi, fj in _twins(parts, tol)), reverse=True)
+
+
+def _pull(p: dict, h: tuple, eps: float) -> None:
+    """Move one face of a part inwards by eps."""
+    if h[0] in ("y0", "y1"):
+        p[h[0]] += eps if h[0] == "y0" else -eps
+        return
+    _, k, ax = h
+    if p["kind"] == "box":                     # edges of the box's xz outline: bottom, right, top, left
+        key = {0: "z0", 1: "x1", 2: "z1", 3: "x0"}[k]
+        p[key] += eps if key in ("z0", "x0") else -eps
+        return
+    xz = p["xz"]
+    n = len(xz)
+    cx, cz = sum(v[0] for v in xz) / n, sum(v[1] for v in xz) / n
+    for q in (xz[k], xz[(k + 1) % n]):
+        c = cz if ax == 1 else cx
+        q[ax] += eps if q[ax] < c else -eps
+
+
+# which surface shows where two coincide: copings and slab edges over walls over roof slabs;
+# among equals the part built later (attics, accents, returns) wins
+PRIORITY = {"roof": 0, "vault": 0, "wall": 1, "base": 1, "top": 1, "trim": 2}
+
+
+def resolve_coincident(parts: list[dict], eps: float = 0.002, tol: float = 0.01, passes: int = 8) -> int:
+    """Pull back the losing face of every coincident twin by eps (2 mm: invisible, but enough
+    for Cycles' shadow rays and Unreal's depth buffer to tell the two apart), until none are
+    left: where three coincide, the two losers meet again 2 mm back and the next pass parts them.
+    Returns how many faces moved. Parts are changed in place."""
+    moved = 0
+    for _ in range(passes):
+        pulled = set()
+        for _, (i, hi), (j, hj) in list(_twins(parts, tol)):
+            ri = (PRIORITY.get(parts[i]["mat"], 3), i)
+            rj = (PRIORITY.get(parts[j]["mat"], 3), j)
+            lose = (i, hi) if ri < rj else (j, hj)
+            if lose not in pulled:
+                pulled.add(lose)
+                _pull(parts[lose[0]], lose[1], eps)
+        if not pulled:
+            break
+        moved += len(pulled)
+    return moved

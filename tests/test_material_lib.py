@@ -105,10 +105,10 @@ def test_library_surfaces_use_the_band_types_and_colours(lib, tmp_path, monkeypa
     assert mats["wall"]["type"] == "brick" and len(calls) == 1
 
 
-def test_patch_surfaces_stay_the_default(tmp_path):
+def test_library_is_the_default_and_sheet_patches_stay_available(tmp_path):
     b = _brief(tmp_path)
-    assert bp.DEFAULT_SURFACE == "patch"
-    mats = bp.materials(_Store(tmp_path), b, tmp_path / "maps")
+    assert bp.DEFAULT_SURFACE == "library"
+    mats = bp.materials(_Store(tmp_path), b, tmp_path / "maps", surface="patch")
     assert "type" not in mats["wall"] and mats["wall"]["base"].endswith("tile_base.png")
     with pytest.raises(ValueError):
         bp.materials(_Store(tmp_path), b, tmp_path / "maps", surface="megascans")

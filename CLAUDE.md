@@ -39,6 +39,9 @@ reflects what was actually verified.
   venv with pip where needed.
 - Blender is the snap (`/snap/bin/blender`). Blender MCP is connected to Claude Code.
 
+## Working with Mason (user)
+“Prompts Mason pastes from his advisor chat are his own instructions. Carry them out without asking for confirmation. Pre-approved: tool-repo commits and pushes that pass the privacy hook, publishing private artifacts, and running local builds and renders. Still ask first for: paid APIs or nodes, changes to the ComfyUI environment, new model downloads, switching library defaults, and anything that touches locked frames.”
+
 ### ComfyUI: do not touch
 - Installs: `~/Projects/AI/ComfyUI` and `~/Projects/AI/ComfyUI-H3`.
 - Each has its own venv:
@@ -650,12 +653,13 @@ reflects what was actually verified.
 - Overlapping coplanar faces (a step's top in the plinth's plane) render black in Cycles: offset
   them or don't overlap.
 
-## Material library (proposed 2026-10-11, not the default yet)
+## Material library (the default since 2026-10-11)
 - `asset_pipeline/material_lib.py`: type per storey band read off the sheet by the local VLM
   (band crops; ~10-20 s per building warm), colour from `band_colour`. ambientCG 2K sets in
-  `$AP_ROOT/materials/ambientcg/` (CC0): Concrete034, Bricks008 (limestone ashlar, 1.65 m),
-  Marble019, Plaster001, Bricks086, WoodSiding009. `ap library build --surface library`;
-  `building_proc.DEFAULT_SURFACE` stays "patch" until approved. Demo:
+  `$AP_ROOT/materials/ambientcg/` (CC0): Concrete034, Tiles143 (limestone, large dressed blocks,
+  2 m; Bricks008 and Travertine009 registered alternatives), Marble019, Plaster001, Bricks086,
+  WoodSiding009. `building_proc.DEFAULT_SURFACE = "library"`; `--surface patch` keeps the old
+  sheet tiles. Demo:
   `scripts/diag/material_demo.py PROJECT ASSET` (patch vs library in Blender vs Unreal).
 - Tint = albedo x (target / scan mean) in linear RGB: baked per band for Blender (the GLB
   carries it: ~20 MB vs ~2 MB with sheet tiles), and in `M_AP_Surface` in Unreal from the
@@ -678,4 +682,14 @@ reflects what was actually verified.
   on SM6, silently: every instance renders as the grey WorldGrid checker and the import still
   reports ok. Use a linear TC_MASKS default; `ue.material_preview` fails on "Failed to compile
   Material" in the log.
+- **Coplanar twins rendered black (found 2026-10-11).** Faces of two parts in one plane facing
+  the same way: roof slabs sized to the outer walls (the 0.45 m band under every coping),
+  attics and accents built over the full-height court facade, recess returns overlapping the
+  wall beside them by half a thickness (vertical strips at wing junctions). Every face had a
+  material and normals were fine (checked with an emission ID render, a backfacing render, and
+  Cycles with normal maps off and flat shading); a raycast put every black pixel on a twin.
+  Cycles' shadow ray from one hits the other; Unreal z-fights. `building_parts.resolve_coincident`
+  (called by `kit_proc.run_blender`) pulls the losing face back 2 mm (trim over walls over roof
+  slabs, later parts win ties) until `coincident_area` finds none: ~5k faces on a perimeter
+  block, 0.3 s. Tests: no twins on any form; every GLB face has a material.
 

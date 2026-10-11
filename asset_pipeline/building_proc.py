@@ -242,7 +242,7 @@ def _plain(rgb, rough, metal=0.0):
 # where the storey bands' surfaces come from: "patch" (a tile cut from the sheet) or "library"
 # (material_lib: a scanned PBR set per material type, tinted to the sheet's colour). A brief's
 # "surface" overrides it.
-DEFAULT_SURFACE = "patch"
+DEFAULT_SURFACE = "library"
 
 
 def band_types(store: ProjectStore, brief: dict, log=print) -> dict:
