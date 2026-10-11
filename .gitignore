@@ -25,6 +25,7 @@ dist/
 .cache/
 hf/
 models/
+materials/
 weights/
 
 # Generated outputs

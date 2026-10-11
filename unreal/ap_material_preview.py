@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ap_import  # noqa: E402  (master_material, environment, set_tags, tools)
 
 SURFACE = "/Game/AP/Materials/M_AP_Surface"
-SURFACE_VERSION = "2"
+SURFACE_VERSION = "3"
 TEX_ROOT = "/Game/AP/Materials/Surfaces"
 PREVIEW = "/Game/AP/Preview"
 
@@ -69,9 +69,18 @@ def surface_material(mask_default):
     white = ap_import.engine_asset("/Engine/EngineResources/WhiteSquareTexture")
     uv = expr(unreal.MaterialExpressionTextureCoordinate, -1900, 0)
     uvs = expr(unreal.MaterialExpressionScalarParameter, -1900, 120, parameter_name="UVScale", default_value=1.0)
-    uvm = expr(unreal.MaterialExpressionMultiply, -1700, 50)
+    # UV x (UVScale, UVScale x UVAspect): UVAspect for scans that aren't square (a 2:1 paving scan)
+    asp = expr(unreal.MaterialExpressionScalarParameter, -2100, 220, parameter_name="UVAspect", default_value=1.0)
+    one = expr(unreal.MaterialExpressionConstant, -2100, 320, r=1.0)
+    av = expr(unreal.MaterialExpressionAppendVector, -1900, 260)
+    mel.connect_material_expressions(one, "", av, "A")
+    mel.connect_material_expressions(asp, "", av, "B")
+    sc = expr(unreal.MaterialExpressionMultiply, -1750, 180)
+    mel.connect_material_expressions(uvs, "", sc, "A")
+    mel.connect_material_expressions(av, "", sc, "B")
+    uvm = expr(unreal.MaterialExpressionMultiply, -1600, 50)
     mel.connect_material_expressions(uv, "", uvm, "A")
-    mel.connect_material_expressions(uvs, "", uvm, "B")
+    mel.connect_material_expressions(sc, "", uvm, "B")
     base = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, -400, parameter_name="BaseColorTex", texture=white)
     mel.connect_material_expressions(uvm, "", base, "UVs")
     # the same texture at its smallest mip: its average colour
@@ -87,10 +96,17 @@ def surface_material(mask_default):
     tinted = expr(unreal.MaterialExpressionMultiply, -600, -300)
     mel.connect_material_expressions(base, "RGB", tinted, "A")
     mel.connect_material_expressions(ratio, "", tinted, "B")
+    # Contrast: the scan's spread around the target colour, scaled to the sheet band's
+    # (target + k x (tinted - target), as material_lib.tinted bakes it for Blender)
+    con = expr(unreal.MaterialExpressionScalarParameter, -600, -550, parameter_name="Contrast", default_value=1.0)
+    cl = expr(unreal.MaterialExpressionLinearInterpolate, -500, -450)
+    mel.connect_material_expressions(target, "", cl, "A")
+    mel.connect_material_expressions(tinted, "", cl, "B")
+    mel.connect_material_expressions(con, "", cl, "Alpha")
     amount = expr(unreal.MaterialExpressionScalarParameter, -600, -100, parameter_name="TintAmount", default_value=1.0)
     lerp = expr(unreal.MaterialExpressionLinearInterpolate, -400, -300)
     mel.connect_material_expressions(base, "RGB", lerp, "A")
-    mel.connect_material_expressions(tinted, "", lerp, "B")
+    mel.connect_material_expressions(cl, "", lerp, "B")
     mel.connect_material_expressions(amount, "", lerp, "Alpha")
     sat = expr(unreal.MaterialExpressionSaturate, -200, -300)
     mel.connect_material_expressions(lerp, "", sat, "")
@@ -220,6 +236,8 @@ def slot_instance(asset, slot, spec, surface_master, pbr_master, report):
             mel.set_material_instance_texture_parameter_value(mi, "RoughnessTex", tex["rough"])
         mel.set_material_instance_vector_parameter_value(mi, "TargetColor", unreal.LinearColor(*s["rgb_lin"], 1.0))
         mel.set_material_instance_scalar_parameter_value(mi, "UVScale", float(uv_scale))
+        mel.set_material_instance_scalar_parameter_value(mi, "UVAspect", float(s.get("uv_aspect", 1.0)))
+        mel.set_material_instance_scalar_parameter_value(mi, "Contrast", float(s.get("contrast", 1.0)))
     mel.update_material_instance(mi)
     eal.save_loaded_asset(mi)
     return mi
@@ -255,6 +273,38 @@ def import_glb(asset, glb):
     ns.enabled = True
     mesh.set_editor_property("nanite_settings", ns)
     return mesh
+
+
+def look(eas, lk, report):
+    """The Blender review render's light and exposure: the sun at its angle and irradiance (x 1.2,
+    so that at EV100 0 a white wall in sun reads as in Blender's Standard view), manual
+    exposure, the filmic tone curve off, the sky light scaled to Blender's flat sky."""
+    for a in eas.get_all_level_actors():
+        kind = ap_import.tagged(a).get("ap:env")
+        if kind == "sun":
+            a.set_actor_rotation(unreal.Rotator(0.0, -lk["sun_elevation"], lk["sun_yaw"]), False)
+            a.light_component.set_intensity(lk["sun_lux"])
+        elif kind == "skylight":
+            a.light_component.set_intensity(lk["sky_intensity"])
+        elif ap_import.tagged(a).get("ap:look") == "ppv":
+            eas.destroy_actor(a)
+    ppv = eas.spawn_actor_from_class(unreal.PostProcessVolume, unreal.Vector(0, 0, 0))
+    ppv.set_actor_label("AP_Preview_look")
+    ap_import.set_tags(ppv, ["ap:look=ppv", "ap:source=preview"])
+    ppv.set_editor_property("unbound", True)
+    st = ppv.get_editor_property("settings")
+    applied = []
+    for prop, val in (("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL), ("auto_exposure_apply_physical_camera_exposure", False),
+                      ("auto_exposure_bias", lk["exposure_bias"]), ("tone_curve_amount", 0.0),
+                      ("bloom_intensity", 0.0), ("vignette_intensity", 0.0)):
+        try:
+            st.set_editor_property(f"override_{prop}", True)
+            st.set_editor_property(prop, val)
+            applied.append(prop)
+        except Exception as e:  # a setting this engine version doesn't have
+            report.setdefault("look_skipped", []).append(f"{prop}: {e}")
+    ppv.set_editor_property("settings", st)
+    report["look"] = applied
 
 
 def look_at(src, dst):
@@ -298,13 +348,16 @@ def main(args):
     ground = eas.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(ctr.x, ctr.y, ctr.z - ext.z - 1.0))
     ground.static_mesh_component.set_static_mesh(ap_import.engine_asset("/Engine/BasicShapes/Plane"))
     ground.set_actor_scale3d(unreal.Vector(size * 6 / 100, size * 6 / 100, 1))
-    gm = slot_instance(asset, "ground", {"plain": {"rgb_lin": [0.42, 0.40, 0.37], "rough": 0.8}}, surface_master, pbr_master, report)
-    report["slots"].pop("ground", None)
+    g = dict(args["ground"])              # paving at its real size: the plane is size x 6 cm across
+    g["uv_scale"] = size * 6 / 100 / g.pop("tile_m")[0]
+    gm = slot_instance(asset, "ground", {"surface": g}, surface_master, pbr_master, report)
+    report["ground"] = report["slots"].pop("ground", None)
     ground.static_mesh_component.set_material(0, gm)
     ground.set_actor_label("AP_Preview_ground")
     ap_import.set_tags(ground, ["ap:source=preview"])
     env = {ap_import.tagged(a).get("ap:env") for a in eas.get_all_level_actors()} - {None}
     ap_import.environment(eas, env)
+    look(eas, args["look"], report)
 
     c = args["camera"]
     az = math.radians(c["az"])

@@ -660,8 +660,17 @@ reflects what was actually verified.
 - Tint = albedo x (target / scan mean) in linear RGB: baked per band for Blender (the GLB
   carries it: ~20 MB vs ~2 MB with sheet tiles), and in `M_AP_Surface` in Unreal from the
   texture's lowest mip, so any scan (Megascans too) takes the sheet colour.
-- The VLM answered "concrete" for the ground band of all three buildings tried: possibly a
-  bias (pilotis, shadow). Check, or set `material_types` in the brief.
+- Ground storeys (2026-10-11): band crops are upscaled to 1536 px and the prompt says to judge
+  the piers between openings. One sheet's brick piers still read as limestone (brick and ashlar
+  blur at that scale): set `material_types` in the brief.
+- Contrast: the scans are far more speckled than the sheets' drawn walls. The tint also scales
+  the scan's spread around the target (linear) to the band patch's relative luminance std
+  (factor 0.2-1; a limestone wall came to ~0.4), in Blender and as `Contrast` in M_AP_Surface.
+- Trim (slabs, balcony fronts, parapets, copings) is Plaster001 (Concrete034 on concrete
+  buildings) in the storey-line colour, never the wall stone. GLBs embed 1K maps (a perimeter
+  block: 21 MB -> 5.5 MB); Unreal uses the shared 2K maps.
+- Matching the Blender review look in Unreal: manual exposure (EV100 0, bias -0.15), tone curve
+  off, sun at W/m2 x 1.2 lux and yaw -50 (Blender's rotation mirrored in Y).
 - Megascans come only through Fab with the user's Epic login (some listings are paid): the
   UE preview looks for the type's names among material instances under /Game and falls back
   to the ambientCG maps; the report says which.

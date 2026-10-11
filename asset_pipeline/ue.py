@@ -236,6 +236,11 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
 
 
 PREVIEW_MAP = "/Game/AP/Maps/MaterialPreview"
+# scripts/blender_render_asset.py's Cycles look: sun 3.2 W/m2 at 40 deg elevation (rotation_euler
+# x 50, z -40 deg: light travelling along (0.49, 0.59, -0.64)), Standard view at exposure -0.15, flat sky 0.55 x (0.55, 0.62, 0.72).
+# Unreal: lux = W/m2 x 1.2 at EV100 0 (exposure 1 / 1.2); yaw mirrored for its Y axis.
+BLENDER_LOOK = {"sun_lux": 3.2 * 1.2, "sun_elevation": 40.0, "sun_yaw": -50.0, "exposure_bias": -0.15,
+                "sky_intensity": 1.0}
 
 
 def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out: Path,
@@ -258,14 +263,19 @@ def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out:
             slots[name] = {"surface": {
                 "type": m["type"], "rgb_lin": [round(float(v), 5) for v in material_lib._srgb_to_lin(np.array(m["colour"], float))],
                 "acg_id": src["acg"], "textures": {k: src[k] for k in ("color", "normal_dx", "rough")},
-                "megascans": lib["megascans"], "uv_scale": 1.0,
+                "megascans": lib["megascans"], "uv_scale": 1.0, "contrast": m.get("contrast", 1.0),
                 "uv_scale_megascans": lib["tile_m"][0] / lib.get("megascans_m", 2.0)}}
+    paving = material_lib.fetch("concrete")
+    ground = {"type": "concrete", "rgb_lin": [0.42, 0.40, 0.37], "acg_id": paving["acg"], "tile_m": paving["tile_m"],
+              "textures": {k: paving[k] for k in ("color", "normal_dx", "rough")}, "megascans": [],
+              "uv_aspect": paving["tile_m"][0] / paving["tile_m"][1], "contrast": 0.6}
     shot = f"preview_{asset}"
     mask = work_dir(store) / "T_AP_White_M.png"
     mask.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)
     rep = run_script(store, "ap_material_preview.py", {
-        "asset": asset, "glb": str(glb), "map": PREVIEW_MAP, "shot": shot, "slots": slots, "mask_default": str(mask),
+        "asset": asset, "glb": str(glb), "map": PREVIEW_MAP, "shot": shot, "slots": slots, "mask_default": str(mask), "ground": ground,
+        "look": BLENDER_LOOK,
         "camera": {"az": -35, "el": 0.35, "dist_factor": 1.55, "focal_mm": 50, "sensor_mm": [36, 36 * size[1] / size[0]]}},
         f"UE preview {asset}")
     if "error" in rep:

@@ -36,7 +36,7 @@ TYPES = ("concrete", "limestone", "marble", "render", "brick", "timber")
 LIBRARY = {
     "concrete":  {"acg": "Concrete034", "tile_m": [1.1, 0.55], "megascans": ["Brushed Concrete Wall", "Concrete Wall"],
                   "words": "cast or precast concrete: smooth grey panels, formwork joints, no visible blocks"},
-    "limestone": {"acg": "Bricks008", "tile_m": [1.65, 1.65], "megascans": ["Roman Limestone Wall", "Limestone Wall"],
+    "limestone": {"acg": "Bricks008", "tile_m": [1.65, 1.65], "alternatives": {"Tiles143": [2.0, 2.0], "Travertine009": [1.2, 1.2]}, "megascans": ["Roman Limestone Wall", "Limestone Wall"],
                   "words": "dressed stone: ashlar blocks in regular courses, fine joints, pale cream or grey"},
     "marble":    {"acg": "Marble019", "tile_m": [2.0, 2.0], "megascans": ["White Marble", "Marble"],
                   "words": "polished marble: smooth large slabs, soft veining, bright, slight sheen"},
@@ -65,11 +65,13 @@ def _lin_to_srgb(a: np.ndarray) -> np.ndarray:
     return 255.0 * np.where(a <= 0.0031308, a * 12.92, 1.055 * a ** (1 / 2.4) - 0.055)
 
 
-def fetch(kind: str, log=print) -> dict:
+def fetch(kind: str, log=print, acg: str | None = None) -> dict:
     """The type's ambientCG maps on disk (downloaded on first use): {color, normal_gl, normal_dx,
-    rough, mean_lin, tile_m, acg}. Only the expected map files are taken out of the zip."""
+    rough, mean_lin, tile_m, acg}. Only the expected map files are taken out of the zip. acg: one
+    of the type's `alternatives` instead of its set."""
     lib = LIBRARY[kind]
-    aid = lib["acg"]
+    aid = acg or lib["acg"]
+    tile = lib["alternatives"][aid] if acg and acg != lib["acg"] else lib["tile_m"]
     d = root() / aid
     meta = d / "meta.json"
     if not meta.is_file():
@@ -90,7 +92,7 @@ def fetch(kind: str, log=print) -> dict:
                                     "size_px": [a.shape[1], a.shape[0]], "license": "CC0 (ambientcg.com)"}))
     m = json.loads(meta.read_text())
     return {**{k: str(d / f"{aid}_{RES}_{s}.jpg") for k, s in MAPS.items()}, "mean_lin": m["mean_lin"],
-            "tile_m": lib["tile_m"], "acg": aid}
+            "tile_m": tile, "acg": aid}
 
 
 def tint_ratio(mean_lin, rgb) -> list[float]:
@@ -99,20 +101,55 @@ def tint_ratio(mean_lin, rgb) -> list[float]:
     return [round(float(v), 4) for v in t / np.maximum(np.array(mean_lin), 1e-3)]
 
 
-def tinted(kind: str, rgb, out: Path, size: int = 2048, log=print) -> dict:
-    """Blender maps for one band: the type's albedo tinted to rgb (baked to out/<name>), its own
-    normal (OpenGL) and roughness. Detail keeps its contrast; the average becomes rgb."""
-    src = fetch(kind, log=log)
-    a = np.asarray(Image.open(src["color"]).convert("RGB")).astype(np.float64)
-    lin = _srgb_to_lin(a) * np.array(tint_ratio(src["mean_lin"], rgb))[None, None]
-    img = Image.fromarray(_lin_to_srgb(lin).round().astype(np.uint8))
-    if max(img.size) > size:
-        img = img.resize((size, size * img.height // img.width), Image.LANCZOS)
+LUM_LIN = np.array([0.2126, 0.7152, 0.0722])
+GLB_PX = 1024          # maps embedded in the GLBs; Unreal gets the full-resolution shared ones
+
+
+def lum_std(rgb_px: np.ndarray) -> float:
+    """Luminance spread (linear) of sRGB pixels [..., 3]: how speckled a surface reads."""
+    return float((_srgb_to_lin(np.asarray(rgb_px, np.float64)).reshape(-1, 3) @ LUM_LIN).std())
+
+
+def contrast_factor(kind: str, target_std: float | None, lo: float = 0.2, acg: str | None = None) -> float:
+    """How much to scale the tinted scan's deviation from its mean so its luminance spread
+    matches the sheet band's (never more than the scan's own, never below lo)."""
+    if target_std is None:
+        return 1.0
+    src = fetch(kind, acg=acg)
+    a = np.asarray(Image.open(src["color"]).convert("RGB").resize((256, 256))).astype(np.float64)
+    s = lum_std(a) / max(float(np.array(src["mean_lin"]) @ LUM_LIN), 1e-3)   # relative spread of the scan
+    return round(float(np.clip(target_std / max(s, 1e-4), lo, 1.0)), 3)
+
+
+def _small(path: str, size: int = GLB_PX) -> str:
+    """A shared 1K copy of a scan map (next to it, in <id>/<size>/)."""
+    p = Path(path)
+    out = p.parent / str(size) / p.name
+    if not out.is_file():
+        out.parent.mkdir(exist_ok=True)
+        im = Image.open(p)
+        im.resize((size, size * im.height // im.width), Image.LANCZOS).save(out, quality=92)
+    return str(out)
+
+
+def tinted(kind: str, rgb, out: Path, contrast_std: float | None = None, size: int = GLB_PX, log=print,
+           acg: str | None = None) -> dict:
+    """Blender maps for one band: the type's albedo tinted to rgb, its luminance spread scaled
+    towards contrast_std (the sheet band's relative spread, see building_proc.band_contrast),
+    baked to out at `size`; its own normal (OpenGL) and roughness, shared 1K copies. In linear
+    RGB: target + k * (albedo x target / mean - target), the same as M_AP_Surface in Unreal."""
+    src = fetch(kind, log=log, acg=acg)
+    k = contrast_factor(kind, contrast_std, acg=acg)
+    im = Image.open(src["color"]).convert("RGB")
+    im = im.resize((size, size * im.height // im.width), Image.LANCZOS)
+    t = _srgb_to_lin(np.array(rgb, np.float64))
+    lin = _srgb_to_lin(np.asarray(im).astype(np.float64)) * np.array(tint_ratio(src["mean_lin"], rgb))[None, None]
+    lin = t[None, None] + k * (lin - t[None, None])
     out.parent.mkdir(parents=True, exist_ok=True)
-    img.save(out, quality=92)
-    return {"base": str(out), "normal": src["normal_gl"], "rough": src["rough"], "uv": "tile",
+    Image.fromarray(_lin_to_srgb(lin).round().astype(np.uint8)).save(out, quality=92)
+    return {"base": str(out), "normal": _small(src["normal_gl"], size), "rough": _small(src["rough"], size), "uv": "tile",
             "tile_m": src["tile_m"][0], "tile_v_m": src["tile_m"][1], "colour": [int(c) for c in rgb],
-            "type": kind, "acg": src["acg"]}
+            "type": kind, "acg": src["acg"], "contrast": k}
 
 
 # --- reading the type off the sheet --------------------------------------------------------
@@ -133,6 +170,9 @@ image 1 the ground storey (base), image 2 the middle storeys (wall), image 3 the
 For each band, say what its main wall surface is made of (not the windows, glass, rails, planting
 or shadow), as one of these types:
 {types}
+The ground storey is mostly openings (shopfronts, glazing, doors): judge it by the piers between
+them and the wall ends, which are often a different material from the storeys above (brick piers
+show many thin horizontal courses of small units).
 Judge by the surface: joints, block courses, veining, grain. Colour alone doesn't decide it (pale
 stone, white render and white concrete look alike: look for block joints or panel lines).
 Answer JSON: {{"base": {{"type": ..., "why": ...}}, "wall": {{...}}, "top": {{...}}}}."""
@@ -147,8 +187,8 @@ def band_crops(view: Path, meas: dict, out: Path) -> dict[str, Path]:
     res = {}
     for name, (r0, r1) in _band_rows(meas).items():
         c = im.crop((x0, r0, x1 + 1, r1 + 1))
-        if c.width < 768:
-            c = c.resize((768, max(1, 768 * c.height // c.width)), Image.LANCZOS)
+        if c.width < 1536:              # thin bands: piers between openings are only a few px wide
+            c = c.resize((1536, max(1, 1536 * c.height // c.width)), Image.LANCZOS)
         res[name] = out / f"band_{name}.png"
         c.save(res[name])
     return res

@@ -475,7 +475,7 @@ def facade(L: float, F: dict) -> list[dict]:
         parts += cornice(L, H, F["cornice"])
     if F["parapet"]:
         z = H + sum(h for h, _ in (F["cornice"] or []))
-        parts.append(box(-L / 2, L / 2, 0.0, 0.3, z, z + F["parapet"], F["mat"]["upper"]))
+        parts.append(box(-L / 2, L / 2, 0.0, 0.3, z, z + F["parapet"], "trim"))          # coping: smooth, not the wall stone
     return parts
 
 

@@ -288,7 +288,7 @@ def cube(dims, p, f) -> list[dict]:
                            (-w / 2, -a / 2, -a / 2, a / 2), (a / 2, w / 2, -a / 2, a / 2)):
         parts.append(box(x0, x1, y0, y1, h - 0.8, h, "roof"))
     parts.append(box(-a / 2, a / 2, -a / 2, a / 2, h - 0.3, h - 0.2, "glass"))
-    parts += ring(w, d, 0.6, h, h + 0.5, "wall")
+    parts += ring(w, d, 0.6, h, h + 0.5, "trim")
     return parts
 
 

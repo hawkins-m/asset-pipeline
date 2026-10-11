@@ -96,7 +96,7 @@ def test_library_surfaces_use_the_band_types_and_colours(lib, tmp_path, monkeypa
     monkeypatch.setattr(ml, "classify", classify)
     mats = bp.materials(_Store(tmp_path), b, tmp_path / "maps", surface="library", log=lambda *a: None)
     assert [mats[n]["type"] for n in ("base", "wall", "top")] == ["concrete", "limestone", "render"]
-    assert mats["trim"]["type"] == "limestone" and mats["roof"]["type"] == "limestone"
+    assert mats["trim"]["type"] == "render" and mats["roof"]["type"] == "limestone"   # copings: smooth, not stone
     assert mats["glass"]["uv"] == "plain"
     assert mats["top"]["colour"][0] < mats["wall"]["colour"][0]           # the band's own colour
     assert b["measured"]["materials"]["wall"]["type"] == "limestone"      # read once, kept in the brief
@@ -147,3 +147,13 @@ def test_ue_preview_maps_slots_and_refuses_a_failed_material(lib, tmp_path, monk
     seen["_log"] = "LogMaterial: Warning: [AssetLog] /x/Content/AP/Materials/M_AP_Surface.uasset: Failed to compile Material"
     with pytest.raises(RuntimeError, match="failed to compile"):
         ue.material_preview(store, "a1", tmp_path / "a.glb", job, tmp_path / "out")
+
+
+def test_contrast_scales_the_spread_towards_the_band_and_keeps_the_mean(lib, tmp_path):
+    full = ml.tinted("limestone", [205, 198, 185], tmp_path / "a.jpg")
+    calm = ml.tinted("limestone", [205, 198, 185], tmp_path / "b.jpg", contrast_std=0.01)
+    a, b = (np.asarray(Image.open(m["base"]).convert("RGB")).astype(float) for m in (full, calm))
+    assert full["contrast"] == 1.0 and 0.2 <= calm["contrast"] < 0.5
+    assert ml.lum_std(b) < 0.6 * ml.lum_std(a)
+    assert b.reshape(-1, 3).mean(0) == pytest.approx(a.reshape(-1, 3).mean(0), abs=4)
+    assert Image.open(calm["base"]).width == ml.GLB_PX and "/1024/" in calm["normal"]       # 1K in the GLB

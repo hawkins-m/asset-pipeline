@@ -257,6 +257,36 @@ def band_types(store: ProjectStore, brief: dict, log=print) -> dict:
     return {b: (brief.get("material_types") or {}).get(b) or meas["materials"][b]["type"] for b in ("base", "wall", "top")}
 
 
+def band_contrast(a: np.ndarray, box) -> float | None:
+    """A band's surface spread on the sheet: relative luminance std (linear) of its plain patch
+    with the patch's own gradient (light falloff) removed."""
+    if not box:
+        return None
+    from .material_lib import LUM_LIN, _srgb_to_lin
+    x0, y0, x1, y1 = box
+    lum = _srgb_to_lin(a[y0:y1, x0:x1]) @ LUM_LIN
+    if lum.size < 64:
+        return None
+    flat = lum - ndimage.gaussian_filter(lum, max(2.0, min(lum.shape) / 4))
+    return float(flat.std() / max(float(lum.mean()), 1e-3))
+
+
+def edge_colour(a: np.ndarray, mask: np.ndarray, meas: dict) -> list[int] | None:
+    """The colour of the slab edges: the brightest typical tone along the storey lines (the
+    sheet draws slab edges, balcony fronts and copings as light bands there)."""
+    if not (meas.get("storey_px") and meas.get("bbox_px")):
+        return None
+    x0, y0, x1, y1 = meas["bbox_px"]
+    rows = sorted({int(round(y0 + k * meas["storey_px"])) + d for k in range(int((y1 - y0) / meas["storey_px"]) + 1)
+                   for d in (-1, 0, 1)} & set(range(y0, y1)))
+    px = a[rows][:, x0:x1][mask[rows][:, x0:x1]]
+    if len(px) < 50:
+        return None
+    lum = px @ LUM
+    sel = px[(lum >= np.percentile(lum, 70)) & (lum <= np.percentile(lum, 97))]
+    return [int(v) for v in np.median(sel, 0)] if len(sel) else None
+
+
 def _band_colours(a: np.ndarray, mask: np.ndarray, brief: dict) -> dict:
     meas, col = brief["measured"], brief.get("colors") or {}
     rows = _band_rows(meas) if meas.get("bbox_px") else {}
@@ -276,9 +306,15 @@ def materials(store: ProjectStore, brief: dict, maps: Path, surface: str | None 
     else:
         from . import material_lib
         types = band_types(store, brief, log)
-        out = {n: material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log) for n in ("wall", "base", "top")}
-        trim = (brief.get("colors") or {}).get("trim") or [int(min(255, c * 1.02)) for c in colours["wall"]]
-        out["trim"] = material_lib.tinted(types["wall"], trim, maps / f"trim_{types['wall']}.jpg", log=log)
+        meas = brief["measured"]
+        out = {n: material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log,
+                                      contrast_std=band_contrast(a, (meas.get("patches") or {}).get(n) or meas.get("patch_px")))
+               for n in ("wall", "base", "top")}
+        # slab edges, balcony fronts, parapets, copings: smooth render (concrete on a concrete
+        # building) in the colour the sheet draws them, never the wall stone
+        trim = (brief.get("colors") or {}).get("trim") or edge_colour(a, _object_mask(a), meas) or colours["wall"]
+        tt = "concrete" if types["wall"] == "concrete" else "render"
+        out["trim"] = material_lib.tinted(tt, trim, maps / f"trim_{tt}.jpg", log=log, contrast_std=0.02)
         out["vault"] = dict(out["wall"])
         out["roof"] = dict(out["wall"])
     return out | _plain_materials(brief)
