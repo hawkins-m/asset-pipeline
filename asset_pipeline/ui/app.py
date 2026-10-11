@@ -56,6 +56,16 @@ class LibraryRouteReq(BaseModel):
     route: Literal["procedural", "trellis"] | None = None      # None: back to the default
 
 
+class AssetBriefReq(BaseModel):
+    brief: dict
+    confirm: bool = False          # rebuild even though locked frames show instances whose size changed
+
+
+class AssetReviewReq(BaseModel):
+    status: Literal["approved", "needs_changes", "needs_feature"] | None = None
+    note: str = ""
+
+
 class StarReq(BaseModel):
     path: str
     starred: bool = True
@@ -297,6 +307,11 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         sheets = tag["sheets"]
         done, total = sum(1 for k in sheets if not _uncut(store, k)), len(sheets)
         line = f"SAM 3.1 · sheet {min(done + 1, total)} of {total}"
+    elif job.kind == "library.rebuild" and tag.get("asset"):
+        from .. import library_review as lr
+        st = read_json(lr.review_dir(store, tag["asset"], tag.get("round", 1)) / "status.json", default=None) or {}
+        done, total = st.get("step", 0), len(lr.STEPS)
+        line = f"{tag['asset']} · {st.get('line') or 'saving the brief'}"
     elif job.kind == "ue.export":
         out_dir = s7_export.export_dir(store)
         m = re.findall(r"EXPORT_TOTAL (\d+)", _run_tail(out_dir / "blender.log", since) or "")
@@ -890,6 +905,86 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             raise HTTPException(404, str(e))
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    # --- library build review (detail view) ---
+
+    def _asset_payload(store, asset):
+        from .. import building_gen, kit_proc, library_review as lr
+        brief = read_json(kit_proc.spec_path(store, asset), default=None)
+        if brief is None:
+            raise HTTPException(404, f"no procedural brief for {asset}")
+        form = brief.get("form") or brief.get("kind")
+        e = lr.entry_of(store, asset)
+        layout = sw_site.load_layout(store)
+        typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
+        building = brief.get("kind") == "building"
+        views = []
+        if building:
+            sheet_dir = (store.root / brief["sheet"]).parent
+            views = sorted(p.relative_to(store.root).as_posix() for p in sheet_dir.glob("sheet_*.png"))
+        return {"asset": asset, "brief": brief, "building": building,
+                "features": building_gen.features(form, brief.get("features")) if building else None,
+                "defaults": building_gen.TYPE_FEATURES.get(form) if building else None,
+                "templates": building_gen.TEMPLATES,
+                "catalog": ({"width": typ.width, "depth": typ.depth, "storeys": typ.storeys,
+                             "storey_m": typ.storey_m or (layout.city.storey_m if layout.city else 3.4)} if typ else None),
+                "entry": e and {k: e.get(k) for k in ("id", "tier", "typology", "district", "material", "size_m", "instances")},
+                "usage": lr.usage(store, asset), "images": lr.images(store, asset), "review": lr.get(store, asset),
+                "round": lr.current_round(store), "statuses": lr.STATUSES, "sheets": views,
+                "jobs": [j.public() for j in jobs.list(slug_of(store)) if j.kind == "library.rebuild"
+                         and j.tag.get("asset") == asset and j.status in ("queued", "running")]}
+
+    def slug_of(store):
+        return store.root.name
+
+    @app.get("/api/projects/{slug}/library/reviews")
+    def library_reviews(slug: str):
+        from .. import kit_proc, library_review as lr
+        store = _store(slug)
+        kits = sorted(p.stem for p in (store.root / "library/kits").glob("*.json"))
+        rv = lr.reviews(store)
+        return {"round": lr.current_round(store), "statuses": lr.STATUSES,
+                "assets": [{"asset": a, "status": (rv.get(a) or {}).get("status"),
+                            "form": (read_json(kit_proc.spec_path(store, a), default={}) or {}).get("form") or "kit",
+                            "thumb": (lr.images(store, a).get("current") or {}).get("threeq")} for a in kits]}
+
+    @app.get("/api/projects/{slug}/library/asset/{asset}")
+    def library_asset(slug: str, asset: str):
+        return _asset_payload(_store(slug), asset)
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/check")
+    def library_asset_check(slug: str, asset: str, req: AssetBriefReq):
+        """Validate an edited brief and list the locked frames a size change would touch."""
+        from .. import kit_proc, library_review as lr
+        store = _store(slug)
+        old = read_json(kit_proc.spec_path(store, asset), default=None)
+        b = {**(old or {}), **req.brief}
+        v = lr.validate(store, asset, b) if b.get("kind") == "building" else {"errors": [], "warnings": []}
+        return v | {"impact": lr.locked_impact(store, asset, old, b)}
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/rebuild")
+    def library_asset_rebuild(slug: str, asset: str, req: AssetBriefReq):
+        from .. import kit_proc, library_review as lr
+        store = _store(slug)
+        old = read_json(kit_proc.spec_path(store, asset), default=None)
+        if old is None:
+            raise HTTPException(404, f"no procedural brief for {asset}")
+        b = {**old, **req.brief}
+        imp = lr.locked_impact(store, asset, old, b)
+        if imp and not req.confirm:
+            raise HTTPException(409, "locked frames show this asset: " + ", ".join(f"{r['shot']} ({100 * r['frac']:.2f}%)" for r in imp))
+        if old.get("kind") == "building":
+            try:
+                lr.save_brief(store, asset, req.brief)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        return jobs.submit("library.rebuild", slug, lambda: lr.rebuild(store, asset), lane="cpu",
+                           tag={"asset": asset, "round": lr.current_round(store)}).public()
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/review")
+    def library_asset_review(slug: str, asset: str, req: AssetReviewReq):
+        from .. import library_review as lr
+        return lr.set_status(_store(slug), asset, req.status, req.note)
 
     @app.post("/api/projects/{slug}/library/route")
     def library_route(slug: str, req: LibraryRouteReq):

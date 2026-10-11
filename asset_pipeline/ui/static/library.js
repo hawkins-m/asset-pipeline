@@ -12,6 +12,7 @@ const LIB_TIERS = {A: "landmark / kit monument", B: "singular civic", C: "fill t
 async function loadLibrary() {
   if (!slug) { libraryData = null; return; }
   try { libraryData = await api(`/api/projects/${slug}/library`); } catch (_) { libraryData = null; }
+  if (typeof loadAssetReviews === "function") await loadAssetReviews();
 }
 
 function libEntries() {
@@ -51,6 +52,10 @@ function libCard(e) {
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
       ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
         <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
+      ${typeof lrAssetsOf === "function" && lrAssetsOf(e.id).length ? `<div class="asset-review">${lrAssetsOf(e.id).map(a => {
+          const st = ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status;
+          return `<button type="button" class="small" data-review="${esc(a)}" title="Build review: reference vs build, brief, rebuild">Build review${lrAssetsOf(e.id).length > 1 ? `: ${esc(a.slice(e.id.length + 1))}` : ""}</button>${st ? ` <span class="mark ${LR_STATUS_CLASS[st]}">${esc(lr.list.statuses[st])}</span>` : ""}`;
+        }).join(" ")}</div>` : ""}
       <div class="asset-actions" role="group" aria-label="Decision for ${esc(e.id)}">
         ${LIB_DECISIONS.filter(([k]) => k !== "kit" || d === "kit").map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
           title="${d === k && (libraryData.decisions[e.id] || {}).auto ? "Set automatically: no usable crop" : ""}"
@@ -132,6 +137,8 @@ function pickReference(e) {
 }
 
 $("#assets-list").addEventListener("click", async e => {
+  const rb = e.target.closest("[data-review]");
+  if (rb) { openAssetReview(rb.dataset.review); return; }
   const r = e.target.closest("[data-route]");
   if (r) {
     const id = r.closest("[data-entry]").dataset.entry, ent = libEntries().find(x => x.id === id);

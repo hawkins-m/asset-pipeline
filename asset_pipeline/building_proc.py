@@ -217,13 +217,13 @@ def seamless_detail(patch: np.ndarray, colour, size: int = 256) -> np.ndarray:
     for c in range(3):                                   # remove a plane, then what's left of big shading
         coef = np.linalg.lstsq(A, p[..., c].ravel(), rcond=None)[0]
         flat = p[..., c] - (A @ coef).reshape(h, w)
-        out[..., c] = flat - ndimage.gaussian_filter(flat, max(2.0, min(h, w) / 5))
+        out[..., c] = flat - ndimage.gaussian_filter(flat, max(1.5, min(h, w) / 8))
     det = np.clip(out, -40, 40)
     r = np.roll(np.roll(det, h // 2, 0), w // 2, 1)
-    u = 1 - np.abs(2 * xx / max(w - 1, 1) - 1)
-    v = 1 - np.abs(2 * yy / max(h - 1, 1) - 1)
-    m = (np.minimum(u, v) ** 0.8)[..., None]
-    det = det * m + r * (1 - m)
+    # a smooth window (product of raised cosines): 1 in the middle, 0 on the borders, where the
+    # rolled copy (whose seam is in the middle) takes over. A min(u, v) pyramid printed diamonds.
+    m = ((0.5 - 0.5 * np.cos(2 * np.pi * (xx + 0.5) / w)) * (0.5 - 0.5 * np.cos(2 * np.pi * (yy + 0.5) / h)))[..., None]
+    det = (det * m + r * (1 - m)) / np.sqrt(m ** 2 + (1 - m) ** 2)      # keep the detail's contrast through the blend
     tex = np.clip(np.array(colour, np.float64)[None, None] + det, 0, 255)
     return np.asarray(Image.fromarray(tex.astype(np.uint8)).resize((size, size), Image.LANCZOS))
 

@@ -372,7 +372,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         e["description_auto"] = _description(e, catalog, mats)
         e["route_auto"] = route_auto(e, catalog.get(e["typology"]))
         e["description"] = None
-        e.pop("slots")
+        e["slot_ids"] = sorted(e.pop("slots"))
         (out_entries if e["best"] else unseen).append(e)
     order = {"A": 0, "B": 1, "C": 2, "D": 3}
     out_entries.sort(key=lambda e: (e["district"], order[e["tier"]], e["typology"], -e["share"]))
@@ -382,7 +382,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
             "entries": out_entries,
             "unseen": [{k: e[k] for k in ("id", "tier", "kind", "typology", "part", "material", "instances",
                                           "districts", "district", "mood", "flags", "description_auto", "size_m",
-                                          "route_auto")}
+                                          "route_auto", "slot_ids")}
                        | {"share": e["sources"][0]["share"] if e["sources"] else 0.0} for e in unseen],
             "surfaces": {k: v for k, v in surfaces.most_common()}}
     _auto_decide(store, data["entries"])
@@ -592,6 +592,8 @@ def decisions_path(store: ProjectStore) -> Path:
 
 
 def decisions(store: ProjectStore) -> dict[str, dict]:
+    """Per entry id: the user's decision, description, route. Keys starting with "_" are not
+    entries: "_reviews" holds the build reviews per asset id (library_review.py)."""
     return read_json(decisions_path(store), default={}) or {}
 
 
@@ -711,7 +713,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     assets = []
     for eid, d in dec.items():
         e = entries.get(eid)
-        if e is None or d.get("decision") in (None, "exclude") or e.get("kind") == "vegetation":
+        if eid.startswith("_") or e is None or d.get("decision") in (None, "exclude") or e.get("kind") == "vegetation":
             continue
         inc = only is None or eid in only
         if d["decision"] == "kit":

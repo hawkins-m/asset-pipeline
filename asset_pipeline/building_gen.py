@@ -24,9 +24,9 @@ TYPE_FEATURES = {
     },
     "cube": {
         "wall_t": 2.4, "plinth": [[0.45, 2.6], [0.45, 1.4]],
-        "niche": {"faces": ["front", "back", "left", "right"], "w": 0.42, "h": 0.74, "rise": 0.2, "depth": 4.5,
+        "niche": {"faces": ["front", "back", "left", "right"], "w": 0.5, "h": 0.75, "rise": 0.2, "depth": 4.5,
                   "mezzanine": 0.46, "steps": 3, "door_w": 0.22, "screen": True},
-        "rounds": None, "joints": {"cols": 4, "rows": 3}, "atrium": 0.34,
+        "rounds": None, "joints": {"cols": 4, "rows": 3, "groove": 0.12}, "atrium": 0.34,
     },
     "basilica": {
         "nave": 0.44, "aisle_h": 0.42, "gallery_h": 0.6,
@@ -191,7 +191,8 @@ def cube(dims, p, f) -> list[dict]:
                 extra.append(prism([[xa, za], [xb, zb], [xb, zb + 0.6], [xa, za + 0.6]], t, dep, "wall"))
             extra += [box(-nw / 2 - 0.6, -nw / 2, t, dep, 0.0, nh, "wall"), box(nw / 2, nw / 2 + 0.6, t, dep, 0.0, nh, "wall")]
             zm = ni["mezzanine"] * nh
-            back_ops = [{"kind": "rect", "cx": 0.0, "w": ni["door_w"] * nw, "z0": 0.0, "h": min(zm - 0.6, 3.4)}]
+            # doors stay human whatever the niche: at most 2.6 x 3.0 m (a double door)
+            back_ops = [{"kind": "rect", "cx": 0.0, "w": min(ni["door_w"] * nw, 2.6), "z0": 0.0, "h": min(zm - 0.6, 3.0)}]
             if ni.get("screen"):
                 back_ops.append({"kind": "arch", "cx": 0.0, "w": 0.4 * nw, "z0": zm + 0.8, "h": 0.6 * (nh - zm)})
             extra += pierced(-nw / 2, nw / 2, 0.0, lambda x, o=o: max(_head(o, x), 0.0), dep, dep + 0.6, back_ops,
@@ -205,10 +206,18 @@ def cube(dims, p, f) -> list[dict]:
                     zz = so["z0"] + (so["h"] - so["w"] / 2) * k / 5
                     extra.append(box(-so["w"] / 2, so["w"] / 2, dep + 0.05, dep + 0.2, zz - 0.06, zz + 0.06, "frame"))
             extra.append(box(-nw / 2, nw / 2, -0.8, dep, zm - 0.5, zm, "trim"))
-            extra += balustrade(-nw / 2 + 0.2, nw / 2 - 0.2, -0.8, zm, "solid", 1.0)
-            for k in range(ni.get("steps", 0)):
-                extra.append(box(-nw / 2 + 0.3, nw / 2 - 0.3, -0.5 * (ni["steps"] - k), dep,
-                                 -0.15 * (ni["steps"] - k), -0.15 * (ni["steps"] - k - 1), "base"))
+            extra += balustrade(-nw / 2 + 0.2, nw / 2 - 0.2, -0.8, zm, "solid", 1.05)
+            if ni.get("steps"):                  # a flight from the ground up to the plinth top, in front of the niche,
+                over = max(o_ for _, o_ in f["plinth"])          # at human scale (15 cm rise, 38 cm tread); no step
+                y_edge = -min(o_ for _, o_ in f["plinth"])       # shares a plane with a plinth tier
+                n_st = max(1, round(zp / 0.15))
+                rise = zp / n_st
+                for k in range(1, n_st):
+                    top = -rise * k
+                    if any(abs((top + zp) - zz) < 0.02 for zz in np.cumsum([h_ for h_, _ in f["plinth"]])):
+                        top -= 0.01
+                    extra.append(box(-nw / 2 + 0.3, nw / 2 - 0.3, y_edge - 0.38 * k, y_edge - 0.38 * (k - 1), -zp, top, "base"))
+                del over
         if f.get("rounds"):
             r = f["rounds"]["r"] * H
             for sx in (-1, 1):
@@ -217,14 +226,17 @@ def cube(dims, p, f) -> list[dict]:
         jt = f.get("joints")
         if jt:                                          # panel joints: so many panels across and up each face
             rows_ = jt.get("rows") or max(1, int(H / jt.get("panel_h", 3.2)))
+            g_ = jt.get("groove", 0.12) / 2
             for k in range(1, rows_):
                 zz = H * k / rows_
-                wall.append(box(-length / 2, length / 2, -0.015, 0.0, zz - 0.03, zz + 0.03, "frame"))
+                wall.append(box(-length / 2, length / 2, -0.03, 0.0, zz - g_, zz + g_, "frame"))
             nj = jt.get("cols") or max(1, int(length / jt.get("panel_w", 4.0)))
             for k in range(1, nj):
                 xx = -length / 2 + k * length / nj
-                if not any(abs(xx) < o["w"] / 2 + 0.6 for o in ops if o["kind"] == "seg"):
-                    wall.append(box(xx - 0.03, xx + 0.03, -0.015, 0.0, 0.0, H, "frame"))
+                over = [o for o in ops if o["kind"] == "seg" and abs(xx - o["cx"]) < o["w"] / 2 + 0.6]
+                z_from = max([_head(o, min(max(xx, o["cx"] - o["w"] / 2), o["cx"] + o["w"] / 2)) + 0.8 for o in over], default=0.0)
+                if z_from < H - 0.5:                     # a joint over the niche runs down to its head
+                    wall.append(box(xx - g_, xx + g_, -0.03, 0.0, z_from, H, "frame"))
         parts += placed(wall + extra, rz, at)
     a = f["atrium"] * min(w, d)
     for x0, x1, y0, y1 in ((-w / 2, w / 2, -d / 2, -a / 2), (-w / 2, w / 2, a / 2, d / 2),
@@ -407,7 +419,27 @@ def perimeter(dims, p, f) -> list[dict]:
         Ft["mat"] = {"ground": "top", "upper": "top"}
         Ht = H + height(Ft)
         c = top.get("corners")
-        if c:                                            # attic volumes at the corners only
+        span = top.get("span")
+        if span:                                         # an attic over the middle of the street fronts only;
+            aw_ = span * w                               # the wings end in planted roof terraces
+            ad_ = wing - s
+            for sy, rz in ((-1, 0), (1, 180)):
+                ya = sy * (d / 2 - s - ad_ / 2)
+                Fat = _F(top["facade"], storeys=k, storey_h=st, ground_h=st, bay_m=bay)
+                Fat["ground"] = {"kind": "plain"}
+                Fat["mat"] = {"ground": "top", "upper": "top"}
+                vol = walls_around(aw_, ad_, {"front": Fat})
+                parts += placed(lifted(vol, H), rz, (0, ya, 0))
+                parts.append(box(-aw_ / 2, aw_ / 2, ya - ad_ / 2, ya + ad_ / 2, Ht - 0.45, Ht, "roof"))
+                parts += placed(ring(aw_ + 0.4, ad_ + 0.4, 0.5, Ht, Ht + 0.3, "trim"), 0, (0, ya, 0))
+            for i, (x0, x1, y0, y1) in enumerate(((-w / 2 + 2, -aw_ / 2 - 2, -d / 2 + 2, -d / 2 + wing - 2),
+                                                  (aw_ / 2 + 2, w / 2 - 2, -d / 2 + 2, -d / 2 + wing - 2),
+                                                  (-w / 2 + 2, -aw_ / 2 - 2, d / 2 - wing + 2, d / 2 - 2),
+                                                  (aw_ / 2 + 2, w / 2 - 2, d / 2 - wing + 2, d / 2 - 2))):
+                if x1 - x0 > 2:                          # terrace beds with shrubs between paths
+                    parts.append(box(x0, x1, y0 + 1.5, y1 - 1.5, H, H + 0.35, "planting"))
+                    parts += planter(x0, x1, y0, y0 + 0.9, H, h=0.5, green=0.6, seed=i)
+        elif c:                                          # attic volumes at the corners only
             for sx in (-1, 1):
                 for sy in (-1, 1):
                     cx_, cy_ = sx * (w / 2 - s - c / 2), sy * (d / 2 - s - c / 2)
@@ -511,3 +543,30 @@ def row(dims, p, f) -> list[dict]:
 
 GENERATORS = {"hall_vault": hall_vault, "cube": cube, "basilica": basilica, "podium_tower": podium_tower,
               "perimeter": perimeter, "row": row}
+
+
+# Starting values for optional parts that a form's defaults leave off (None): what the review
+# form fills in when such a part is switched on.
+TEMPLATES = {
+    "accent": {"w": 0.16, "extra": 1, "recess": 2.0, "facade": {"pattern": ["loggia"]}},
+    "street_garden": {"depth": 3.0, "h": 1.2, "gap": 6.0},
+    "street_side": {"pattern": ["window"]},
+    "top": {"storeys": 1, "setback": 3.0, "planters": True, "balustrade": "glass", "facade": {"pattern": ["window"]}},
+    "gardens": {"every": 2, "from": 2, "depth": 1.4, "drape": True, "faces": ["front"]},
+    "crown": {"inset": 1.2, "h": 3.6, "roof_over": 1.4},
+    "rounds": {"r": 0.13, "x": 0.3, "z": 0.5},
+    "front_garden": {"depth": 2.0, "h": 1.0},
+    "roof_box": {"w": 2.6, "d": 3.0, "h": 2.6},
+    "balcony": {"kind": "slab", "depth": 1.3, "balustrade": "glass", "every": 1, "on": "window"},
+    "pilasters": {"every": 2, "w": 0.6, "proj": 0.2},
+    "courses": {"every": 2, "h": 0.2, "proj": 0.06},
+    "tower_faces": {"front": {"pattern": ["loggia", "solid"]}},
+    "house_types": [{}],
+    "end_screen": {"recess": 2.5, "mezzanine": 0.42, "fins": 1.6, "passage_w": 0.36, "pier": True},
+    "stalls": {"rows": 2, "pitch": 3.2, "w": 2.6, "d": 1.4, "canopy": 2.5},
+    "skylight": {"side": 1, "segs": [10, 12], "mullion_m": 2.2},
+    "end_rim": {"w": 1.3, "proj": 0.6},
+    "niche": {"faces": ["front"], "w": 0.5, "h": 0.75, "rise": 0.2, "depth": 4.5, "mezzanine": 0.46, "steps": 3,
+              "door_w": 0.22, "screen": True},
+    "joints": {"cols": 4, "rows": 3, "groove": 0.12},
+}

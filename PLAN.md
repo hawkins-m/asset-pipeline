@@ -265,6 +265,14 @@ So:
   typology's generator".
 - Every library entry carries its route (`procedural` / `trellis`), set by tier and form,
   and the user can change it per entry.
+- **Review loop (2026-10-10).** Each procedural asset is reviewed in the app (Library › Asset
+  review › Build review). The view shows the reference against the current and previous builds,
+  with an orbit option. The brief is edited as a form, validated against the catalog, and
+  rebuilt as a CPU job: a preview in seconds, Cycles after. Each review records a status
+  (Approved / Needs changes / Needs new feature) and a note, with history per round.
+  `ap library review apply` turns the round into one task list for Claude Code;
+  `--done` marks the handled assets Ready for review and opens the next round. Size changes that
+  touch locked frames warn first.
 
 Step order, each a reviewable milestone:
 

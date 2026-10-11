@@ -603,6 +603,22 @@ def cmd_library_decide(a) -> None:
           + (f" (reference {d[a.entry]['frame']})" if d.get(a.entry, {}).get("frame") else ""))
 
 
+def cmd_library_review(a) -> None:
+    from . import library_review as lr
+    store = ProjectStore.open(a.project)
+    if a.what == "apply":
+        if a.done:
+            rnd = lr.done(store, a.done)
+            print(f"marked Ready for review: {', '.join(a.done)}; round {rnd} is open")
+            return
+        print(lr.task_list(store))
+    else:
+        rv = lr.reviews(store)
+        print(f"round {lr.current_round(store)}")
+        for asset, r in sorted(rv.items()):
+            print(f"  {asset:24s} {lr.STATUSES.get(r.get('status'), '-'):18s} {r.get('note', '').replace(chr(10), ' / ')[:90]}")
+
+
 def cmd_library_route(a) -> None:
     from .stages import sw_library
     store = ProjectStore.open(a.project)
@@ -1123,6 +1139,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("entries", nargs="+")
     p.set_defaults(fn=cmd_library_build)
+    p = libsub.add_parser("review", help="build reviews: the task list of assets marked Needs changes / Needs new "
+                                         "feature (apply), or every asset's status (show)")
+    p.add_argument("what", choices=["apply", "show"])
+    p.add_argument("project")
+    p.add_argument("--done", nargs="+", metavar="ASSET", help="apply: mark these handled (Ready for review) and open "
+                                                              "the next round")
+    p.set_defaults(fn=cmd_library_review)
     p = libsub.add_parser("route", help="how an entry's 3D is made: procedural (architecture) or trellis")
     p.add_argument("project")
     p.add_argument("entry")

@@ -333,7 +333,7 @@ class Typer:
                    for sx in (-1, 1) for sy in (-1, 1)]
         zs = self.f.z(np.array([p[0] for p in corners]), np.array([p[1] for p in corners]))
         z0, slack = float(zs.min()) - 0.3, float(zs.max() - zs.min()) + 0.3
-        h = st * c.storey_m
+        h = st * (t.storey_m or c.storey_m)
         b = Building(t.id, t.family, district, cx, cy, rot, st, h + slack, w * d, roof, facade, ground,
                      self._columns(t, district, facade), block, run, accent=accent)
         P = b.parts
@@ -750,13 +750,14 @@ class Typer:
             b.parts.append(Part("box", float(q[0]), float(q[1]), z0, r * 1.2, 5.0, b.h * 0.8, down + 90, "stage"))
             b.foot = math.pi * r * r / 2
         elif t.form == "podium_tower":
-            pod = 3 * self.c.storey_m
+            pod = t.podium_storeys * self.c.storey_m
             slack = b.h - b.storeys * self.c.storey_m
+            tw, td = w * t.tower_scale, d * t.tower_scale
             b.parts = [Part("box", x, y, z0, min(w * 1.8, L - 8), min(d * 1.8, S - 8), pod + slack, ang, "podium"),
-                       Part("box", x, y, z0 + pod, w, d, b.h - pod - self.c.storey_m * 2, ang)]
+                       Part("box", x, y, z0 + pod, tw, td, b.h - pod - self.c.storey_m * 2, ang)]
             crown_z = z0 + b.h - self.c.storey_m * 2
-            b.parts.append(Part("box", x, y, crown_z, w - 4, d - 4, self.c.storey_m * 2, ang, "setback"))
-            self.roof(b.parts, b.roof, x, y, z0 + b.h, w - 4, d - 4, ang)
+            b.parts.append(Part("box", x, y, crown_z, tw - 4, td - 4, self.c.storey_m * 2, ang, "setback"))
+            self.roof(b.parts, b.roof, x, y, z0 + b.h, tw - 4, td - 4, ang)
             b.foot = b.parts[0].w * b.parts[0].d
         elif t.form == "tower" and t.family == "infrastructure":
             b.parts = [Part("cyl", x, y, z0, w, w, b.h, ang),

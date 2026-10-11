@@ -635,3 +635,17 @@ reflects what was actually verified.
   cross-fade with a half-rolled copy and sized to the patch's real extent.
 - Frontality (the share of strong edges within 4 degrees of square) picks the near-front view.
   Curved buildings (vaults) score low even on true elevations; pick those by eye.
+- **Catalog storey ranges feed the type mix.** Raising library_cube to 11-13 storeys and
+  market_hall to 5-6 reshuffled the whole city: footprint x storeys counts towards the type
+  shares, and 246 of 485 slots moved. Reverted. `Typology.storey_m` (a per-type storey height)
+  changes height only: same 485 slots, same ids, only those types' 18 slots changed. Check with
+  an in-memory `city.plan` diff before a rebuild. The podium tower's `podium_storeys` and
+  `tower_scale` are height- and width-only in the same way.
+- Build review (Library › Asset review › Build review; `library_review.py`): renders per round
+  in 3d/library/<asset>/review/round_N (a Workbench preview in about 6 s, Cycles about 12 s
+  later), statuses and history in site/library_review.json under "_reviews",
+  `ap library review apply`. Deep link: `/?project=<slug>&review=<asset>`.
+- UI scripts share one global scope: a second top-level `const clone` silently broke a whole
+  script. Check with `cat asset_pipeline/ui/static/*.js > all.js && node --check all.js`.
+- Overlapping coplanar faces (a step's top in the plinth's plane) render black in Cycles: offset
+  them or don't overlap.

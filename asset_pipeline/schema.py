@@ -209,6 +209,13 @@ class Typology(BaseModel):
     width: Vec2 | None = None             # footprint range, m (per house for `row`)
     depth: Vec2 | None = None
     storeys: tuple[int, int] = (1, 1)
+    # this type's storey height (civic halls and monoliths), else the city's. Height only: the
+    # type mix and placement count storeys, so changing it moves no other building
+    storey_m: float | None = Field(default=None, gt=0)
+    # podium_tower: the podium's storeys, and the tower's width as a share of the drawn width
+    # (the podium keeps 1.8 x; the footprint the type mix counts stays the same)
+    podium_storeys: int = Field(default=3, ge=0)
+    tower_scale: float = Field(default=1.0, gt=0, le=1.0)
     place: list[Place] = Field(default_factory=list)
     prompt: str = ""
     desc: str = ""

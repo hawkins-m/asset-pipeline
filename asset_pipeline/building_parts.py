@@ -284,6 +284,26 @@ def _segments(L: float, F: dict) -> list[dict]:
     return out
 
 
+def bays(x0: float, x1: float, F: dict, pat: list[str]) -> list[tuple[float, float, str]]:
+    """The bays of a run from x0 to x1 as (centre, width, kind). Uniform bays of about bay_m
+    with the pattern cycled; with `pattern_w` (relative widths per pattern entry) whole cycles of
+    the pattern, each bay as wide as its weight (a wide loggia bay, a narrow slot bay)."""
+    L = x1 - x0
+    wts = F.get("pattern_w")
+    if not wts or len(wts) != len(pat):
+        nb = max(1, round(L / F["bay_m"]))
+        bw = L / nb
+        return [(x0 + bw * (b + 0.5), bw, pat[b % len(pat)]) for b in range(nb)]
+    cyc = max(1, round(L / (F["bay_m"] * len(pat))))
+    unit = L / (cyc * sum(wts))
+    out, x = [], x0
+    for _ in range(cyc):
+        for k, wt in zip(pat, wts):
+            out.append((x + wt * unit / 2, wt * unit, k))
+            x += wt * unit
+    return out
+
+
 def _bay_openings(kind, cx, bw, z, sh, F):
     """Openings (and extra parts) of one bay of one upper storey."""
     extra = []
@@ -388,8 +408,8 @@ def facade(L: float, F: dict) -> list[dict]:
         pat = sg["pattern"]
         for s, (z, sh) in enumerate(lv[1:], start=1):
             ops = []
-            for b in range(nb):
-                o, _ = _bay_openings(pat[b % len(pat)], x0 + bw * (b + 0.5), bw, z, sh, F)
+            for cx, bwi, kind in bays(x0, x1, F, pat):
+                o, _ = _bay_openings(kind, cx, bwi, z, sh, F)
                 ops += o
             win = F["window"]
             parts += pierced(x0, x1, z, z + sh, dy, dy + t, ops, F["mat"]["upper"], inset=win["reveal"])
@@ -438,14 +458,14 @@ def facade(L: float, F: dict) -> list[dict]:
                 parts.append(box(xe - t / 2, xe + t / 2, 0.0, dy + t, 0.0, H, F["mat"]["upper"]))
     # pilasters, courses, cornice, parapet
     pil = F["pilasters"]
-    if pil:
-        nb_all = max(1, round(L / F["bay_m"]))
-        bw = L / nb_all
+    if pil:                                              # on the bay boundaries: every `every` bays
+        bb = bays(-L / 2, L / 2, F, F["pattern"])
+        edges = [-L / 2] + [cx + bwi / 2 for cx, bwi, _ in bb]
         z0 = 0.0 if pil.get("from_ground", False) else lv[0][1]
-        for b in range(0, nb_all + 1, pil.get("every", 3)):
-            x = -L / 2 + bw * b
-            x = min(max(x, -L / 2 + pil["w"] / 2), L / 2 - pil["w"] / 2)
-            parts.append(box(x - pil["w"] / 2, x + pil["w"] / 2, -pil.get("proj", 0.12), 0.0, z0, H, F["mat"]["upper"]))
+        for b in range(0, len(edges), pil.get("every", 3)):
+            x = min(max(edges[b], -L / 2 + pil["w"] / 2), L / 2 - pil["w"] / 2)
+            parts.append(box(x - pil["w"] / 2, x + pil["w"] / 2, -pil.get("proj", 0.12), 0.0, z0, H,
+                             pil.get("mat", F["mat"]["upper"])))
     cs = F["courses"]
     if cs:
         for s in range(cs.get("every", 1), F["storeys"], cs.get("every", 1)):
