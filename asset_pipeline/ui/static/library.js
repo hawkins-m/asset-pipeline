@@ -18,6 +18,8 @@ function libEntries() {
   const p = libraryData && libraryData.plan;
   return p ? [...p.entries, ...p.unseen.map(u => ({...u, best: null, sources: [], unseen: true}))] : [];
 }
+const LIB_ROUTES = {procedural: "procedural", trellis: "TRELLIS"};
+const libRoute = e => (libraryData.decisions[e.id] || {}).route || e.route_auto || null;
 const libDecision = e => (libraryData.decisions[e.id] || {}).decision || null;
 const LIB_FILTERS = {
   all: ["All assets", () => true], todo: ["Not decided", e => !libDecision(e)],
@@ -41,7 +43,9 @@ function libCard(e) {
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
       : `<div class="no-crop">no current shot frame shows it</div>`}
     <div class="asset-body">
-      <div class="asset-name"><b>${esc(e.id)}</b> <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span></div>
+      <div class="asset-name"><b>${esc(e.id)}</b> <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span>
+        ${libRoute(e) ? `<button type="button" class="chip route route-${libRoute(e)}" data-route="${libRoute(e)}"
+          title="3D route${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
         · ${e.instances}×${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
@@ -127,7 +131,15 @@ function pickReference(e) {
     {label: "Cancel"}]});
 }
 
-$("#assets-list").addEventListener("click", e => {
+$("#assets-list").addEventListener("click", async e => {
+  const r = e.target.closest("[data-route]");
+  if (r) {
+    const id = r.closest("[data-entry]").dataset.entry, ent = libEntries().find(x => x.id === id);
+    const next = r.dataset.route === "procedural" ? "trellis" : "procedural";
+    try { libraryData.decisions = await api(`/api/projects/${slug}/library/route`, {entry: id, route: next === ent.route_auto ? null : next}); }
+    catch (err) { alert(err.message); return; }
+    renderLibrary(); return;
+  }
   const b = e.target.closest("[data-decision]"); if (!b) return;
   const id = b.closest("[data-entry]").dataset.entry;
   if (b.dataset.decision === "reference" && libDecision({id}) !== "reference") {

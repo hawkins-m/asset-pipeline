@@ -603,6 +603,42 @@ def cmd_library_decide(a) -> None:
           + (f" (reference {d[a.entry]['frame']})" if d.get(a.entry, {}).get("frame") else ""))
 
 
+def cmd_library_route(a) -> None:
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    d = sw_library.set_route(store, a.entry, None if a.route == "auto" else a.route)
+    e = next(x for x in (lambda p: p["entries"] + p["unseen"])(sw_library.load(store)) if x["id"] == a.entry)
+    print(f"{a.entry}: {sw_library.route(e, d.get(a.entry)) or 'not built (foliage)'}"
+          f"{' (yours)' if d.get(a.entry, {}).get('route') else ' (default)'}")
+
+
+def cmd_library_brief(a) -> None:
+    from .building_proc import FORM_OF, brief
+    from .stages import sw_library, sw_site
+    store = ProjectStore.open(a.project)
+    data = sw_library.load(store)
+    e = next((x for x in data["entries"] + data["unseen"] if x["id"] == a.entry), None)
+    dims = a.dims or (e or {}).get("size_m")
+    form = a.form
+    if not form and e:
+        typ = {t.id: t for t in (sw_site.load_layout(store).city.typologies)}.get(e["typology"])
+        form = FORM_OF.get(typ.form) if typ else None
+        form = "basilica" if e["typology"] == "basilica" else form
+    if not form or not dims:
+        raise SystemExit("give --form and --dims (no catalog form with a generator, or no size)")
+    b = brief(store, a.entry, a.sheet, a.view, form, dims, json.loads(a.params) if a.params else None)
+    m = b["measured"]
+    print(f"{a.entry}: {form} {b['dims']}, view {b['view']}; measured bays {m.get('bays')} storeys {m.get('storeys')}"
+          f" patch {m.get('patch_px')}")
+
+
+def cmd_library_build(a) -> None:
+    from .kit_proc import build_any
+    store = ProjectStore.open(a.project)
+    for x in a.entries:
+        build_any(store, x, log=lambda s: print(f"{x}: {s}"))
+
+
 def cmd_library_sheets(a) -> None:
     from .stages import s2_refs, sw_library
     store = ProjectStore.open(a.project)
@@ -1062,6 +1098,25 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--description", help="your description for the entry ('' restores the auto one)")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_library_decide)
+    p = libsub.add_parser("brief", help="procedural route: a building brief from one view of a sheet (measured)")
+    p.add_argument("project")
+    p.add_argument("entry")
+    p.add_argument("sheet", help="project path of the reference sheet")
+    p.add_argument("view", type=int, choices=[0, 1, 2], help="which view: 0 left, 1 middle, 2 right")
+    p.add_argument("--form", choices=["hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row"],
+                   help="generator (default: from the entry's catalog form)")
+    p.add_argument("--dims", type=float, nargs=3, help="w d h metres (default: the entry's size)")
+    p.add_argument("--params", help="JSON generator parameters (storeys, bay_m, ...)")
+    p.set_defaults(fn=cmd_library_brief)
+    p = libsub.add_parser("build", help="procedural route: build entries' kit pieces / buildings in Blender")
+    p.add_argument("project")
+    p.add_argument("entries", nargs="+")
+    p.set_defaults(fn=cmd_library_build)
+    p = libsub.add_parser("route", help="how an entry's 3D is made: procedural (architecture) or trellis")
+    p.add_argument("project")
+    p.add_argument("entry")
+    p.add_argument("route", choices=["procedural", "trellis", "auto"])
+    p.set_defaults(fn=cmd_library_route)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
     p.add_argument("project")
     p.add_argument("--only", nargs="+", help="just these entries (a pilot)")

@@ -123,6 +123,9 @@ class PlanAsset(BaseModel):
     # anchor at `ref_strength` total): a library crop or a chosen frame
     refs: list[str] = Field(default_factory=list)
     ref_strength: float = Field(default=0.05, ge=0, le=1)
+    # how its 3D is made: procedural (Blender from a brief measured on the sheet: architecture)
+    # or trellis (image-to-3D: irregular landmarks, props, ornament); None = trellis (scenes mode)
+    route: Literal["procedural", "trellis"] | None = None
 
 
 class Relation(BaseModel):

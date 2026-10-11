@@ -219,8 +219,16 @@ def build(store: ProjectStore, asset: str, repeat: int = 1, out: Path | None = N
         for q in parts:
             q["mat"] = "stone"
     glb = out or d / "procedural.glb"
-    job = {"name": asset, "out": str(glb), "repeat": repeat, "width": width(spec), "parts": parts,
-           "materials": materials}
+    return run_blender(store, asset, parts, materials, glb, maps, repeat=repeat, width=width(spec),
+                       extra={"kind": spec["kind"]}, log=log)
+
+
+def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: dict, glb: Path, maps: Path,
+                repeat: int = 1, width: float | None = None, extra: dict | None = None, log=print) -> dict:
+    """Build parts with materials in Blender (scripts/blender_kit.py) into glb; the report
+    goes to <asset dir>/procedural.json for the asset's own GLB."""
+    maps.mkdir(parents=True, exist_ok=True)
+    job = {"name": asset, "out": str(glb), "repeat": repeat, "width": width, "parts": parts, "materials": materials}
     jp = maps / ("job.json" if repeat == 1 else f"job_x{repeat}.json")
     write_json(jp, job)
     log_path = maps / "blender.log"
@@ -229,14 +237,25 @@ def build(store: ProjectStore, asset: str, repeat: int = 1, out: Path | None = N
     lines = [ln for ln in log_path.read_text().splitlines() if ln.startswith('{"out"')]
     if not lines:
         raise RuntimeError("blender_kit wrote no report:\n" + "\n".join(log_path.read_text().splitlines()[-20:]))
-    res = json.loads(lines[-1]) | {"kind": spec["kind"], "parts": len(parts), "repeat": repeat}
-    if repeat == 1:
-        write_json(d / "procedural.json", res)
+    res = json.loads(lines[-1]) | (extra or {}) | {"parts": len(parts), "repeat": repeat}
+    if repeat == 1 and glb == out_dir(store, asset) / "procedural.glb":
+        write_json(out_dir(store, asset) / "procedural.json", res)
     log(json.dumps(res))
     return res
 
 
+def build_any(store: ProjectStore, asset: str, log=print) -> dict:
+    """An asset's procedural piece, whatever its spec: a kit piece or a whole building."""
+    spec = read_json(spec_path(store, asset), default=None)
+    if spec is not None and spec.get("kind") == "building":
+        from . import building_proc
+        return building_proc.build(store, asset, log=log)
+    return build(store, asset, log=log)
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
-    build(ProjectStore.open(a[0]), a[1], repeat=int(a[2]) if len(a) > 2 else 1,
-          out=Path(a[3]) if len(a) > 3 else None)
+    if len(a) > 2:
+        build(ProjectStore.open(a[0]), a[1], repeat=int(a[2]), out=Path(a[3]) if len(a) > 3 else None)
+    else:
+        build_any(ProjectStore.open(a[0]), a[1])

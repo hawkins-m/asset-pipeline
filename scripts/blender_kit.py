@@ -9,13 +9,18 @@ SPEC: {"out": "piece.glb", "repeat": 1, "parts": [...], "materials": {name: {...
     archwall x0 x1 y0 y1 z0 z1 cx span spring seg    wall with a round-arched opening, from
                                                       convex pieces (piers plus a comb of
                                                       trapezoids over the arch: see CLAUDE.md)
-    archband cx span spring width y0 y1 seg          an archivolt: a band around the arch
+    archband cx span spring width y0 y1 seg          an archivolt: a band around the arch (also a
+                                                      barrel vault: width = its thickness)
     lathe    x y z profile [[r, dz], ...] seg        a round turned piece (column shafts, bases)
+    prism    xz [[x, z], ...] y0 y1                   a convex XZ polygon extruded along Y
+    shell    x y z rows [[ro, zo, ri, zi], ...] a0 a1 seg   a thick surface of revolution (apse, dome)
+  any part: "rz" (degrees about Z) and "at" [x, y, z] place it after building
   each part has "mat"; a material is
     {"base": png, "normal": png, "rough": png, "uv": "facade", "rect": [x0, x1, z0, z1]}
       front (-Y) faces take the image planar over rect, back (+Y) faces mirrored, other faces
       fall back to the "tile" material named in "fallback"
     {"base": ..., "uv": "tile", "tile_m": 3.0}     box mapping at tile_m metres per repeat
+    {"uv": "plain", "color": [r, g, b], "rough": 0.1, "metal": 0.0}   no texture (glass, trim)
   repeat: n copies along X at the piece's width (a preview of a tiled run)
 """
 import json
@@ -84,7 +89,57 @@ def lathe(bm, p):
     return faces
 
 
-BUILD = {"box": box, "archwall": archwall, "archband": archband, "lathe": lathe}
+def prism(bm, p):
+    """A convex polygon in XZ (from kit_proc's pierced walls) extruded from y0 to y1."""
+    return _quad_prism(bm, [tuple(q) for q in p["xz"]], p["y0"], p["y1"])
+
+
+def shell(bm, p):
+    """A thick surface of revolution about the vertical axis at (x, y): rows of
+    (r_out, z_out, r_in, z_in) from bottom to top, swept from a0 to a1 degrees (an apse wall,
+    a half dome, a drum). Built from quads only: outer, inner, both rims and, for a partial
+    sweep, the end caps as strips between the outer and inner rows."""
+    rows, seg = p["rows"], p.get("seg", 32)
+    a0, a1 = math.radians(p.get("a0", 0)), math.radians(p.get("a1", 360))
+    full = abs(a1 - a0 - 2 * math.pi) < 1e-6
+    n = seg if full else seg + 1
+    ang = [a0 + (a1 - a0) * k / seg for k in range(n)]
+
+    def ring(r, z):
+        return [bm.verts.new((p["x"] + r * math.cos(a), p["y"] + r * math.sin(a), p["z"] + z)) for a in ang]
+    out = [ring(ro, zo) for ro, zo, _, _ in rows]
+    inn = [ring(ri, zi) for _, _, ri, zi in rows]
+    faces = []
+    span = range(seg) if not full else range(seg)
+    for k in range(len(rows) - 1):
+        for j in span:
+            jj = (j + 1) % n
+            faces.append(bm.faces.new((out[k][j], out[k][jj], out[k + 1][jj], out[k + 1][j])))
+            faces.append(bm.faces.new((inn[k][j], inn[k + 1][j], inn[k + 1][jj], inn[k][jj])))
+    for j in span:
+        jj = (j + 1) % n
+        faces.append(bm.faces.new((out[0][j], inn[0][j], inn[0][jj], out[0][jj])))
+        faces.append(bm.faces.new((out[-1][j], out[-1][jj], inn[-1][jj], inn[-1][j])))
+    if not full:
+        for k in range(len(rows) - 1):
+            faces.append(bm.faces.new((out[k][0], out[k + 1][0], inn[k + 1][0], inn[k][0])))
+            faces.append(bm.faces.new((out[k][-1], inn[k][-1], inn[k + 1][-1], out[k + 1][-1])))
+    return faces
+
+
+BUILD = {"box": box, "archwall": archwall, "archband": archband, "lathe": lathe, "prism": prism, "shell": shell}
+
+
+def place(faces, part):
+    """Rotate a part's geometry about Z by rz degrees, then move it by `at`."""
+    rz, at = part.get("rz", 0), part.get("at")
+    if not rz and not at:
+        return
+    c, s_ = math.cos(math.radians(rz)), math.sin(math.radians(rz))
+    t = Vector(at or (0, 0, 0))
+    for v in {v for f in faces for v in f.verts}:
+        x, y = v.co.x, v.co.y
+        v.co = Vector((c * x - s_ * y, s_ * x + c * y, v.co.z)) + t
 
 
 def material(name, m):
@@ -99,15 +154,20 @@ def material(name, m):
         if non_color:
             n.image.colorspace_settings.name = "Non-Color"
         return n
-    nt.links.new(img(m["base"]).outputs["Color"], bsdf.inputs["Base Color"])
-    if m.get("rough"):
+    if m.get("base"):
+        nt.links.new(img(m["base"]).outputs["Color"], bsdf.inputs["Base Color"])
+    else:                                    # a plain material: glass, metal trim
+        bsdf.inputs["Base Color"].default_value = (*m["color"], 1.0)
+    if isinstance(m.get("rough"), str):
         nt.links.new(img(m["rough"], True).outputs["Color"], bsdf.inputs["Roughness"])
+    elif m.get("rough") is not None:
+        bsdf.inputs["Roughness"].default_value = m["rough"]
     if m.get("normal"):
         nm = nt.nodes.new("ShaderNodeNormalMap")
         nm.inputs["Strength"].default_value = m.get("normal_strength", 1.0)
         nt.links.new(img(m["normal"], True).outputs["Color"], nm.inputs["Color"])
         nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
-    bsdf.inputs["Metallic"].default_value = 0.0
+    bsdf.inputs["Metallic"].default_value = m.get("metal", 0.0)
     return mat
 
 
@@ -117,8 +177,9 @@ bm = bmesh.new()
 uv = bm.loops.layers.uv.new("UVMap")
 assign = []
 for part in spec["parts"]:
-    for f in BUILD[part["kind"]](bm, part):
-        assign.append((f, part["mat"]))
+    fs = BUILD[part["kind"]](bm, part)
+    place(fs, part)
+    assign += [(f, part["mat"]) for f in fs]
 bm.normal_update()
 
 
@@ -134,6 +195,9 @@ def tile_uv(f, m):
 
 for f, mname in assign:
     m = spec["materials"][mname]
+    if m.get("uv") == "plain":
+        f.material_index = names.index(mname)
+        continue
     if m["uv"] == "facade" and abs(f.normal.y) > 0.9:
         x0, x1, z0, z1 = m["rect"]
         for loop in f.loops:

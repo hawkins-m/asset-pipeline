@@ -106,6 +106,36 @@ PROP_DESC = {
 # props' sizes, m (w, d, h): as city.forum_market draws them
 PROP_DIMS = {"market hut": (3.0, 2.4, 2.3), "market tent": (3.0, 3.0, 2.8), "canopy table": (4.4, 3.2, 2.7),
              "market stall": (5.0, 3.5, 3.0)}
+# Build split (PLAN.md "Build split"): architecture is built procedurally in Blender from a brief
+# measured on its sheet; irregular assets (rotunda-type landmarks, props, ornament) go to TRELLIS.
+ROUTES = ("procedural", "trellis")
+TRELLIS_FORMS = {"drum"}             # rotunda-type landmarks; every other catalog form is procedural
+TRELLIS_PARTS = {"rotunda", "fountain", "statue", "nymphaeum", "sculpture", "obelisk"}
+
+
+def route_auto(e: dict, typ=None) -> str | None:
+    """An entry's default build route; None for vegetation (Unreal foliage, not built).
+    Architecture is procedural: kit pieces (even of an irregular ensemble, like a rotunda's
+    colonnade), catalog forms other than drums, and the greybox's own structures (walls,
+    gates, quays, blocks). TRELLIS: props, ornament and drum-type landmarks."""
+    if e["kind"] == "vegetation":
+        return None
+    if e["tier"] == "D" or e["part"] in TRELLIS_PARTS:
+        return "trellis"
+    if e["part"] in KIT_DESC:
+        return "procedural"
+    if e["typology"] in TRELLIS_PARTS:
+        return "trellis"
+    if typ is None:
+        return "procedural"
+    return "trellis" if typ.form in TRELLIS_FORMS else "procedural"
+
+
+def route(entry: dict, decision: dict | None) -> str | None:
+    """The effective route: the user's choice, else the default."""
+    return (decision or {}).get("route") or entry.get("route_auto")
+
+
 TIERS = {"A": "landmarks and kit monuments", "B": "singular civic and infrastructure", "C": "fill typologies",
          "D": "props and vegetation"}
 
@@ -340,6 +370,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         e["size_m"] = _size(e, slots, catalog.get(e["typology"]), layout.city.storey_m if layout.city else 3.4)
         e["flags"] = flags(e, min_share)
         e["description_auto"] = _description(e, catalog, mats)
+        e["route_auto"] = route_auto(e, catalog.get(e["typology"]))
         e["description"] = None
         e.pop("slots")
         (out_entries if e["best"] else unseen).append(e)
@@ -350,7 +381,8 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
             "checked": all(_sam_mask(store, k, "tree") is not None for ks in src.values() for k in ks),
             "entries": out_entries,
             "unseen": [{k: e[k] for k in ("id", "tier", "kind", "typology", "part", "material", "instances",
-                                          "districts", "district", "mood", "flags", "description_auto", "size_m")}
+                                          "districts", "district", "mood", "flags", "description_auto", "size_m",
+                                          "route_auto")}
                        | {"share": e["sources"][0]["share"] if e["sources"] else 0.0} for e in unseen],
             "surfaces": {k: v for k, v in surfaces.most_common()}}
     _auto_decide(store, data["entries"])
@@ -578,6 +610,22 @@ def describe(store: ProjectStore, entry: str, text: str | None) -> dict:
     return d
 
 
+def set_route(store: ProjectStore, entry: str, value: str | None) -> dict:
+    """The user's build route for an entry (procedural / trellis); None restores the default."""
+    if value is not None and value not in ROUTES:
+        raise ValueError(f"route must be one of {ROUTES}")
+    _check_entry(store, entry)
+    d = decisions(store)
+    if value:
+        d.setdefault(entry, {})["route"] = value
+    elif entry in d:
+        d[entry].pop("route", None)
+        if not d[entry]:
+            d.pop(entry)
+    write_json(decisions_path(store), d)
+    return d
+
+
 def district_frame(store: ProjectStore, district: str | None) -> str | None:
     """The approved look frame of a district: its eye-level medium shot's locked frame
     (med-<district>), else None (greybox-locked or no such shot)."""
@@ -620,7 +668,7 @@ def decide(store: ProjectStore, entry: str, decision: str | None, note: str | No
             raise ValueError(f"no such image in the project: {ref_frame}")
     _check_entry(store, entry)
     d = decisions(store)
-    keep = {k: v for k, v in d.get(entry, {}).items() if k == "description"}   # the user's text stays
+    keep = {k: v for k, v in d.get(entry, {}).items() if k in ("description", "route")}   # the user's text and route stay
     if decision is None:
         d.pop(entry, None)
         if keep:
@@ -677,7 +725,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
                     category="structure", description=pc["description"], count=1,
                     dimensions=Dimensions(width=w, depth=dp, height=h), placement=f"kit module of {eid}",
                     include=inc, refs=[d["frame"]] if d.get("frame") else [],
-                    ref_strength=ref_strength("kit", e["tier"])))
+                    ref_strength=ref_strength("kit", e["tier"]), route=d.get("route") or "procedural"))
             continue
         refs = {"source": [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"], "reference": [d.get("frame")],
                 "description": []}[d["decision"]]
@@ -690,7 +738,8 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             description=d.get("description") or e.get("description") or e["description_auto"],
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
             placement=f"{e['tier']} · {e.get('district') or '-'}", include=inc,
-            refs=[r for r in refs if r], ref_strength=ref_strength(d["decision"], e["tier"])))
+            refs=[r for r in refs if r], ref_strength=ref_strength(d["decision"], e["tier"]),
+            route=route(e, d) or "trellis"))
     plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
                      assets=assets, llm="")
     return s1_plan.save(store, PLAN_NAME, plan)

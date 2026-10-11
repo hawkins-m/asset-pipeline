@@ -224,7 +224,7 @@ Open items after frame review round 2 (2026-10-08):
 - **The moodboard anchor is off.** It made frames ornate and palm-heavy and lowered the
   edge match (CLAUDE.md "Frame review round 2").
 
-## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07; step 1 done 2026-10-10)
+## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07; step 1 done 2026-10-10; build split 2026-10-10)
 
 Goal: turn the catalog, the greybox and the starred frames into a library of assets.
 Stages 2–6 then build them, and the UE manifest uses them instead of the stand-ins.
@@ -243,6 +243,28 @@ differently:
 | B. Singular civic and infrastructure | Typologies with a small `max_count` or a single-building form (hall, cube, drum, cavea, tower, gate, aqueduct bay, lighthouse...) | catalog `desc` + district material words | One to three variants per typology, game usage; scaled to each instance's footprint only within +-15%, otherwise the greybox massing stays |
 | C. Fill typologies (housing and mixed) | perimeter, row, bar, stepped, crescent, courtyard houses | catalog `desc` + `facades` / `roofs` pools + palette materials | **Facade kits, not whole buildings**: per typology x material, a few modular bays (ground arcade bay, upper bay, top or loggia bay, corner) and the roof pieces, tiled onto the greybox massing by a Blender pass. Wides keep textured massing. |
 | D. Props and vegetation | benches, planters, lamps, pergolas, awnings, stalls; trees by species | starred frames (SAM inside the id-pass regions), deduplicated | Stages 2–6 as for scenes-mode props; scattered later (vegetation scatter step) |
+
+**Build split (decided 2026-10-10, after the pilot): sheets are the design brief, Blender
+builds architecture.** From one image, TRELLIS guesses depth. On simple architecture it
+collapses walls, drops back walls and invents proportions, even from three-quarter views.
+Procedural pieces built at real size beat it on every kit piece tried (CLAUDE.md "Library 3D").
+So:
+
+| Route | Assets | Geometry | Surfaces |
+|---|---|---|---|
+| **Procedural (default for architecture)** | Arches, gates, colonnades, walls, cornices, facade bays; whole buildings of the catalog's forms (perimeter blocks, rows, towers, halls, cubes, basilicas, baths...) | Blender from parameters at real dimensions (greybox and catalog), with proportions, bay rhythm and storeys read from the sheet | PBR maps from the sheet: base colour (delit elevation or seamless tile), normal and roughness from luminance, palette for trim and glass |
+| **TRELLIS** | Irregular assets: rotunda-type landmarks, props, ornament (statues, capitals, fountains) | TRELLIS.2 from a three-quarter view where the sheet has one | Its own textures; stage 6 cleanup |
+
+- The sheet's job on the procedural route is the **design brief**: proportions, bay rhythm,
+  storey count, materials and palette. A brief JSON per asset holds the measured and chosen
+  values (`library/kits/<asset>.json` in the project), and the user can edit it. Changing
+  the brief rebuilds the piece in seconds; no GPU time.
+- A procedural building can be rebuilt at any instance's own footprint and storeys. Fill
+  types (tier C) can therefore follow the greybox massing exactly instead of being stretched
+  within +-15%. The facade-kit pass (step 7) becomes "build each massing box with its
+  typology's generator".
+- Every library entry carries its route (`procedural` / `trellis`), set by tier and form,
+  and the user can change it per entry.
 
 Step order, each a reviewable milestone:
 
@@ -281,9 +303,11 @@ Step order, each a reviewable milestone:
      bays.
    - Tier A/B are object sheets.
    - Start with tier A and two tier B types to check the look before spending GPU time.
-5. **Views, review and 3D** (stages 3–5), unchanged.
-   - Tier A: hero usage once the multi-view path is good enough; until then single-image
-     TRELLIS, as now.
+5. **Views, review and 3D** (stages 3–5), by route (see "Build split").
+   - Procedural: the user reviews the sheets, a brief is measured from the picked view, and
+     Blender builds the piece (`kit_proc`).
+   - TRELLIS: as before. Tier A irregular landmarks use hero usage once the multi-view path
+     is good enough; until then single-image TRELLIS.
 6. **Cleanup and placement** (stage 6, plus new placement data).
    - The cleanup report already warns on flat cards and proportions far from the plan:
      check them against the catalog size ranges.
@@ -295,9 +319,8 @@ Step order, each a reviewable milestone:
      top and corner bays from the typology x material kit; keep roofs from the massing
      (gardens, pergolas and vaults are already modelled there).
    - Output stays instanced: one mesh per bay type.
-   - **Fallback**, if TRELLIS bays don't tile cleanly: facade textures instead of
-     geometry. Flux orthographic elevations per typology x material, turned into PBR
-     maps and applied by UV on the massing.
+   - Decided 2026-10-10: the bays and buildings are procedural (see "Build split"), with
+     surfaces from the sheets. TRELLIS bays are no longer planned.
 8. **Manifest with real assets.** `ap export` maps each slot to its library asset(s)
    instead of the stand-in mesh:
    - tier A/B: per slot;

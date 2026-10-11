@@ -608,3 +608,14 @@ reflects what was actually verified.
   row form as 4 houses). Their slots hold whole blocks: 230 m "townhouses".
 - A square 65 m courtyard block at 7 storeys still drew a 2-3-storey villa: the insula needs
   its storeys and the courtyard in the words.
+- Procedural buildings (`asset_pipeline/building_proc.py`; `ap library brief` / `ap library build`):
+  generators for hall_vault, cube, basilica, podium_tower, perimeter and row. Walls with
+  windows, arches and round openings are sliced into convex prisms at every opening edge and
+  along every curve. Overlapping walls must not share faces: side walls run between the front
+  and back walls, or coplanar end caps show as dark seams.
+- Reading a sheet: the palette (k-means) and a plain wall patch work on any view. The patch must
+  avoid shadows: score on tone as well as flatness, and pin `patch_px` in the brief when it
+  picks up ribs or glazing. The bay and storey rhythm (autocorrelation of the darkness profile;
+  an edge profile counts both edges of every window) is only clean on near-frontal views.
+  Three-quarter views gave 33-42 "storeys", so rhythms outside 2.5-15 m bays and 2.6-7 m
+  storeys are dropped and the generator defaults apply.

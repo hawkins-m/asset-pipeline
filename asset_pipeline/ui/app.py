@@ -51,6 +51,11 @@ class LibraryDecisionReq(BaseModel):
     frame: str | None = None              # reference: the look-reference frame
 
 
+class LibraryRouteReq(BaseModel):
+    entry: str
+    route: Literal["procedural", "trellis"] | None = None      # None: back to the default
+
+
 class StarReq(BaseModel):
     path: str
     starred: bool = True
@@ -885,6 +890,13 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             raise HTTPException(404, str(e))
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    @app.post("/api/projects/{slug}/library/route")
+    def library_route(slug: str, req: LibraryRouteReq):
+        try:
+            return sw_library.set_route(_store(slug), req.entry, req.route)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
 
     # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
 
