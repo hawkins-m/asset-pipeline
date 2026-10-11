@@ -642,12 +642,15 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
         if e is None or d.get("decision") in (None, "exclude") or e.get("kind") == "vegetation":
             continue
         inc = only is None or eid in only
-        if d["decision"] == "kit":       # one asset per module, drawn together as one kit sheet
+        if d["decision"] == "kit":
+            # one asset per module, each sheeted alone (trim matches through the shared look
+            # ref). Flux draws a small module (a two-column stoa bay) as asked, but a multi-storey
+            # bay, alone or on a kit sheet, comes out as a whole building.
             for name, pc in d["pieces"].items():
                 w, dp, h = pc["size"]
                 assets.append(PlanAsset(
                     id=f"{eid}-{name}", name=f"{eid.replace('-', ' ')} {name}", noun=pc.get("noun") or "building",
-                    category="structure", description=pc["description"], count=1, kit=f"{eid} kit",
+                    category="structure", description=pc["description"], count=1,
                     dimensions=Dimensions(width=w, depth=dp, height=h), placement=f"kit module of {eid}",
                     include=inc, refs=[d["frame"]] if d.get("frame") else [],
                     ref_strength=ref_strength("kit", e["tier"])))
