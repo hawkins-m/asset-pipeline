@@ -554,3 +554,18 @@ reflects what was actually verified.
   - The masked landmark ref makes each frame ~100 s.
 - `ap frames lock SHOT --greybox`: camera and greybox locked, no frame (wides: Flux
   can't resolve a whole city at frame size; they render in UE from the real assets).
+
+## Asset library plan (phase 3 step 1, 2026-10-10)
+- `ap library plan` (CPU, ~2 s) groups greybox slots into entries (A landmarks and kit
+  monuments, B singular civic, C fill typology x material, D props and trees) and finds each
+  one's best crop in the locked shot frames through the object-id pass. `ap library check`
+  (SAM 3.1, ~2 min for 6 frames, masks cached) flags crops mostly trees, sky or something
+  else. Decisions per entry: Library tab › Asset review (`site/library_review.json`).
+- **A locked frame can predate the current layout.** Locking keeps the camera, not the
+  city: frames locked before a relayout no longer line up with the shot's current id pass,
+  so their crops show trees or sky where the old layout had a building. `frame_fit` keeps a
+  frame only if its edge match against the current canny is >= 0.9 x the one recorded
+  when it was generated, and >= 0.25 (raised scale-model frames never followed theirs).
+  Round 2 frames whose view didn't change (match unchanged) still pass.
+- Trees and stalls are pieces inside a slot: the id pass can't separate them, so their
+  crops are the whole slot (flagged as approximate).

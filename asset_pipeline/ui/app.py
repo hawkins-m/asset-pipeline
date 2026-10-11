@@ -20,7 +20,7 @@ from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
 from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, Typology, Variation
-from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_shots, sw_site
+from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_library, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
@@ -42,6 +42,12 @@ class DeriveReq(BaseModel):
     nouns: list[str]
     per_noun: int = 2
     style_text: str = ""
+
+
+class LibraryDecisionReq(BaseModel):
+    entry: str
+    decision: Literal["source", "description", "exclude"] | None = None
+    note: str | None = None
 
 
 class StarReq(BaseModel):
@@ -848,6 +854,36 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     def site_plan(slug: str):
         store = _store(slug)
         return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
+
+    # --- asset library (phase 3): plan, SAM checks, the user's review per entry --------------
+
+    @app.get("/api/projects/{slug}/library")
+    def library_get(slug: str):
+        store = _store(slug)
+        data = sw_library.load(store)
+        return {"plan": data, "decisions": sw_library.decisions(store),
+                "has_greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
+
+    @app.post("/api/projects/{slug}/library/plan")
+    def library_plan(slug: str):
+        store = _store(slug)
+        return jobs.submit("library.plan", slug, lambda: len(sw_library.plan(store)["entries"]), lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/library/check")
+    def library_check(slug: str):
+        store = _store(slug)
+        return jobs.submit("library.check", slug, lambda: len(sw_library.check(store)["entries"]),
+                           lane="comfy").public()
+
+    @app.post("/api/projects/{slug}/library/decision")
+    def library_decision(slug: str, req: LibraryDecisionReq):
+        store = _store(slug)
+        try:
+            return sw_library.decide(store, req.entry, req.decision, req.note)
+        except KeyError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
 

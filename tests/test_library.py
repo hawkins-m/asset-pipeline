@@ -51,6 +51,8 @@ def _frames(store, shot, n=2, geom="g"):
 @pytest.fixture
 def lib(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    # every frame matches its greybox as well now as when it was generated (0.5): on the current layout
+    monkeypatch.setattr(s0_frames, "edge_match", lambda frame, canny: 0.5)
     store = ProjectStore.create("l")
     cat = [Typology(id="rotunda", family="civic", form="drum", max_count=1, ref="moodboard/r.jpg", desc="A rotunda."),
            Typology(id="insula", family="housing", form="perimeter", width=(20, 40), depth=(20, 40), desc="Blocks."),
@@ -125,3 +127,77 @@ def test_crop_brightens_only_the_entry_pixels(lib):
     w = im.shape[1]
     # the crop spans the rotunda (cols 0-20) plus a margin of its neighbour, which is dimmed
     assert im[:, : w // 2].mean() > 1.8 * im[:, -2:].mean()
+
+
+def test_old_layout_frames_are_excluded_and_reported(lib, monkeypatch):
+    store, m = lib
+    # the second shot frame was drawn on an older layout: it matches the current greybox far worse
+    monkeypatch.setattr(s0_frames, "edge_match", lambda frame, canny: 0.3 if str(frame).endswith(m[2]) else 0.5)
+    data = sw_library.plan(store)
+    assert data["sources"] == {"m": [m[0]]}
+    bad = [c for c in data["candidates"] if not c["ok"]]
+    assert [c["frame"] for c in bad] == [m[2]] and bad[0]["reason"].startswith("old layout")
+    # and one that never followed its greybox at all
+    monkeypatch.setattr(s0_frames, "edge_match", lambda frame, canny: 0.1)
+    meta_p = store.root / "frames/m/batch_001/meta.json"
+    meta = json.loads(meta_p.read_text())
+    for f in meta["frames"]:
+        f["edge_match"] = 0.1
+    write_json(meta_p, meta)
+    data = sw_library.plan(store)
+    assert data["sources"] == {} and all("doesn't follow" in c["reason"] for c in data["candidates"])
+
+
+def test_check_flags_trees_sky_and_something_else(lib):
+    store, m = lib
+    # fake SAM masks: trees over the rotunda's right half, sky over insula ins2, buildings elsewhere
+    tree = np.zeros((H, W), bool); tree[:, 10:20] = True
+    sky = np.zeros((H, W), bool); sky[:, 30:34] = True
+    bld = np.zeros((H, W), bool); bld[:, 0:10] = True; bld[:, 20:30] = True
+    masks = {"tree": tree, "sky": sky, "building": bld}
+
+    class Det:
+        def __init__(self, mask):
+            self.mask = mask
+
+    import asset_pipeline.segment as seg
+    orig = seg.detect
+    seg.detect = lambda client, image, noun, **kw: [Det(masks[noun])] if noun in masks else []
+    try:
+        data = sw_library.check(store, client=object())
+    finally:
+        seg.detect = orig
+    by = {e["id"]: e for e in data["entries"]}
+    assert data["checked"]
+    assert by["rotunda"]["scores"] == {"asset": 0.5, "trees": 0.5, "sky": 0.0}
+    assert any(f.startswith("trees cover 50%") for f in by["rotunda"]["flags"])
+    assert any(f.startswith("sky covers 100%") for f in by["insula-brick"]["flags"])
+    assert by["insula-marble"]["flags"] == []                      # fully drawn as a building, 16% of the frame
+    # an entry the frame fills with something else entirely keeps its crop (flagged), it isn't dropped
+    assert by["market-hut"]["best"] and by["market-hut"]["scores"]["asset"] == 0.0
+    assert any("approximate" in f for f in by["market-hut"]["flags"])
+    # the masks are cached: a second check runs no SAM at all
+    seg.detect = lambda *a, **k: (_ for _ in ()).throw(AssertionError("SAM ran again"))
+    try:
+        sw_library.check(store, client=object())
+    finally:
+        seg.detect = orig
+
+
+def test_decisions_survive_a_replan_and_reach_the_ui(lib):
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.ui import app as ui_app
+    store, m = lib
+    sw_library.plan(store)
+    c = TestClient(ui_app.create_app(JobQueue()))
+    r = c.post("/api/projects/l/library/decision", json={"entry": "rotunda", "decision": "source"})
+    assert r.status_code == 200 and r.json()["rotunda"]["decision"] == "source"
+    c.post("/api/projects/l/library/decision", json={"entry": "stoa", "decision": "description"})
+    assert c.post("/api/projects/l/library/decision", json={"entry": "nope", "decision": "source"}).status_code == 404
+    assert c.post("/api/projects/l/library/decision", json={"entry": "stoa", "decision": "maybe"}).status_code == 422
+    sw_library.plan(store)
+    got = c.get("/api/projects/l/library").json()
+    assert got["decisions"]["rotunda"]["decision"] == "source" and got["plan"]["entries"]
+    c.post("/api/projects/l/library/decision", json={"entry": "rotunda", "decision": None})
+    assert "rotunda" not in c.get("/api/projects/l/library").json()["decisions"]

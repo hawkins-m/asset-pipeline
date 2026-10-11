@@ -585,6 +585,14 @@ def cmd_library_plan(a) -> None:
     print(f"{store.root / 'site/library.json'}, {store.root / 'site/library.html'}")
 
 
+def cmd_library_check(a) -> None:
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    data = sw_library.check(store, min_share=a.min_share,
+                            progress=lambda i, n: print(f"  SAM {i}/{n}", end="\r", flush=True))
+    print(sw_library.summary(data))
+
+
 def cmd_library_show(a) -> None:
     from .stages import sw_library
     data = sw_library.load(ProjectStore.open(a.project))
@@ -1012,6 +1020,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--min-share", type=float, default=0.005,
                    help="share of a source frame an entry needs to get a crop (default 0.005)")
     p.set_defaults(fn=cmd_library_plan)
+    p = libsub.add_parser("check", help="flag crops mostly trees, sky or something else (SAM 3.1 on ComfyUI)")
+    p.add_argument("project")
+    p.add_argument("--min-share", type=float, default=0.005)
+    p.set_defaults(fn=cmd_library_check)
     p = libsub.add_parser("show", help="the library plan, by district")
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)

@@ -182,14 +182,27 @@
       <!-- Library: scene plans (stage 1) and reference sheets (stage 2) -->
       <section class="tabpanel" data-tab="library" id="library-tab" hidden>
         <div class="applybar-slot"></div>
-        <p class="hint">The typology asset library (phase 3) isn't built yet. These are the single-scene stages that
-          feed it: asset plans from scenes, and reference sheets per asset.</p>
         <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
+          <button role="tab" data-sub="assets">Asset review</button>
           <button role="tab" data-sub="plan">Scene plans</button>
           <button role="tab" data-sub="refs">Reference sheets</button>
         </div>
         <div class="tabpanel" style="flex:none;overflow:visible">
-          <div data-sub="plan" id="plan-tab">
+          <div data-sub="assets" id="assets-tab">
+            <p class="hint">World mode: the assets the locked shot frames show, from their object-id passes. Each card
+              crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky,
+              something else over the asset). Decide each one before the pilot sheets: <b>Good source</b> (the crop
+              guides its sheets), <b>Use description</b> (built from its description only) or <b>Exclude</b>.
+              Pressing a chosen button again clears it.</p>
+            <div class="row">
+              <button id="lib-plan" type="button">Re-plan</button>
+              <button id="lib-check" type="button" title="SAM 3.1 on ComfyUI (GPU 1): about 2 minutes for a handful of frames">Check crops (SAM)</button>
+              <label>Show: <select id="lib-filter"></select></label>
+              <span id="assets-summary" class="hint" style="margin:0"></span>
+            </div>
+            <div id="assets-list"></div>
+          </div>
+          <div data-sub="plan" id="plan-tab" hidden>
             <fieldset id="plan-scenes"><legend>Scenes</legend>
               <p class="hint">Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with
                 counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM's own).</p>
@@ -305,6 +318,7 @@
 <script src="/static/site.js"></script>
 <script src="/static/frames.js"></script>
 <script src="/static/unreal.js"></script>
+<script src="/static/library.js"></script>
 <script>loadProjects();</script>
 </body>
 </html>

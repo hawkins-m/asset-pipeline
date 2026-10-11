@@ -377,3 +377,24 @@ details summary { cursor: default; }
   .ld-spiky { opacity: 0; }
 }
 .statusbar > span:empty:not(.grow) { display: none; }
+
+/* Library › Asset review */
+.asset-district h3 { margin: 14px 0 4px; }
+.asset-district h4 { margin: 8px 0 4px; font-weight: 400; color: var(--muted); }
+.asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.asset-card { background: var(--field); border: 1px solid var(--border); display: flex; flex-direction: column; }
+.asset-card img { width: 100%; height: 170px; object-fit: contain; background: var(--viewer); display: block; }
+.asset-card .no-crop { height: 60px; display: grid; place-items: center; background: var(--panel); color: var(--disabled); }
+.asset-body { padding: 5px 6px 6px; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.asset-name b { word-break: break-all; }
+.asset-flags { margin: 0; padding-left: 16px; font-size: 12px; }
+.asset-flags li.flag { color: #8A3B00; }
+.asset-flags li.note { color: var(--disabled); }
+.asset-ok { font-size: 12px; color: var(--ready); }
+.asset-actions { display: flex; gap: 3px; margin-top: auto; padding-top: 4px; }
+.asset-actions button { flex: 1; padding: 2px 3px; }
+.asset-actions button[aria-pressed="true"] { background: var(--select); color: var(--select-text); }
+.asset-card.decided-source { border-color: var(--ready); }
+.asset-card.decided-exclude { opacity: .6; }
+.chip.tier-A { background: #E3F0D8; } .chip.tier-B { background: #DCE7F5; }
+.chip.tier-C { background: #F5E7D6; } .chip.tier-D { background: #ECECEC; }

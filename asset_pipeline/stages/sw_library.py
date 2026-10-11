@@ -17,11 +17,19 @@ grouped into library entries by what they are (their greybox tags):
 Ground and water slots (streets, plazas, parks, terrain, pools) are surfaces: materials in
 the engine, not assets. They're counted, not listed as entries.
 
-Sources: the locked frame of every locked shot that has one, plus that shot's other
-frames marked as shot frames (role "source") from the same batch geometry. Mood shots
-(MOOD_TIERS) never seed assets; their frames are kept per entry as `mood` references.
-Locked cameras never move, so a locked frame made before a later rebuild still lines up
-with its shot's current id pass (only geometry changed elsewhere since: checked per shot).
+Sources: the locked frame of every locked shot that has one, plus that shot's frames
+marked as shot frames (role "source"), but only frames that still fit the current
+greybox (`frame_fit`: an old-layout frame no longer lines up with the id pass, so its
+crops show whatever the old layout had there). Mood shots (MOOD_TIERS) never seed
+assets; their frames are kept per entry as `mood` references.
+
+Checks (`check`, SAM 3.1 on ComfyUI): trees, sky, buildings and the entry's own noun are
+segmented on each source frame (masks cached under site/library/sam/), and each entry's
+id-pass area is scored: how much of it the frame actually fills with the asset, and how
+much with trees or sky. The plan turns those into flags (a crop mostly trees, sky or
+something else; a small one) and picks each entry's best source by share x asset cover.
+The user decides per entry in the Library tab (site/library_review.json, kept across
+re-plans): good source / use description / exclude.
 
 Writes site/library.json, a crop per entry (site/library/crops/<id>.jpg: the best source
 frame around the entry's slots, everything else dimmed) and site/library.html (the list
@@ -53,6 +61,13 @@ PROP_PIECES = {"market:hut": "market hut", "market:hut-roof": "market hut", "mar
                "market:canopy": "canopy table", "market:canopy-post": "canopy table", "market:table": "canopy table",
                "market:stall": "market stall"}
 TREE_RE = re.compile(r"^tree:(\w+?)(-trunk|-crown)?$")
+# SAM 3.1 nouns run on every source frame (check): what an entry's area may be filled with
+CHECK_NOUNS = ("tree", "sky", "building", "colonnade", "arch", "market stall", "tent", "canopy")
+ASSET_NOUNS = {"market hut": ("market stall",), "market tent": ("tent", "market stall"),
+               "canopy table": ("canopy", "market stall"), "market stall": ("market stall",)}
+BUILDING_NOUNS = ("building", "colonnade", "arch")
+FLAG_TREES, FLAG_SKY, FLAG_ASSET, FLAG_SMALL = 0.35, 0.2, 0.4, 0.01
+DECISIONS = ("source", "description", "exclude")
 TIERS = {"A": "landmarks and kit monuments", "B": "singular civic and infrastructure", "C": "fill typologies",
          "D": "props and vegetation"}
 
@@ -65,31 +80,61 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
 
-def sources(store: ProjectStore) -> dict[str, list[str]]:
-    """shot -> its frames that may seed assets (locked frame first). Mood shots excluded."""
+FIT_RATIO = 0.9             # a frame's edge match now / when generated: below, the greybox changed in its view
+FIT_MIN = 0.25              # and a frame that never followed its greybox (scale-model raised views) is out too
+
+
+def frame_fit(store: ProjectStore, key: str) -> dict:
+    """Does a frame still match its shot's current greybox? Its edge match against the
+    current canny pass, against the one recorded when it was generated. A rebuild that
+    changed what the shot sees drops it; one that changed only things out of view (or
+    small ones: tree crowns) doesn't, so such a frame still lines up with the id pass."""
+    shot = key.split("/")[1]
+    meta = read_json(store.root / Path(key).parent / "meta.json", default={}) or {}
+    rec = next((f.get("edge_match") for f in meta.get("frames", []) if f["file"] == Path(key).name), None)
+    now = s0_frames.edge_match(store.root / key, sw_shots.shot_dir(store, shot) / "canny.png")
+    if rec is None:
+        ok, why = False, "no recorded layout match (not a pipeline frame)"
+    elif now < FIT_RATIO * rec:
+        ok, why = False, f"old layout: the greybox changed in this view (match {rec:.2f} then, {now:.2f} now)"
+    elif now < FIT_MIN:
+        ok, why = False, f"doesn't follow its greybox (match {now:.2f})"
+    else:
+        ok, why = True, ""
+    return {"frame": key, "shot": shot, "recorded": rec, "now": round(now, 4), "ok": ok, "reason": why}
+
+
+def candidates(store: ProjectStore) -> list[dict]:
+    """Every frame that could seed assets, with its fit: the locked frame of each locked
+    shot (not greybox-locked, not mood) and that shot's frames marked as shot frames."""
     mood = s0_frames.mood_shots(store)
     roles = review.roles(store)
-    out = {}
+    out = []
     for shot, key in s0_frames.locked(store).items():
         if key == s0_frames.LOCK_GREYBOX or shot in mood:
             continue
-        geom = (read_json(store.root / Path(key).parent / "meta.json", default={}) or {}).get("geometry_sha256")
-        keys = [key]
-        for b in s0_frames.batches(store, shot):
-            for f in b["frames"]:
-                if f["key"] != key and roles.get(f["key"]) == "source":
-                    g = (read_json(store.root / Path(f["key"]).parent / "meta.json", default={}) or {}).get(
-                        "geometry_sha256")
-                    if g == geom:
-                        keys.append(f["key"])
-        out[shot] = keys
+        keys = [key] + [f["key"] for b in s0_frames.batches(store, shot) for f in b["frames"]
+                        if f["key"] != key and roles.get(f["key"]) == "source"]
+        for k in keys:
+            out.append(frame_fit(store, k) | {"locked": k == key})
+    return out
+
+
+def sources(store: ProjectStore, cands: list[dict] | None = None) -> dict[str, list[str]]:
+    """shot -> its frames that seed assets: candidates that still fit the current greybox
+    (the locked frame first)."""
+    out: dict[str, list[str]] = {}
+    for c in cands if cands is not None else candidates(store):
+        if c["ok"]:
+            out.setdefault(c["shot"], []).append(c["frame"])
     return out
 
 
 def mood_frames(store: ProjectStore) -> dict[str, str]:
-    """Mood shot -> its locked frame (look only)."""
+    """Mood shot -> its locked frame (look only), when it still fits its greybox."""
     mood = s0_frames.mood_shots(store)
-    return {s: k for s, k in s0_frames.locked(store).items() if s in mood and k != s0_frames.LOCK_GREYBOX}
+    return {s: k for s, k in s0_frames.locked(store).items()
+            if s in mood and k != s0_frames.LOCK_GREYBOX and frame_fit(store, k)["ok"]}
 
 
 def _material_of(slot: dict, layout) -> str | None:
@@ -156,8 +201,10 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     slots = {s["id"]: s for s in gb["slots"]}
     catalog = {t.id: t for t in (layout.city.typologies if layout.city else [])}
     mats = {m.id: m for m in layout.materials}
-    src = sources(store)
+    cands = candidates(store)
+    src = sources(store, cands)
     moods = mood_frames(store)
+    idcache: dict[str, tuple] = {}
     tiers = {s["id"]: s["tier"] for s in gb["shots"]}
 
     entries: dict[str, dict] = {}
@@ -213,12 +260,15 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
                 pe["slots"].append(sid)
                 pe["districts"][s.get("district") or "-"] += v["pixels"]
         for eid, pe in per_entry.items():
+            area = _entry_mask(store, shot, pe["slots"], idcache) if pe["share"] >= min_share else None
             for k in keys:
                 entries[eid]["sources"].append({"frame": k, "shot": shot, "tier": tiers.get(shot),
                                                 "share": round(pe["share"], 5),
                                                 "bbox": [round(x, 4) for x in pe["bbox"]],
                                                 "slots": sorted(pe["slots"]), "locked": k == keys[0],
-                                                "districts": dict(pe["districts"])})
+                                                "districts": dict(pe["districts"]),
+                                                "scores": _scores(store, k, area, entries[eid])
+                                                if area is not None else None})
     for shot, k in moods.items():
         ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None) or {"slots": {}}
         seen = Counter()
@@ -231,10 +281,14 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
 
     out_entries, unseen = [], []
     for e in entries.values():
-        e["sources"].sort(key=lambda r: (-r["share"], not r["locked"]))
+        # best source: among those big enough, the most screen share discounted by how little
+        # of it is the asset
+        e["sources"].sort(key=lambda r: (r["share"] < min_share, -r["share"] * _cover(r), -r["share"],
+                                         not r["locked"]))
         if e["sources"] and e["sources"][0]["share"] >= min_share:
             best = e["sources"][0]
             e["best"], e["share"] = best["frame"], best["share"]
+            e["scores"] = best["scores"]
             vis = Counter()
             for r in e["sources"]:
                 vis.update(r["districts"])
@@ -244,6 +298,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         e["districts"] = dict(e["districts"].most_common())
         if "materials" in e:
             e["materials"] = dict(e["materials"].most_common())
+        e["flags"] = flags(e, min_share)
         e["description_auto"] = _description(e, catalog, mats)
         e["description"] = None
         e.pop("slots")
@@ -251,10 +306,11 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     order = {"A": 0, "B": 1, "C": 2, "D": 3}
     out_entries.sort(key=lambda e: (e["district"], order[e["tier"]], e["typology"], -e["share"]))
     unseen.sort(key=lambda e: (order[e["tier"]], e["typology"], -e["instances"]))
-    data = {"min_share": min_share, "sources": src, "mood": moods,
+    data = {"min_share": min_share, "sources": src, "mood": moods, "candidates": cands,
+            "checked": all(_sam_mask(store, k, "tree") is not None for ks in src.values() for k in ks),
             "entries": out_entries,
-            "unseen": [{k: e[k] for k in ("id", "tier", "typology", "part", "material", "instances", "districts",
-                                          "mood")}
+            "unseen": [{k: e[k] for k in ("id", "tier", "kind", "typology", "part", "material", "instances",
+                                          "districts", "district", "mood", "flags", "description_auto")}
                        | {"share": e["sources"][0]["share"] if e["sources"] else 0.0} for e in unseen],
             "surfaces": {k: v for k, v in surfaces.most_common()}}
     lib = sw_site.site_dir(store) / LIBRARY_DIR
@@ -262,6 +318,129 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     write_json(library_path(store), data)
     (sw_site.site_dir(store) / "library.html").write_text(report_html(store, data))
     return data
+
+
+def _sam_path(store: ProjectStore, frame: str, noun: str) -> Path:
+    return sw_site.site_dir(store) / LIBRARY_DIR / "sam" / f"{_slug(frame)}__{_slug(noun)}.png"
+
+
+def _sam_mask(store: ProjectStore, frame: str, noun: str) -> np.ndarray | None:
+    p = _sam_path(store, frame, noun)
+    return np.asarray(Image.open(p).convert("L")) > 127 if p.is_file() else None
+
+
+def _entry_mask(store: ProjectStore, shot: str, slot_ids: list[str], cache: dict) -> np.ndarray:
+    """The pixels of these slots in the shot's id pass."""
+    if shot not in cache:
+        ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json")
+        rgb = np.asarray(Image.open(sw_shots.shot_dir(store, shot) / "ids.png").convert("RGB"))
+        cache[shot] = sw_shots.decode_ids(rgb, {k: v["color"] for k, v in ids["slots"].items()})[:2]
+    idx, names = cache[shot]
+    return np.isin(idx, [names.index(s) for s in slot_ids if s in names])
+
+
+def _scores(store: ProjectStore, frame: str, area: np.ndarray, e: dict) -> dict | None:
+    """What fills the entry's area in a frame (SAM masks from `check`): the asset itself,
+    trees, sky, as shares of the area. None until checked."""
+    n = int(area.sum())
+    if not n:
+        return None
+    masks = {}
+    for noun in CHECK_NOUNS:
+        m = _sam_mask(store, frame, noun)
+        if m is None:
+            return None
+        if m.shape != area.shape:
+            m = np.asarray(Image.fromarray(m.astype(np.uint8) * 255).resize(area.shape[::-1])) > 127
+        masks[noun] = m
+    veg = e["kind"] == "vegetation"
+    own = ("tree",) if veg else ASSET_NOUNS.get(e["part"], BUILDING_NOUNS)
+    asset = np.logical_or.reduce([masks[k] for k in own])
+    trees = masks["tree"] & ~asset if not veg else np.zeros_like(asset)
+    sky = masks["sky"] & ~asset
+    return {"asset": round(float((asset & area).sum()) / n, 3), "trees": round(float((trees & area).sum()) / n, 3),
+            "sky": round(float((sky & area).sum()) / n, 3)}
+
+
+def _cover(r: dict) -> float:
+    return r["scores"]["asset"] if r.get("scores") else 1.0
+
+
+def flags(e: dict, min_share: float = MIN_SHARE) -> list[str]:
+    """Automatic warnings on an entry's crop, for the user's review."""
+    out = []
+    if not e.get("best"):
+        out.append("not visible in any current shot frame")
+        return out
+    sc = e.get("scores")
+    if sc:
+        if sc["trees"] >= FLAG_TREES:
+            out.append(f"trees cover {100 * sc['trees']:.0f}% of the asset area")
+        if sc["sky"] >= FLAG_SKY:
+            out.append(f"sky covers {100 * sc['sky']:.0f}% of the asset area")
+        rest = 1 - sc["asset"] - sc["trees"] - sc["sky"]
+        if sc["asset"] < FLAG_ASSET:
+            what = "something else" if rest >= max(sc["trees"], sc["sky"]) else "trees or sky"
+            out.append(f"only {100 * sc['asset']:.0f}% of the area is drawn as the asset ({what} fills the rest)")
+    else:
+        out.append("not checked yet (ap library check)")
+    if e["share"] < FLAG_SMALL:
+        out.append(f"small in its frame ({100 * e['share']:.1f}%)")
+    if e["tier"] == "D":
+        out.append("approximate crop: the id pass shows the whole slot holding it")
+    return out
+
+
+def check(store: ProjectStore, client=None, min_share: float = MIN_SHARE, progress=None) -> dict:
+    """Segment trees, sky, buildings and the props' nouns with SAM 3.1 on every source frame
+    (ComfyUI, GPU 1; cached per frame and noun), then re-plan with the flags."""
+    from .. import config
+    from ..comfy.client import ComfyClient
+    from ..segment import detect
+    client = client or ComfyClient(config.backends()["comfyui"]["url"])
+    frames = [k for ks in sources(store).values() for k in ks]
+    todo = [(k, n) for k in frames for n in CHECK_NOUNS if not _sam_path(store, k, n).is_file()]
+    for i, (k, noun) in enumerate(todo):
+        size = Image.open(store.root / k).size
+        dets = detect(client, store.root / k, noun, max_dets=32 if noun != "sky" else 2, threshold=0.4)
+        m = np.zeros(size[::-1], bool)
+        for d in dets:
+            m |= d.mask
+        p = _sam_path(store, k, noun)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(m.astype(np.uint8) * 255).save(p)
+        if progress:
+            progress(i + 1, len(todo))
+    return plan(store, min_share)
+
+
+def decisions_path(store: ProjectStore) -> Path:
+    return sw_site.site_dir(store) / "library_review.json"
+
+
+def decisions(store: ProjectStore) -> dict[str, dict]:
+    return read_json(decisions_path(store), default={}) or {}
+
+
+def decide(store: ProjectStore, entry: str, decision: str | None, note: str | None = None) -> dict:
+    """The user's call on an entry: source (its crop is a good visual source), description
+    (build it from its description only), exclude (no asset); None clears it."""
+    from datetime import datetime, timezone
+    if decision is not None and decision not in DECISIONS:
+        raise ValueError(f"decision must be one of {DECISIONS}")
+    data = load(store)
+    ids = {e["id"] for e in (data or {}).get("entries", [])} | {u["id"] for u in (data or {}).get("unseen", [])}
+    if entry not in ids:
+        raise KeyError(f"no library entry {entry}")
+    d = decisions(store)
+    if decision is None:
+        d.pop(entry, None)
+    else:
+        d[entry] = {"decision": decision, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        if note:
+            d[entry]["note"] = note
+    write_json(decisions_path(store), d)
+    return d
 
 
 def _description(e: dict, catalog: dict, mats: dict) -> str:
@@ -285,19 +464,10 @@ def _crops(store: ProjectStore, entries: list[dict], out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.jpg"):
         old.unlink()
-    gb = sw_site.load_greybox(store)
     cache: dict[str, tuple] = {}
     for e in entries:
         best = next(r for r in e["sources"] if r["frame"] == e["best"])
-        shot = best["shot"]
-        if shot not in cache:
-            ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json")
-            rgb = np.asarray(Image.open(sw_shots.shot_dir(store, shot) / "ids.png").convert("RGB"))
-            idx, names, _ = sw_shots.decode_ids(rgb, {k: v["color"] for k, v in ids["slots"].items()})
-            cache[shot] = (idx, names)
-        idx, names = cache[shot]
-        want = [names.index(s) for s in best["slots"] if s in names]
-        mask = np.isin(idx, want)
+        mask = _entry_mask(store, best["shot"], best["slots"], cache)
         frame = Image.open(store.root / best["frame"]).convert("RGB")
         if frame.size != (mask.shape[1], mask.shape[0]):
             mask = np.asarray(Image.fromarray(mask.astype(np.uint8) * 255).resize(frame.size)) > 127
@@ -338,7 +508,9 @@ def report_html(store: ProjectStore, data: dict) -> str:
                     f"<br>{e['instances']} instance{'s' if e['instances'] != 1 else ''} · "
                     f"{esc(', '.join(f'{k} {v}' for k, v in list(e['districts'].items())[:3]))}"
                     f"<br>source: <code>{esc(e['best'])}</code> · {100 * e['share']:.1f}%{' of the slots holding it (approximate)' if e['tier'] == 'D' else ''}"
-                    f"{f' (+{others} more)' if others > 0 else ''}{mood}</figcaption></figure>")
+                    f"{f' (+{others} more)' if others > 0 else ''}{mood}"
+                    + "".join(f"<br><span class=flag>⚠ {esc(f)}</span>" for f in e.get("flags", []))
+                    + "</figcaption></figure>")
             rows.append("</div>")
     def moods(u):
         return "; mood frame: " + ", ".join(f"{m['shot']} {100 * m['share']:.0f}%" for m in u["mood"]) if u["mood"] else ""
@@ -347,6 +519,8 @@ def report_html(store: ProjectStore, data: dict) -> str:
                      f"{esc(moods(u))})</li>" for u in data["unseen"])
     src = "".join(f"<li>{esc(s)}: {', '.join(f'<code>{esc(k)}</code>' for k in ks)}</li>"
                   for s, ks in data["sources"].items())
+    src += "".join(f"<li class=flag>excluded <code>{esc(c['frame'])}</code>: {esc(c['reason'])}</li>"
+                   for c in data.get("candidates", []) if not c["ok"])
     counts = Counter(e["tier"] for e in data["entries"])
     head = " · ".join(f"{t} {TIERS[t]}: {counts.get(t, 0)}" for t in "ABCD")
     return f"""<!doctype html><meta charset=utf-8><title>Asset library plan</title>
@@ -356,7 +530,7 @@ h2{{border-bottom:1px solid #ccc;margin-top:28px}} h3{{margin:14px 0 6px;color:#
 figure{{margin:0;background:#fff;border:1px solid #ddd;padding:6px}} img{{width:100%;display:block}}
 figcaption{{font-size:12px;line-height:1.45;margin-top:4px}} code{{font-size:11px;word-break:break-all}}
 span[class^=t]{{padding:0 5px;border-radius:3px;color:#fff;font-size:11px}}
-.tA{{background:#7a3}}.tB{{background:#37a}}.tC{{background:#a73}}.tD{{background:#777}}
+.flag{{color:#a40}}.tA{{background:#7a3}}.tB{{background:#37a}}.tC{{background:#a73}}.tD{{background:#777}}
 @media (prefers-color-scheme:dark){{body{{background:#1b1b1a;color:#ddd}}figure{{background:#262625;border-color:#444}}h3{{color:#aaa}}}}</style>
 <h1>Asset library plan</h1><p>{len(data['entries'])} entries from the locked shot frames ({head}).
 Crops: the best source frame, the entry's slots bright (object-id pass), everything else dimmed.</p>
@@ -382,6 +556,11 @@ def summary(data: dict) -> str:
         lines.append(f"{d}:")
         for e in by_d[d]:
             lines.append(f"  [{e['tier']}] {e['id']:<34} {e['instances']:>5}x  {100 * e['share']:5.1f}%  {e['best']}")
+            for f in e.get("flags", []):
+                lines.append(f"        ! {f}")
+    for c in data.get("candidates", []):
+        if not c["ok"]:
+            lines.append(f"excluded {c['frame']}: {c['reason']}")
     lines.append(f"not visible enough ({len(data['unseen'])}): " + ", ".join(
         u["id"] + (f" (mood: {', '.join(m['shot'] for m in u['mood'])})" if u.get("mood") else "") for u in data["unseen"]))
     return "\n".join(lines)

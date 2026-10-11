@@ -50,7 +50,7 @@ tabKeys($("#lib-tabs"), "sub", showSub);
   if (t === "plan" || t === "refs") { sub = t; t = "library"; }
   if (t === "review") t = "views";
   showTab(t || "style");
-  showSub(sub === "refs" ? "refs" : "plan");
+  showSub(["assets", "plan", "refs"].includes(sub) ? sub : "assets");
 }
 
 // --- classic dialogs ---------------------------------------------------------------------

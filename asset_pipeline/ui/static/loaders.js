@@ -82,6 +82,7 @@ const LOADERS = {
   "refs.generate": ["Drawing reference sheets…", "sheet", "sheets"], "views.cut": ["Cutting views…", "cut", "sheets"],
   "3d.trellis": ["Building 3D model…", "model", ""], "cleanup": ["Cleaning up mesh…", "mesh", ""],
   "ue.export": ["Exporting to Unreal…", "export", "meshes"], "ue.backup": ["Backing up the UE project…", "backup", "files"],
+  "library.plan": ["Planning the asset library…", "plan", ""], "library.check": ["Checking the crops…", "scene", ""],
 };
 const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU"};
 const base = k => String(k || "").split("/").pop();
@@ -94,6 +95,8 @@ function detailLine(j, p) {
     "site.extract": "Blender on the CPU · reading slots, tags and cameras back",
     "site.plan": "City plan without Blender · districts, blocks and building types",
     "site.preview": "Blender on the CPU · aerial views of the greybox",
+    "library.plan": "CPU · entries from the locked shot frames' object-id passes",
+    "library.check": "SAM 3.1 · trees, sky and buildings on each source frame",
     "shots.camera": `Blender · writing ${t.shot || "the"} camera into the .blend`,
     "plan.analyze": `Vision LLM · listing assets in ${base(t.scene) || "the scene"}`,
     "plan.refine": `SAM 3.1 · redrawing the boxes of ${t.plan || "the plan"}`,
