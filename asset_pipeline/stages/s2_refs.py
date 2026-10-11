@@ -142,7 +142,7 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
     project = store.load()
     backend = backend_for("references", project)
     prompt, w, h, anchor = request(unit, project.anchor)
-    if unit.kind == "object" and unit.assets[0].refs:      # project-relative look refs
+    if unit.kind in ("object", "kit") and unit.assets[0].refs:      # project-relative look refs
         anchor = _with_refs(project.anchor, unit.assets[0], store.root)
     d = unit.dir(store)
     d.mkdir(parents=True, exist_ok=True)

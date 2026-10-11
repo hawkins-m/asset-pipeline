@@ -232,3 +232,40 @@ def test_reference_decisions_and_the_library_asset_plan(lib):
     u = next(u for u in s2_refs.units(store, "library") if u.key == "stoa")
     prompt, w, h, anchor = s2_refs.request(u, None)
     assert "stoa" in prompt and [str(p) for p in anchor.images] == [old] and anchor.strength == 0.04
+
+
+def test_refined_crops_flag_no_usable_crop_and_default_to_description(lib, monkeypatch):
+    from asset_pipeline import crop_refine
+    store, m = lib
+    seg = store.root / "site/library/seg"
+    seg.mkdir(parents=True)
+    (seg / "ade20k.json").write_text(json.dumps({0: "building", 1: "sky", 2: "tree"}))
+    # the frame paints the rotunda (cols 0-20) as building, insula ins1 (20-30) mostly as tree
+    lab = np.ones((H, W), np.uint8)
+    lab[:, 0:20] = 0
+    lab[:, 20:22] = 0
+    lab[:, 22:30] = 2
+    for f in m:
+        Image.fromarray(lab).save(seg / f"{crop_refine._slug(f)}.oneformer.png")
+        Image.fromarray(np.full((H, W), 30000, np.uint16)).save(seg / f"{crop_refine._slug(f)}.depth.png")
+    Image.fromarray(np.full((H, W), 300, np.uint16)).save(sw_shots.shot_dir(store, "m") / "depth_raw.png")
+    monkeypatch.setattr(crop_refine, "available", lambda: True)
+    monkeypatch.setattr(crop_refine, "dump", lambda *a, **k: None)
+    import asset_pipeline.segment as seg_mod
+    monkeypatch.setattr(seg_mod, "detect", lambda client, image, noun, **kw: [])
+    monkeypatch.setattr(seg_mod, "detect_box", lambda client, image, noun, box, **kw: [])
+    sw_library.plan(store)
+    sw_library.describe(store, "insula-marble", "my words")          # a user description, no decision
+    data = sw_library.check(store, client=object())
+    by = {e["id"]: e for e in data["entries"]}
+    assert by["rotunda"]["kept"] == 1.0 and not any("no usable" in f for f in by["rotunda"]["flags"])
+    assert by["insula-marble"]["kept"] == 0.2
+    assert any(f.startswith("no usable crop") for f in by["insula-marble"]["flags"])
+    dec = sw_library.decisions(store)
+    assert dec["insula-marble"] == {"description": "my words", "decision": "description", "auto": True,
+                                    "note": "no usable crop"}
+    assert "rotunda" not in dec
+    # a user decision is never overridden; an auto one goes when the crop becomes usable
+    sw_library.decide(store, "insula-marble", "exclude")
+    sw_library.plan(store)
+    assert sw_library.decisions(store)["insula-marble"]["decision"] == "exclude"

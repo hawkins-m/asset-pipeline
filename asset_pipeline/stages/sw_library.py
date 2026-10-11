@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageEnhance
 
-from .. import review
+from .. import crop_refine, review
 from ..project import ProjectStore, read_json, write_json
 from . import s0_frames, sw_shots, sw_site
 
@@ -69,8 +69,17 @@ BUILDING_NOUNS = ("building", "colonnade", "arch")
 FLAG_TREES, FLAG_SKY, FLAG_ASSET, FLAG_SMALL = 0.35, 0.2, 0.4, 0.01
 # source: the crop guides its sheets; reference: description plus a chosen frame (any frame,
 # old layouts too) as a look reference, no crop; description: description only
-DECISIONS = ("source", "description", "reference", "exclude")
-REF_STRENGTH = {"source": 0.06, "reference": 0.04}   # Redux total for the look ref (scene frames leak content)
+# kit: a facade kit (bay / corner modules, each with its own description and size) drawn
+# with a look image, tiled along the greybox footprints later
+DECISIONS = ("source", "description", "reference", "kit", "exclude")
+# Redux total for the look ref (scene frames leak content). A prop crop at 0.06 copied the
+# crop's shape (the pilot hut came out as the canopy stands around it): props get 0.03.
+REF_STRENGTH = {"source": 0.06, "reference": 0.04, "kit": 0.05}
+PROP_SOURCE_STRENGTH = 0.03
+
+
+def ref_strength(decision: str, tier: str) -> float:
+    return PROP_SOURCE_STRENGTH if decision == "source" and tier == "D" else REF_STRENGTH.get(decision, 0.0)
 # generic descriptions for kit monuments and props (catalog typologies carry their own `desc`)
 KIT_DESC = {
     "temple": "A classical temple on a high stepped podium: a deep front portico of tall fluted columns under a "
@@ -291,13 +300,14 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         for eid, pe in per_entry.items():
             area = _entry_mask(store, shot, pe["slots"], idcache) if pe["share"] >= min_share else None
             for k in keys:
-                entries[eid]["sources"].append({"frame": k, "shot": shot, "tier": tiers.get(shot),
-                                                "share": round(pe["share"], 5),
-                                                "bbox": [round(x, 4) for x in pe["bbox"]],
-                                                "slots": sorted(pe["slots"]), "locked": k == keys[0],
-                                                "districts": dict(pe["districts"]),
-                                                "scores": _scores(store, k, area, entries[eid])
-                                                if area is not None else None})
+                rec = {"frame": k, "shot": shot, "tier": tiers.get(shot), "share": round(pe["share"], 5),
+                       "bbox": [round(x, 4) for x in pe["bbox"]], "slots": sorted(pe["slots"]),
+                       "locked": k == keys[0], "districts": dict(pe["districts"]),
+                       "scores": _scores(store, k, area, entries[eid]) if area is not None else None}
+                ref = read_json(_refined_path(store, eid, k).with_suffix(".json"), default=None)
+                if ref and entries[eid]["tier"] != "D":
+                    rec["kept"], rec["refined"] = ref["kept"], ref["instance"]
+                entries[eid]["sources"].append(rec)
     for shot, k in moods.items():
         ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None) or {"slots": {}}
         seen = Counter()
@@ -317,7 +327,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         if e["sources"] and e["sources"][0]["share"] >= min_share:
             best = e["sources"][0]
             e["best"], e["share"] = best["frame"], best["share"]
-            e["scores"] = best["scores"]
+            e["scores"], e["kept"] = best["scores"], best.get("kept")
             vis = Counter()
             for r in e["sources"]:
                 vis.update(r["districts"])
@@ -343,6 +353,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
                                           "districts", "district", "mood", "flags", "description_auto", "size_m")}
                        | {"share": e["sources"][0]["share"] if e["sources"] else 0.0} for e in unseen],
             "surfaces": {k: v for k, v in surfaces.most_common()}}
+    _auto_decide(store, data["entries"])
     lib = sw_site.site_dir(store) / LIBRARY_DIR
     _crops(store, data["entries"], lib / "crops")
     write_json(library_path(store), data)
@@ -408,6 +419,8 @@ def _scores(store: ProjectStore, frame: str, area: np.ndarray, e: dict) -> dict 
 
 
 def _cover(r: dict) -> float:
+    if r.get("kept") is not None:            # refined (check): the share of the instance drawn as it
+        return r["kept"]
     return r["scores"]["asset"] if r.get("scores") else 1.0
 
 
@@ -419,6 +432,9 @@ def flags(e: dict, min_share: float = MIN_SHARE) -> list[str]:
     if not e.get("best"):
         out.append("not visible in any current shot frame")
         return out
+    kept = e.get("kept")
+    if kept is not None and kept < crop_refine.USABLE:
+        out.append(f"no usable crop: only {100 * kept:.0f}% of its greybox area is drawn as the building")
     sc = e.get("scores")
     if sc:
         if sc["trees"] >= FLAG_TREES:
@@ -436,6 +452,66 @@ def flags(e: dict, min_share: float = MIN_SHARE) -> list[str]:
     if e["tier"] == "D":
         out.append("approximate crop: the id pass shows the whole slot holding it")
     return out
+
+
+def _refined_path(store: ProjectStore, eid: str, frame: str) -> Path:
+    return sw_site.site_dir(store) / LIBRARY_DIR / "refined" / f"{eid}__{_slug(frame)}.png"
+
+
+def _auto_decide(store: ProjectStore, entries: list[dict]) -> None:
+    """Cards with no usable crop default to Use description (marked auto, so a later check
+    that finds a usable crop takes it back); the user's own decisions are never touched."""
+    d = decisions(store)
+    changed = False
+    for e in entries:
+        bad = e.get("kept") is not None and e["kept"] < crop_refine.USABLE
+        cur = d.get(e["id"], {})
+        if bad and not cur.get("decision"):
+            d[e["id"]] = cur | {"decision": "description", "auto": True, "note": "no usable crop"}
+            changed = True
+        elif not bad and cur.get("auto"):
+            d[e["id"]] = {k: v for k, v in cur.items() if k not in ("decision", "auto", "note")}
+            if not d[e["id"]]:
+                d.pop(e["id"])
+            changed = True
+    if changed:
+        write_json(decisions_path(store), d)
+
+
+def refine_sources(store: ProjectStore, client, data: dict, log=None) -> int:
+    """Refined instance masks (crop_refine) for every building-like entry's sources big
+    enough to crop, cached under site/library/refined/. Returns how many were made."""
+    seg = sw_site.site_dir(store) / LIBRARY_DIR / "seg"
+    frames = sorted({r["frame"] for e in data["entries"] if e["tier"] != "D" for r in e["sources"]
+                     if r["share"] >= data["min_share"]})
+    crop_refine.dump(store.root, frames, seg, log=log)
+    cache, n = {}, 0
+    for e in data["entries"]:
+        if e["tier"] == "D":
+            continue
+        for r in e["sources"]:
+            if r["share"] < data["min_share"]:
+                continue
+            out = _refined_path(store, e["id"], r["frame"])
+            if out.with_suffix(".json").is_file():
+                continue
+            sd = sw_shots.shot_dir(store, r["shot"])
+            ids = read_json(sd / "ids.json")
+            top = max(r["slots"], key=lambda sid: ids["slots"][sid]["frac"])      # the largest instance
+            frame = store.root / r["frame"]
+            size = Image.open(frame).size
+            R = _entry_mask(store, r["shot"], [top], cache)
+            if R.shape[::-1] != size:
+                R = np.asarray(Image.fromarray(R.astype(np.uint8) * 255).resize(size)) > 127
+            m = crop_refine.refine(frame, seg, r["frame"], R, crop_refine.greybox_depth(sd, size), client)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            Image.fromarray(m["S"].astype(np.uint8) * 255).save(out)
+            kept = round(float((m["S"] & R).sum()) / max(int(R.sum()), 1), 3)   # SAM may reach past R
+            write_json(out.with_suffix(".json"), {"frame": r["frame"], "instance": top, "kept": kept,
+                                                 "labels": round(float(m["L"].sum()) / max(int(R.sum()), 1), 3),
+                                                 "depth": round(float(m["D"].sum()) / max(int(R.sum()), 1), 3)})
+            n += 1
+    return n
 
 
 def check(store: ProjectStore, client=None, min_share: float = MIN_SHARE, progress=None) -> dict:
@@ -458,7 +534,11 @@ def check(store: ProjectStore, client=None, min_share: float = MIN_SHARE, progre
         Image.fromarray(m.astype(np.uint8) * 255).save(p)
         if progress:
             progress(i + 1, len(todo))
-    return plan(store, min_share)
+    data = plan(store, min_share)
+    if crop_refine.available():          # labels + depth + SAM box: the refined crops
+        refine_sources(store, client, data)
+        data = plan(store, min_share)
+    return data
 
 
 def decisions_path(store: ProjectStore) -> Path:
@@ -469,15 +549,43 @@ def decisions(store: ProjectStore) -> dict[str, dict]:
     return read_json(decisions_path(store), default={}) or {}
 
 
+def describe(store: ProjectStore, entry: str, text: str | None) -> dict:
+    """The user's description for an entry (None restores the auto one); kept whatever the
+    decision."""
+    _check_entry(store, entry)
+    d = decisions(store)
+    if text:
+        d.setdefault(entry, {})["description"] = text.strip()
+    elif entry in d:
+        d[entry].pop("description", None)
+        if not d[entry]:
+            d.pop(entry)
+    write_json(decisions_path(store), d)
+    return d
+
+
+def _check_entry(store: ProjectStore, entry: str) -> None:
+    data = load(store)
+    ids = {e["id"] for e in (data or {}).get("entries", [])} | {u["id"] for u in (data or {}).get("unseen", [])}
+    if entry not in ids:
+        raise KeyError(f"no library entry {entry}")
+
+
 def decide(store: ProjectStore, entry: str, decision: str | None, note: str | None = None,
-           ref_frame: str | None = None) -> dict:
+           ref_frame: str | None = None, pieces: dict | None = None) -> dict:
     """The user's call on an entry: source (its crop is a good visual source), description
     (build it from its description only), reference (description plus `ref_frame`, any
     project frame, as a look reference), exclude (no asset); None clears it."""
     from datetime import datetime, timezone
     if decision is not None and decision not in DECISIONS:
         raise ValueError(f"decision must be one of {DECISIONS}")
-    if decision == "reference":
+    if decision == "kit":
+        if not pieces:
+            raise ValueError("a kit decision needs pieces: {name: {description, size: [w, d, h]}}")
+        for name, pc in pieces.items():
+            if not re.fullmatch(r"[a-z0-9-]+", name) or not pc.get("description") or len(pc.get("size", [])) != 3:
+                raise ValueError(f"kit piece {name!r}: a lowercase name, a description and size [w, d, h]")
+    if decision in ("reference", "kit") and ref_frame or decision == "reference":
         if not ref_frame:
             raise ValueError("a reference decision needs a frame")
         try:
@@ -486,17 +594,19 @@ def decide(store: ProjectStore, entry: str, decision: str | None, note: str | No
             raise ValueError(f"no such image in the project: {ref_frame}") from None
         if not (store.root / ref_frame).is_file() or Path(ref_frame).suffix.lower() not in (".png", ".jpg", ".jpeg"):
             raise ValueError(f"no such image in the project: {ref_frame}")
-    data = load(store)
-    ids = {e["id"] for e in (data or {}).get("entries", [])} | {u["id"] for u in (data or {}).get("unseen", [])}
-    if entry not in ids:
-        raise KeyError(f"no library entry {entry}")
+    _check_entry(store, entry)
     d = decisions(store)
+    keep = {k: v for k, v in d.get(entry, {}).items() if k == "description"}   # the user's text stays
     if decision is None:
         d.pop(entry, None)
+        if keep:
+            d[entry] = keep
     else:
-        d[entry] = {"decision": decision, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-        if ref_frame and decision == "reference":
+        d[entry] = {"decision": decision, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")} | keep
+        if ref_frame and decision in ("reference", "kit"):
             d[entry]["frame"] = ref_frame
+        if pieces and decision == "kit":
+            d[entry]["pieces"] = pieces
         if note:
             d[entry]["note"] = note
     write_json(decisions_path(store), d)
@@ -523,13 +633,24 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     missing = [i for i in only or [] if i not in entries]
     if missing:
         raise KeyError(f"no library entries {missing}")
-    undecided = [i for i in only or [] if i not in dec or dec[i]["decision"] == "exclude"]
+    undecided = [i for i in only or [] if dec.get(i, {}).get("decision") in (None, "exclude")]
     if undecided:
         raise ValueError(f"not decided (or excluded): {undecided}")
     assets = []
     for eid, d in dec.items():
         e = entries.get(eid)
-        if e is None or d["decision"] == "exclude" or e.get("kind") == "vegetation":
+        if e is None or d.get("decision") in (None, "exclude") or e.get("kind") == "vegetation":
+            continue
+        inc = only is None or eid in only
+        if d["decision"] == "kit":       # one asset per module, drawn together as one kit sheet
+            for name, pc in d["pieces"].items():
+                w, dp, h = pc["size"]
+                assets.append(PlanAsset(
+                    id=f"{eid}-{name}", name=f"{eid.replace('-', ' ')} {name}", noun=pc.get("noun") or "building",
+                    category="structure", description=pc["description"], count=1, kit=f"{eid} kit",
+                    dimensions=Dimensions(width=w, depth=dp, height=h), placement=f"kit module of {eid}",
+                    include=inc, refs=[d["frame"]] if d.get("frame") else [],
+                    ref_strength=ref_strength("kit", e["tier"])))
             continue
         refs = {"source": [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"], "reference": [d.get("frame")],
                 "description": []}[d["decision"]]
@@ -538,10 +659,11 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
             id=eid, name=eid.replace("-", " "), noun=e["part"].replace("_", " "),
-            category=CATEGORY.get(e["kind"], "structure"), description=e.get("description") or e["description_auto"],
+            category=CATEGORY.get(e["kind"], "structure"),
+            description=d.get("description") or e.get("description") or e["description_auto"],
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
-            placement=f"{e['tier']} · {e.get('district') or '-'}", include=only is None or eid in only,
-            refs=[r for r in refs if r], ref_strength=REF_STRENGTH.get(d["decision"], 0.0)))
+            placement=f"{e['tier']} · {e.get('district') or '-'}", include=inc,
+            refs=[r for r in refs if r], ref_strength=ref_strength(d["decision"], e["tier"])))
     plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
                      assets=assets, llm="")
     return s1_plan.save(store, PLAN_NAME, plan)
@@ -575,8 +697,16 @@ def _crops(store: ProjectStore, entries: list[dict], out: Path) -> None:
     cache: dict[str, tuple] = {}
     for e in entries:
         best = next(r for r in e["sources"] if r["frame"] == e["best"])
-        mask = _entry_mask(store, best["shot"], best["slots"], cache)
         frame = Image.open(store.root / best["frame"]).convert("RGB")
+        rp = _refined_path(store, e["id"], best["frame"])
+        if best.get("refined") and rp.is_file():          # the refined instance mask (check)
+            mask = np.asarray(Image.open(rp).convert("L")) > 127
+            ys, xs = np.nonzero(mask)
+            if len(xs):
+                W0, H0 = mask.shape[1], mask.shape[0]
+                best = best | {"bbox": [xs.min() / W0, ys.min() / H0, xs.max() / W0, ys.max() / H0]}
+        else:
+            mask = _entry_mask(store, best["shot"], best["slots"], cache)
         if frame.size != (mask.shape[1], mask.shape[0]):
             mask = np.asarray(Image.fromarray(mask.astype(np.uint8) * 255).resize(frame.size)) > 127
         dim = ImageEnhance.Brightness(frame).enhance(0.35)

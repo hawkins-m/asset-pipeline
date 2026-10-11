@@ -595,7 +595,10 @@ def cmd_library_check(a) -> None:
 def cmd_library_decide(a) -> None:
     from .stages import sw_library
     store = ProjectStore.open(a.project)
-    d = sw_library.decide(store, a.entry, None if a.decision == "none" else a.decision, a.note, a.frame)
+    pieces = json.loads(a.pieces) if a.pieces else None
+    if a.description is not None:
+        sw_library.describe(store, a.entry, a.description or None)
+    d = sw_library.decide(store, a.entry, None if a.decision == "none" else a.decision, a.note, a.frame, pieces)
     print(f"{a.entry}: {d.get(a.entry, {}).get('decision', 'undecided')}"
           + (f" (reference {d[a.entry]['frame']})" if d.get(a.entry, {}).get("frame") else ""))
 
@@ -1051,8 +1054,10 @@ def main(argv: list[str] | None = None) -> None:
     p = libsub.add_parser("decide", help="the review decision for one entry")
     p.add_argument("project")
     p.add_argument("entry")
-    p.add_argument("decision", choices=["source", "description", "reference", "exclude", "none"])
-    p.add_argument("--frame", help="reference: the project frame used as look reference")
+    p.add_argument("decision", choices=["source", "description", "reference", "kit", "exclude", "none"])
+    p.add_argument("--frame", help="reference / kit: the project image used as look reference")
+    p.add_argument("--pieces", help='kit: JSON {"bay": {"description": "...", "size": [w, d, h]}, ...}')
+    p.add_argument("--description", help="your description for the entry ('' restores the auto one)")
     p.add_argument("--note")
     p.set_defaults(fn=cmd_library_decide)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")

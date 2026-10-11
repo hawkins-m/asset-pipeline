@@ -6,7 +6,7 @@ let libraryData = null;
 const lib = {filter: "all"};
 try { lib.filter = localStorage.getItem("ap.libFilter") || "all"; } catch (_) { /* ignore */ }
 const LIB_DECISIONS = [["source", "Good source"], ["description", "Use description"],
-  ["reference", "Description + reference frame"], ["exclude", "Exclude"]];
+  ["reference", "Description + reference frame"], ["exclude", "Exclude"], ["kit", "Facade kit"]];
 const LIB_TIERS = {A: "landmark / kit monument", B: "singular civic", C: "fill typology", D: "prop / vegetation"};
 
 async function loadLibrary() {
@@ -48,8 +48,9 @@ function libCard(e) {
       ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
         <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
       <div class="asset-actions" role="group" aria-label="Decision for ${esc(e.id)}">
-        ${LIB_DECISIONS.map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
-          ${foliage ? "disabled title=\"Unreal foliage: not generated\"" : k === "source" && !e.best ? "disabled title=\"No crop to use\"" : ""}>${label}</button>`).join("")}
+        ${LIB_DECISIONS.filter(([k]) => k !== "kit" || d === "kit").map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
+          title="${d === k && (libraryData.decisions[e.id] || {}).auto ? "Set automatically: no usable crop" : ""}"
+          ${foliage ? "disabled title=\"Unreal foliage: not generated\"" : k === "source" && !e.best ? "disabled title=\"No crop to use\"" : ""}>${label}${d === k && (libraryData.decisions[e.id] || {}).auto ? " (auto)" : ""}</button>`).join("")}
       </div>
     </div>`;
   return el;
