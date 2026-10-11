@@ -525,3 +525,32 @@ reflects what was actually verified.
   concrete" gave near-identical frames per seed, none with wood (the round-1 wood came
   from "board-formed"). The cream cast comes from "pale"/"ivory"/"warm" words, not the
   material name.
+
+## Raised shots: realism A/B and the forum centre (2026-10-10)
+- Raised frames read as white CG scale models. A/B (`scripts/diag/frames_ab.py --set
+  realism|realism2`, 4 raised mediums x 2 seeds, an approved eye-level frame as target):
+
+  | Variant | Edge match | Look |
+  |---|---|---|
+  | relief 0.75 to 0.75 (old default) | 0.69 | Scale model |
+  | **relief 0.75 to 0.5 / 0.6** | 0.48 / 0.54 | Only lever that helps: haze, hills, weathering; palms can creep back. Default now 0.55 |
+  | own locked medium as ref at 0.10 / 0.15 | 0.68 / 0.66 | No visible change |
+  | + "dense dark-green umbrella pine canopies, seen from above" | same | No change: crowns stay grey dishes |
+  | img2img realism pass (`s0_frames.refine`, no control) 0.25-0.5 | -0.03 to -0.1 | Stains and sharper detail, harsher contrast; never softer or hazier, never less model-like |
+
+  Smooth dome crowns seen from above read as dishes or mushrooms whatever the words
+  (from the side they read as pines). Seen from above, the scale-model look comes from the
+  greybox itself (big blank roofs, smooth crowns), not the sampler.
+- Pine crowns are domes 0.32 x their width (were 0.24 x the height, ~0.2 x the width:
+  discs in wides). Trunk 1.4 m.
+- `CivicNode.centre = "forum"`: an enclosed rectangular court (0.83 R x 0.5 R), four
+  12 m portico ranges (shops behind, two orders, attic), gate arches where each radial
+  crosses a range (6 radials: both short ends, +-24 m on the long sides), a fountain; a
+  market node fills it with a stall grid. Its own random stream, and the loose market's
+  draws still taken, so the rest of the plan (other markets, every tree) stays put.
+  - The eye-level camera must stand clear of the stall rows (a hut 5 m away fills the
+    frame) and outside the gate piers: in the court just in front of the end colonnade,
+    beside its gate, looking diagonally at the far side's gate.
+  - The masked landmark ref makes each frame ~100 s.
+- `ap frames lock SHOT --greybox`: camera and greybox locked, no frame (wides: Flux
+  can't resolve a whole city at frame size; they render in UE from the real assets).
