@@ -1638,16 +1638,19 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
                                 look_at=(*look, cz + 4.0), lens_mm=24.0, district=nd.id,
                                 notes="eye-level view along the arcades of a courtyard"))
         elif nd.centre == "forum":
-            # inside the square near the corner nearer the sea, in the clear strip between the
-            # stalls and the tree row: diagonally across the stalls and the fountain, one
-            # portico range receding along the side
+            # standing in the court just in front of the colonnade of the short end nearer the
+            # sea, beside its gate (~8 m from the nearest stall and from the tree row), looking
+            # diagonally across the stall aisles to the far long side's colonnade and gate arch
             cl, cw = forum_dims(nd)
             ax, ac = _dir(nd.rot), _dir(nd.rot + 90)
             end = 1.0 if float(np.dot(ax, u)) >= 0 else -1.0
-            p = centre + end * (cl / 2 - 4) * ax + (cw / 2 - 11) * ac
-            look = centre - end * (cl / 2) * ax - 0.1 * cw * ac
+            hl = cl / 2 + FORUM_RANGE_M / 2
+            gx = max((off for _, side, off in (_forum_hit(nd, nd.rot + 360 * k / nd.radials, hl, cw / 2 + FORUM_RANGE_M / 2)
+                                                for k in range(nd.radials)) if side == "long"), default=0.25 * cl)
+            p = centre + end * (cl / 2 - 1.5) * ax + 0.25 * cw * ac
+            look = centre - end * gx * ax - (cw / 2) * ac
             out.append(ShotSpec(id=f"med-{nd.id}", tier="medium", pos=(*p, cz + 1.7),
-                                look_at=(*look, cz + 6.0), lens_mm=24.0, district=nd.id,
+                                look_at=(*look, cz + 5.0), lens_mm=24.0, district=nd.id,
                                 notes="eye-level view down an enclosed market square, stalls under two-storey porticoes"))
         else:
             p = centre + r["ring1"] * _dir(a)
