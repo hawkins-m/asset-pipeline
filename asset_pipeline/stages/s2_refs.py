@@ -66,7 +66,7 @@ def _slug(text: str) -> str:
 
 def units(store: ProjectStore, plan: str | None = None) -> list[Unit]:
     out = []
-    names = [plan] if plan else [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]
+    names = [plan] if plan else s1_plan.plan_names(store)
     for name in names:
         p = s1_plan.load(store, name)
         if not p:
@@ -115,7 +115,16 @@ def request(unit: Unit, anchor: StyleAnchor | None) -> tuple[str, int, int, Styl
         return KIT_PROMPT.format(n=len(unit.assets), kit=a.kit, pieces=pieces), w, h, anchor
     d = a.dimensions
     w, h = _size(3, min(max(max(d.width, d.depth) / d.height, 0.5), 1.6))
-    return OBJECT_PROMPT.format(name=a.name, description=a.description.rstrip(".")), w, h, anchor
+    return OBJECT_PROMPT.format(name=a.name, description=a.description.rstrip(".")), w, h, _with_refs(anchor, a)
+
+
+def _with_refs(anchor: StyleAnchor | None, a: PlanAsset, root: Path | None = None) -> StyleAnchor | None:
+    """The anchor plus the asset's own look references (paths resolved against `root`)."""
+    if not a.refs:
+        return anchor
+    base = anchor or StyleAnchor(strength=0.0)
+    imgs = [Path(r) if root is None else root / r for r in a.refs]
+    return base.model_copy(update={"images": list(base.images) + imgs, "strength": base.strength + a.ref_strength})
 
 
 def _next_index(d: Path) -> int:
@@ -133,6 +142,8 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
     project = store.load()
     backend = backend_for("references", project)
     prompt, w, h, anchor = request(unit, project.anchor)
+    if unit.kind == "object" and unit.assets[0].refs:      # project-relative look refs
+        anchor = _with_refs(project.anchor, unit.assets[0], store.root)
     d = unit.dir(store)
     d.mkdir(parents=True, exist_ok=True)
     t = time.time()

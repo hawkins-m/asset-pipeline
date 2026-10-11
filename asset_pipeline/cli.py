@@ -147,8 +147,7 @@ def _refine(store, name: str) -> None:
 def cmd_plan_refine(a) -> None:
     from .stages import s1_plan
     store = ProjectStore.open(a.project)
-    names = [a.name] if a.name else [s1_plan.plan_name(k) for k in s1_plan.scenes(store)
-                                     if s1_plan.load(store, s1_plan.plan_name(k))]
+    names = [a.name] if a.name else [n for n in s1_plan.plan_names(store) if s1_plan.load(store, n)]
     for name in names:
         print(name)
         _refine(store, name)
@@ -157,7 +156,7 @@ def cmd_plan_refine(a) -> None:
 def cmd_plan_show(a) -> None:
     from .stages import s1_plan
     store = ProjectStore.open(a.project)
-    names = [a.name] if a.name else [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]
+    names = [a.name] if a.name else s1_plan.plan_names(store)
     for name in names:
         plan = s1_plan.load(store, name)
         if a.json:
@@ -225,7 +224,7 @@ def cmd_review_show(a) -> None:
     from . import review
     from .stages import s1_plan, s3_views, s5_3d
     store = ProjectStore.open(a.project)
-    for name in [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]:
+    for name in s1_plan.plan_names(store):
         plan = s1_plan.load(store, name)
         for x in (plan.assets if plan else []):
             if not x.include or x.category == "terrain":
@@ -591,6 +590,31 @@ def cmd_library_check(a) -> None:
     data = sw_library.check(store, min_share=a.min_share,
                             progress=lambda i, n: print(f"  SAM {i}/{n}", end="\r", flush=True))
     print(sw_library.summary(data))
+
+
+def cmd_library_decide(a) -> None:
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    d = sw_library.decide(store, a.entry, None if a.decision == "none" else a.decision, a.note, a.frame)
+    print(f"{a.entry}: {d.get(a.entry, {}).get('decision', 'undecided')}"
+          + (f" (reference {d[a.entry]['frame']})" if d.get(a.entry, {}).get("frame") else ""))
+
+
+def cmd_library_sheets(a) -> None:
+    from .stages import s2_refs, sw_library
+    store = ProjectStore.open(a.project)
+    plan = sw_library.asset_plan(store, only=a.only)
+    inc = [x for x in plan.assets if x.include]
+    print(f"plans/library.json: {len(plan.assets)} decided assets, {len(inc)} included")
+    for x in inc:
+        print(f"  {x.id}: {x.dimensions.width:g} x {x.dimensions.depth:g} x {x.dimensions.height:g} m, "
+              f"refs {x.refs or '-'} at {x.ref_strength:g}")
+    if a.plan_only:
+        return
+    for u in s2_refs.units(store, sw_library.PLAN_NAME):
+        if u.key in {x.id for x in inc} and (a.more or not s2_refs.sheets(store, u)):
+            out = s2_refs.generate(store, u, n=a.n)
+            print(f"{u.key}: {', '.join(p.name for p in out)}")
 
 
 def cmd_library_show(a) -> None:
@@ -1024,6 +1048,20 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--min-share", type=float, default=0.005)
     p.set_defaults(fn=cmd_library_check)
+    p = libsub.add_parser("decide", help="the review decision for one entry")
+    p.add_argument("project")
+    p.add_argument("entry")
+    p.add_argument("decision", choices=["source", "description", "reference", "exclude", "none"])
+    p.add_argument("--frame", help="reference: the project frame used as look reference")
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_library_decide)
+    p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
+    p.add_argument("project")
+    p.add_argument("--only", nargs="+", help="just these entries (a pilot)")
+    p.add_argument("-n", type=int, default=2, help="sheets per asset")
+    p.add_argument("--more", action="store_true", help="also for assets that have sheets already")
+    p.add_argument("--plan-only", action="store_true", help="write the plan, generate nothing")
+    p.set_defaults(fn=cmd_library_sheets)
     p = libsub.add_parser("show", help="the library plan, by district")
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)

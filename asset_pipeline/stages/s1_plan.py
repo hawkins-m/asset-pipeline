@@ -118,6 +118,14 @@ def plan_file(store: ProjectStore, name: str) -> Path:
     return store.root / PLAN / f"{name}.json"
 
 
+EXTRA_PLANS = ("library",)    # plans not drafted from a scene (world mode: sw_library writes it)
+
+
+def plan_names(store: ProjectStore) -> list[str]:
+    """Every plan: one per plannable scene, then the extra plans that exist."""
+    return [plan_name(k) for k in scenes(store)] + [n for n in EXTRA_PLANS if plan_file(store, n).is_file()]
+
+
 def scenes(store: ProjectStore) -> list[str]:
     """Scenes that can be planned: starred stage-0 scenes, then imported ones."""
     imported = sorted(p.relative_to(store.root).as_posix() for p in (store.root / SCENES).glob("*")

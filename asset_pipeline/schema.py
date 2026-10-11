@@ -119,6 +119,10 @@ class PlanAsset(BaseModel):
     # multi-view path (orbit video -> multi-view 3D, PLAN.md) once it exists.
     usage: Literal["game", "cine", "hero"] = "game"
     include: bool = True          # unticked assets stay in the plan but aren't generated
+    # look references for this asset's sheets (project-relative images, added to the Redux
+    # anchor at `ref_strength` total): a library crop or a chosen frame
+    refs: list[str] = Field(default_factory=list)
+    ref_strength: float = Field(default=0.05, ge=0, le=1)
 
 
 class Relation(BaseModel):

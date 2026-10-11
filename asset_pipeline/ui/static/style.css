@@ -391,10 +391,18 @@ details summary { cursor: default; }
 .asset-flags li.flag { color: #8A3B00; }
 .asset-flags li.note { color: var(--disabled); }
 .asset-ok { font-size: 12px; color: var(--ready); }
-.asset-actions { display: flex; gap: 3px; margin-top: auto; padding-top: 4px; }
-.asset-actions button { flex: 1; padding: 2px 3px; }
+.asset-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: auto; padding-top: 4px; }
+.asset-actions button { padding: 2px 3px; }
+.asset-ref { display: flex; gap: 6px; align-items: center; font-size: 12px; color: inherit; text-decoration: none; }
+.asset-ref img { width: 64px; height: 36px; object-fit: cover; }
+.ref-picker { width: min(900px, 80vw); max-height: 65vh; overflow: auto; }
+.ref-batch { margin: 6px 0; }
+.ref-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; }
+.ref-thumbs .thumb { display: flex; flex-direction: column; padding: 2px; }
+.ref-thumbs .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; }
+.ref-thumbs .thumb.sel { outline: 2px solid var(--select); }
 .asset-actions button[aria-pressed="true"] { background: var(--select); color: var(--select-text); }
-.asset-card.decided-source { border-color: var(--ready); }
+.asset-card.decided-source, .asset-card.decided-reference { border-color: var(--ready); }
 .asset-card.decided-exclude { opacity: .6; }
 .chip.tier-A { background: #E3F0D8; } .chip.tier-B { background: #DCE7F5; }
 .chip.tier-C { background: #F5E7D6; } .chip.tier-D { background: #ECECEC; }

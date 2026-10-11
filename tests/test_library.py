@@ -201,3 +201,34 @@ def test_decisions_survive_a_replan_and_reach_the_ui(lib):
     assert got["decisions"]["rotunda"]["decision"] == "source" and got["plan"]["entries"]
     c.post("/api/projects/l/library/decision", json={"entry": "rotunda", "decision": None})
     assert "rotunda" not in c.get("/api/projects/l/library").json()["decisions"]
+
+
+def test_reference_decisions_and_the_library_asset_plan(lib):
+    from asset_pipeline.stages import s1_plan, s2_refs
+    store, m = lib
+    sw_library.plan(store)
+    old = "frames/t/batch_001/frame_000.png"          # any frame: a mood shot's, an old layout's
+    with pytest.raises(ValueError, match="needs a frame"):
+        sw_library.decide(store, "stoa", "reference")
+    with pytest.raises(ValueError, match="no such image"):
+        sw_library.decide(store, "stoa", "reference", ref_frame="frames/nope.png")
+    sw_library.decide(store, "stoa", "reference", ref_frame=old)              # unseen entry, old frame
+    sw_library.decide(store, "rotunda", "source")
+    sw_library.decide(store, "insula-brick", "description")
+    sw_library.decide(store, "insula-marble", "exclude")
+    sw_library.decide(store, "pine-tree", "source")                          # foliage: never generated
+    with pytest.raises(ValueError, match="not decided"):
+        sw_library.asset_plan(store, only=["rotunda", "hall"])
+    plan = sw_library.asset_plan(store, only=["rotunda", "stoa"])
+    by = {a.id: a for a in plan.assets}
+    assert set(by) == {"rotunda", "stoa", "insula-brick"}                    # undecided stay massing
+    assert by["rotunda"].include and by["stoa"].include and not by["insula-brick"].include
+    assert by["rotunda"].refs == ["site/library/refs/rotunda.jpg"] and by["rotunda"].ref_strength == 0.06
+    assert by["stoa"].refs == [old] and by["stoa"].ref_strength == 0.04 and by["insula-brick"].refs == []
+    assert "colonnaded hall" in by["stoa"].description                       # generic kit description
+    assert (store.root / "site/library/refs/rotunda.jpg").is_file()
+    # stages 2-6 see it as one more plan; its sheets carry the look refs in the Redux anchor
+    assert "library" in s1_plan.plan_names(store)
+    u = next(u for u in s2_refs.units(store, "library") if u.key == "stoa")
+    prompt, w, h, anchor = s2_refs.request(u, None)
+    assert "stoa" in prompt and [str(p) for p in anchor.images] == [old] and anchor.strength == 0.04

@@ -5,7 +5,8 @@
 let libraryData = null;
 const lib = {filter: "all"};
 try { lib.filter = localStorage.getItem("ap.libFilter") || "all"; } catch (_) { /* ignore */ }
-const LIB_DECISIONS = [["source", "Good source"], ["description", "Use description"], ["exclude", "Exclude"]];
+const LIB_DECISIONS = [["source", "Good source"], ["description", "Use description"],
+  ["reference", "Description + reference frame"], ["exclude", "Exclude"]];
 const LIB_TIERS = {A: "landmark / kit monument", B: "singular civic", C: "fill typology", D: "prop / vegetation"};
 
 async function loadLibrary() {
@@ -22,14 +23,19 @@ const LIB_FILTERS = {
   all: ["All assets", () => true], todo: ["Not decided", e => !libDecision(e)],
   flagged: ["Flagged crops", e => !e.unseen && e.flags.some(f => !f.startsWith("approximate"))],
   seen: ["With a crop", e => !e.unseen], unseen: ["Without a crop", e => e.unseen], source: ["Good source", e => libDecision(e) === "source"],
-  description: ["Use description", e => libDecision(e) === "description"], exclude: ["Excluded", e => libDecision(e) === "exclude"]};
+  description: ["Use description", e => libDecision(e) === "description"],
+  reference: ["Description + reference frame", e => libDecision(e) === "reference"],
+  exclude: ["Excluded", e => libDecision(e) === "exclude"]};
+const shortFrame = k => k.split("/").slice(1).join(" / ").replace(/batch_0*/, "b").replace(/frame_0*(\d)/, "f$1").replace(/\.png$/, "");
 
 function libCard(e) {
   const el = document.createElement("div");
   const d = libDecision(e);
   el.className = `asset-card${d ? ` decided-${d}` : ""}`;
   el.dataset.entry = e.id;
-  const src = e.best ? e.best.split("/").slice(1).join(" / ").replace(/batch_0*/, "b").replace(/frame_0*(\d)/, "f$1") : "";
+  const src = e.best ? shortFrame(e.best) : "";
+  const ref = d === "reference" ? libraryData.decisions[e.id].frame : null;
+  const foliage = e.kind === "vegetation";
   const flags = e.flags.map(f => `<li class="${f.startsWith("approximate") ? "note" : "flag"}">${esc(f)}</li>`).join("");
   el.innerHTML = `${e.best ? `<a href="${fileUrl(e.best)}" target="_blank" title="Open the source frame">
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
@@ -39,9 +45,11 @@ function libCard(e) {
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
         · ${e.instances}×${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
+      ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
+        <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
       <div class="asset-actions" role="group" aria-label="Decision for ${esc(e.id)}">
         ${LIB_DECISIONS.map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
-          ${k === "source" && !e.best ? "disabled title=\"No crop to use\"" : ""}>${label}</button>`).join("")}
+          ${foliage ? "disabled title=\"Unreal foliage: not generated\"" : k === "source" && !e.best ? "disabled title=\"No crop to use\"" : ""}>${label}</button>`).join("")}
       </div>
     </div>`;
   return el;
@@ -86,17 +94,45 @@ function renderLibrary() {
   if (!shown.length) box.innerHTML = `<p class="hint">No assets match.</p>`;
 }
 
-async function libDecide(id, decision) {
+async function libDecide(id, decision, frame = null) {
   const cur = (libraryData.decisions[id] || {}).decision || null;
-  const next = cur === decision ? null : decision;          // pressing the chosen button again clears it
-  try { libraryData.decisions = await api(`/api/projects/${slug}/library/decision`, {entry: id, decision: next}); }
+  const next = cur === decision && !frame ? null : decision;          // pressing the chosen button again clears it
+  try { libraryData.decisions = await api(`/api/projects/${slug}/library/decision`, {entry: id, decision: next, frame}); }
   catch (err) { alert(err.message); return; }
   renderLibrary();
 }
 
+// any frame of any shot (old layouts too) as an asset's look reference
+function pickReference(e) {
+  const shots = (framesData && framesData.shots || []).filter(r => r.batches.some(b => b.frames.length));
+  if (!shots.length) { alert("No frames in this project."); return; }
+  const cur = (libraryData.decisions[e.id] || {}).frame || null;
+  let shot = cur ? cur.split("/")[1] : (shots.find(r => r.id === `med-${e.district}`) || shots[0]).id, pick = cur;
+  const body = document.createElement("div"); body.className = "ref-picker";
+  const draw = () => {
+    const r = shots.find(x => x.id === shot);
+    body.innerHTML = `<label>Shot: <select>${shots.map(x => `<option${x.id === shot ? " selected" : ""}>${esc(x.id)}</option>`).join("")}</select></label>
+      <p class="hint" style="margin:4px 0">The frame's look guides the sheets of <b>${esc(e.id)}</b>; its layout doesn't matter, so older-layout frames work too.</p>
+      <div class="ref-batches">${[...r.batches].reverse().map(b => `<div class="ref-batch"><div class="hint" style="margin:0">${esc(b.dir.split("/").pop())}${b.archived ? " (older layout)" : ""}</div>
+        <div class="ref-thumbs">${b.frames.map(f => `<button type="button" class="thumb${f.key === pick ? " sel" : ""}" data-key="${esc(f.key)}" aria-pressed="${f.key === pick}">
+          <img loading="lazy" alt="" src="${fileUrl(f.key)}"><span>${esc(f.key.split("/").pop().replace(".png", ""))}${data.stars[f.key] ? " ★" : ""}${r.locked === f.key ? " · locked" : ""}</span></button>`).join("")}</div></div>`).join("")}</div>`;
+    $("select", body).onchange = ev => { shot = ev.target.value; draw(); };
+    body.querySelectorAll("[data-key]").forEach(t => t.onclick = () => { pick = t.dataset.key; draw(); });
+  };
+  draw();
+  dialog({title: `Reference frame for ${e.id}`, body, className: "wide", buttons: [
+    {label: "Use this frame", default: true, onClick: async () => { if (!pick) { alert("Pick a frame first."); return false; }
+      await libDecide(e.id, "reference", pick); }},
+    {label: "Cancel"}]});
+}
+
 $("#assets-list").addEventListener("click", e => {
   const b = e.target.closest("[data-decision]"); if (!b) return;
-  libDecide(b.closest("[data-entry]").dataset.entry, b.dataset.decision);
+  const id = b.closest("[data-entry]").dataset.entry;
+  if (b.dataset.decision === "reference" && libDecision({id}) !== "reference") {
+    pickReference(libEntries().find(x => x.id === id)); return;
+  }
+  libDecide(id, b.dataset.decision);
 });
 $("#lib-filter").onchange = e => { lib.filter = e.target.value; try { localStorage.setItem("ap.libFilter", lib.filter); } catch (_) { /* ignore */ } renderLibrary(); };
 $("#lib-plan").onclick = async () => { try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(err.message); } };

@@ -67,7 +67,36 @@ ASSET_NOUNS = {"market hut": ("market stall",), "market tent": ("tent", "market 
                "canopy table": ("canopy", "market stall"), "market stall": ("market stall",)}
 BUILDING_NOUNS = ("building", "colonnade", "arch")
 FLAG_TREES, FLAG_SKY, FLAG_ASSET, FLAG_SMALL = 0.35, 0.2, 0.4, 0.01
-DECISIONS = ("source", "description", "exclude")
+# source: the crop guides its sheets; reference: description plus a chosen frame (any frame,
+# old layouts too) as a look reference, no crop; description: description only
+DECISIONS = ("source", "description", "reference", "exclude")
+REF_STRENGTH = {"source": 0.06, "reference": 0.04}   # Redux total for the look ref (scene frames leak content)
+# generic descriptions for kit monuments and props (catalog typologies carry their own `desc`)
+KIT_DESC = {
+    "temple": "A classical temple on a high stepped podium: a deep front portico of tall fluted columns under a "
+              "triangular pediment, plain cella walls behind",
+    "stoa": "A stoa: a long open colonnaded hall, one row of tall columns in front of a solid back wall, a deep "
+            "shaded walk, a flat roof behind a plain entablature",
+    "cloister": "One range of an arcaded courtyard: a two-storey block whose ground floor opens to the court in "
+                "a long arcade of round arches on square piers, a roofed walk behind the arcade, a cornice on top",
+    "colonnade": "A curved double colonnade: two rows of tall columns under a continuous entablature",
+    "portico": "One range of an enclosed forum: two storeys of colonnades facing the square (a tall lower "
+               "order, a lighter upper gallery, an attic), shops behind the colonnades",
+    "forum_gate": "A monumental gate arch: one deep round-arched passage through a massive block, an attic on "
+                  "top, set into a colonnaded range",
+    "fountain": "A round fountain basin with a statue on a tall plinth in its middle",
+    "villa": "A courtyard villa with a pool",
+}
+PROP_DESC = {
+    "market hut": "A small closed market hut of timber boards with a pitched roof, a wide hinged sales hatch "
+                  "and counter on the front, small enough for one vendor",
+    "market tent": "A small private market tent: a steep A-frame canvas roof on a light frame, one open side",
+    "canopy table": "An open market stand: a flat canopy on four slim posts over a long table",
+    "market stall": "A small open market stall with a counter and an awning",
+}
+# props' sizes, m (w, d, h): as city.forum_market draws them
+PROP_DIMS = {"market hut": (3.0, 2.4, 2.3), "market tent": (3.0, 3.0, 2.8), "canopy table": (4.4, 3.2, 2.7),
+             "market stall": (5.0, 3.5, 3.0)}
 TIERS = {"A": "landmarks and kit monuments", "B": "singular civic and infrastructure", "C": "fill typologies",
          "D": "props and vegetation"}
 
@@ -298,6 +327,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         e["districts"] = dict(e["districts"].most_common())
         if "materials" in e:
             e["materials"] = dict(e["materials"].most_common())
+        e["size_m"] = _size(e, slots)
         e["flags"] = flags(e, min_share)
         e["description_auto"] = _description(e, catalog, mats)
         e["description"] = None
@@ -310,7 +340,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
             "checked": all(_sam_mask(store, k, "tree") is not None for ks in src.values() for k in ks),
             "entries": out_entries,
             "unseen": [{k: e[k] for k in ("id", "tier", "kind", "typology", "part", "material", "instances",
-                                          "districts", "district", "mood", "flags", "description_auto")}
+                                          "districts", "district", "mood", "flags", "description_auto", "size_m")}
                        | {"share": e["sources"][0]["share"] if e["sources"] else 0.0} for e in unseen],
             "surfaces": {k: v for k, v in surfaces.most_common()}}
     lib = sw_site.site_dir(store) / LIBRARY_DIR
@@ -318,6 +348,21 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     write_json(library_path(store), data)
     (sw_site.site_dir(store) / "library.html").write_text(report_html(store, data))
     return data
+
+
+def _size(e: dict, slots: dict) -> list[float]:
+    """(width, depth, height) m: props from their drawn size; others from the instance whose
+    world bounding box is the smallest footprint (the least rotated: an AABB grows with
+    the rotation), width the longer side."""
+    if e["tier"] == "D":
+        return list(PROP_DIMS.get(e["part"], (1.0, 1.0, 1.0)))
+    best = None
+    for sid in e["slots"]:
+        (x0, y0, z0), (x1, y1, z1) = slots[sid]["bbox"]
+        dims = (max(x1 - x0, y1 - y0), min(x1 - x0, y1 - y0), z1 - z0)
+        if best is None or dims[0] * dims[1] < best[0] * best[1]:
+            best = dims
+    return [round(min(max(v, 0.1), 1000.0), 2) for v in best] if best else [1.0, 1.0, 1.0]
 
 
 def _sam_path(store: ProjectStore, frame: str, noun: str) -> Path:
@@ -369,6 +414,8 @@ def _cover(r: dict) -> float:
 def flags(e: dict, min_share: float = MIN_SHARE) -> list[str]:
     """Automatic warnings on an entry's crop, for the user's review."""
     out = []
+    if e.get("kind") == "vegetation":
+        out.append("Unreal foliage: not generated")
     if not e.get("best"):
         out.append("not visible in any current shot frame")
         return out
@@ -422,12 +469,23 @@ def decisions(store: ProjectStore) -> dict[str, dict]:
     return read_json(decisions_path(store), default={}) or {}
 
 
-def decide(store: ProjectStore, entry: str, decision: str | None, note: str | None = None) -> dict:
+def decide(store: ProjectStore, entry: str, decision: str | None, note: str | None = None,
+           ref_frame: str | None = None) -> dict:
     """The user's call on an entry: source (its crop is a good visual source), description
-    (build it from its description only), exclude (no asset); None clears it."""
+    (build it from its description only), reference (description plus `ref_frame`, any
+    project frame, as a look reference), exclude (no asset); None clears it."""
     from datetime import datetime, timezone
     if decision is not None and decision not in DECISIONS:
         raise ValueError(f"decision must be one of {DECISIONS}")
+    if decision == "reference":
+        if not ref_frame:
+            raise ValueError("a reference decision needs a frame")
+        try:
+            ref_frame = review.rel(store, ref_frame)
+        except FileNotFoundError:
+            raise ValueError(f"no such image in the project: {ref_frame}") from None
+        if not (store.root / ref_frame).is_file() or Path(ref_frame).suffix.lower() not in (".png", ".jpg", ".jpeg"):
+            raise ValueError(f"no such image in the project: {ref_frame}")
     data = load(store)
     ids = {e["id"] for e in (data or {}).get("entries", [])} | {u["id"] for u in (data or {}).get("unseen", [])}
     if entry not in ids:
@@ -437,20 +495,70 @@ def decide(store: ProjectStore, entry: str, decision: str | None, note: str | No
         d.pop(entry, None)
     else:
         d[entry] = {"decision": decision, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        if ref_frame and decision == "reference":
+            d[entry]["frame"] = ref_frame
         if note:
             d[entry]["note"] = note
     write_json(decisions_path(store), d)
     return d
 
 
+PLAN_NAME = "library"
+CATEGORY = {"building": "building", "structure": "structure", "prop": "prop", "vegetation": "vegetation"}
+
+
+def asset_plan(store: ProjectStore, only: list[str] | None = None):
+    """The decided entries as an AssetPlan named `library` (plans/library.json), so stages
+    2-6 run on them unchanged: source -> the clean crop as look reference, reference -> the
+    chosen frame, description -> none. Undecided entries stay greybox massing; excluded and
+    vegetation (Unreal foliage) aren't in it. `only`: just these entries are included (a
+    pilot); the others are listed but not generated."""
+    from ..schema import AssetPlan, Dimensions, PlanAsset
+    from . import s1_plan
+    data = load(store)
+    if data is None:
+        raise FileNotFoundError("no library plan yet: ap library plan")
+    dec = decisions(store)
+    entries = {e["id"]: e for e in data["entries"]} | {u["id"]: u for u in data["unseen"]}
+    missing = [i for i in only or [] if i not in entries]
+    if missing:
+        raise KeyError(f"no library entries {missing}")
+    undecided = [i for i in only or [] if i not in dec or dec[i]["decision"] == "exclude"]
+    if undecided:
+        raise ValueError(f"not decided (or excluded): {undecided}")
+    assets = []
+    for eid, d in dec.items():
+        e = entries.get(eid)
+        if e is None or d["decision"] == "exclude" or e.get("kind") == "vegetation":
+            continue
+        refs = {"source": [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"], "reference": [d.get("frame")],
+                "description": []}[d["decision"]]
+        if d["decision"] == "source" and not e.get("best"):
+            raise ValueError(f"{eid}: marked good source but no current frame shows it")
+        w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
+        assets.append(PlanAsset(
+            id=eid, name=eid.replace("-", " "), noun=e["part"].replace("_", " "),
+            category=CATEGORY.get(e["kind"], "structure"), description=e.get("description") or e["description_auto"],
+            count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
+            placement=f"{e['tier']} · {e.get('district') or '-'}", include=only is None or eid in only,
+            refs=[r for r in refs if r], ref_strength=REF_STRENGTH.get(d["decision"], 0.0)))
+    plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
+                     assets=assets, llm="")
+    return s1_plan.save(store, PLAN_NAME, plan)
+
+
 def _description(e: dict, catalog: dict, mats: dict) -> str:
     """The auto description that will drive the entry's reference sheets (step 2 refines it)."""
     t = catalog.get(e["typology"])
     base = (t.desc or t.prompt) if t else ""
+    if e["tier"] == "A" and e["part"] in KIT_DESC and (e["part"] != e["typology"] or not base):
+        base = KIT_DESC[e["part"]] + (f". Part of: {base}" if base else "")
+    elif e["tier"] == "D" and e["part"] in PROP_DESC:
+        base = PROP_DESC[e["part"]]
     if not base:
         base = {"A": f"a {e['part'].replace('_', ' ')}", "B": f"a {e['typology'].replace('_', ' ')}",
                 "C": f"a {e['typology'].replace('_', ' ')} building", "D": f"a {e['part']}"}[e["tier"]]
-    if e["tier"] == "A" and e["part"] != e["typology"]:
+    if e["tier"] == "A" and e["part"] != e["typology"] and e["part"] not in KIT_DESC:
         base = f"{e['part'].replace('_', ' ')} of: {base}"
     m = mats.get(e.get("material") or "")
     return f"{base} Material: {m.words}." if m else base
@@ -481,6 +589,10 @@ def _crops(store: ProjectStore, entries: list[dict], out: Path) -> None:
         crop = im.crop(box)
         crop.thumbnail((480, 360))
         crop.save(out / f"{e['id']}.jpg", quality=88)
+        clean = frame.crop(box)          # undimmed: the look reference a "source" entry's sheets get
+        clean.thumbnail((768, 768))
+        (out.parent / "refs").mkdir(exist_ok=True)
+        clean.save(out.parent / "refs" / f"{e['id']}.jpg", quality=92)
 
 
 def report_html(store: ProjectStore, data: dict) -> str:

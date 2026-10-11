@@ -46,8 +46,9 @@ class DeriveReq(BaseModel):
 
 class LibraryDecisionReq(BaseModel):
     entry: str
-    decision: Literal["source", "description", "exclude"] | None = None
+    decision: Literal["source", "description", "reference", "exclude"] | None = None
     note: str | None = None
+    frame: str | None = None              # reference: the look-reference frame
 
 
 class StarReq(BaseModel):
@@ -533,7 +534,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         stars = review.load(store)["stars"]
         pending = [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]
         assets = []
-        for name in [s1_plan.plan_name(k) for k in s1_plan.scenes(store)]:
+        for name in s1_plan.plan_names(store):
             p = s1_plan.load(store, name)
             for a in (p.assets if p else []):
                 if not a.include or a.category == "terrain":
@@ -879,7 +880,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
     def library_decision(slug: str, req: LibraryDecisionReq):
         store = _store(slug)
         try:
-            return sw_library.decide(store, req.entry, req.decision, req.note)
+            return sw_library.decide(store, req.entry, req.decision, req.note, req.frame)
         except KeyError as e:
             raise HTTPException(404, str(e))
         except ValueError as e:
