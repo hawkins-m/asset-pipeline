@@ -1254,3 +1254,33 @@ def report(P, buildings: list[Building]) -> dict:
             "ground": dict(Counter(b.ground for b in built if b.ground).most_common()),
             "materials": dict(Counter(b.material for b in built if b.material).most_common()),
             "warnings": warn}
+
+
+def apply_sites(P, f, typed: list, green_lines) -> list:
+    """Civic sites over the planned fill: drop the typed buildings standing on each site's
+    footprint, then add the site's own buildings. Each site has its own random stream (roof and
+    facade picks), so the rest of the plan is untouched."""
+    import hashlib
+    from shapely.geometry import Point
+    c = P.layout.city
+    out = list(typed)
+    for s in c.sites:
+        foot = _rect(s.center[0], s.center[1], s.width, s.depth, s.rot)
+        out = [b for b in out if not foot.contains(Point(b.x, b.y))]
+        T = Typer(P, f, np.random.default_rng([c.seed, int(hashlib.sha256(s.id.encode()).hexdigest()[:8], 16)]),
+                  green_lines)
+        a = math.radians(s.rot)
+        for sb in s.buildings:
+            t = T.types[sb.typology]
+            x = s.center[0] + sb.at[0] * math.cos(a) - sb.at[1] * math.sin(a)
+            y = s.center[1] + sb.at[0] * math.sin(a) + sb.at[1] * math.cos(a)
+            district = C.nearest_node(c, x, y)
+            b = T.make(t, district, x, y, sb.width, sb.depth, s.rot, -1, storeys=sb.storeys)
+            if t.form == "hall":
+                z0 = min(p.z for p in b.parts) if b.parts else float(f.z(x, y))
+                T._hall(b, t, x, y, z0, sb.width, sb.depth, s.rot)
+            T.add(b)
+        assign_materials(T)
+        out += T.out
+    return out
+

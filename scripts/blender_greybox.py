@@ -46,7 +46,8 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           "block": (0.62, 0.60, 0.56), "villa": (0.82, 0.80, 0.74),
           "housing": (0.66, 0.58, 0.50), "houses": (0.74, 0.66, 0.56), "street": (0.50, 0.49, 0.46),
           "park": (0.20, 0.34, 0.12), "market": (0.70, 0.55, 0.30), "quay": (0.60, 0.58, 0.54),
-          "tree": (0.10, 0.24, 0.08)}
+          "tree": (0.10, 0.24, 0.08), "lawn": (0.16, 0.30, 0.10), "gravel": (0.40, 0.36, 0.29),
+          "plinth": (0.80, 0.78, 0.72), "basin-kerb": (0.66, 0.64, 0.60), "paving": (0.62, 0.60, 0.56)}
 WATER = {"pool-water", "court-pool", "canal"}
 MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 

@@ -624,6 +624,9 @@ def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
             sb.add_local("pool-water", cyl(pz.radius, 0.12, 96), 0, 0, PAVING_LIFT + 0.36)
             continue
         sb.add_local("paving", cyl(pz.radius, 0.1, 96), 0, 0, PAVING_LIFT + 0.04)
+        if pz.type == "basins":
+            basins_pieces(sb, pz)
+            continue
         if pz.type == "pool":
             sb.add_local("pool-water", cyl(pz.radius * 0.6, 0.12, 64), 0, 0, PAVING_LIFT + 0.06)
     for i, p in enumerate(expand_rows(layout)):
@@ -663,3 +666,33 @@ def piece_counts(spec: dict) -> dict[str, int]:
         for p in s["pieces"]:
             out[p["piece"]] = out.get(p["piece"], 0) + 1
     return dict(sorted(out.items()))
+
+
+# basins plaza (metres, in the plaza's axis frame: `along` the walk, `perp` to its left)
+BASIN = (30.0, 12.0)          # length along the walk, width
+WALK_M = 10.0
+GRAVEL_M = 1.8
+
+
+def basins_pieces(sb, pz) -> None:
+    """Two long basins either side of a paved walk along pz.rot, a sculpture plinth in the
+    right-hand one (looking along rot), and lawn beds with gravel strips on their walk edges in
+    two opposite quarters: ahead on the left, behind on the right. The lawns reach past the
+    paving disc to the ring road's inner edge, as the concept frame draws them."""
+    L, W = BASIN
+    off = WALK_M / 2 + W / 2
+
+    def put(piece, prim, along, perp, z):
+        x, y = _rot(along, perp, pz.rot)
+        sb.add_local(piece, prim, x, y, z, pz.rot)
+    for side in (1, -1):
+        put("basin-kerb", box(L + 0.8, W + 0.8, 0.35), 0, side * off, PAVING_LIFT + 0.1)
+        put("pool-water", box(L, W, 0.12), 0, side * off, PAVING_LIFT + 0.36)
+    put("plinth", box(3.0, 3.0, 1.4), 0, -off, PAVING_LIFT + 0.36)
+    a0, a1 = L / 2, pz.radius * 1.1               # the lawns' span along the walk, beyond the basins
+    p_in, p_out = WALK_M / 2, pz.radius * 0.87
+    for sa, sp in ((1, 1), (-1, -1)):
+        put("lawn", box(a1 - a0, p_out - p_in - GRAVEL_M, 0.15), sa * (a0 + a1) / 2,
+            sp * ((p_in + GRAVEL_M + p_out) / 2), PAVING_LIFT + 0.08)
+        put("gravel", box(a1 - a0, GRAVEL_M, 0.12), sa * (a0 + a1) / 2, sp * (p_in + GRAVEL_M / 2), PAVING_LIFT + 0.08)
+

@@ -693,3 +693,28 @@ reflects what was actually verified.
   slabs, later parts win ties) until `coincident_area` finds none: ~5k faces on a perimeter
   block, 0.3 s. Tests: no twins on any form; every GLB face has a material.
 
+
+## Frame reconcile and look scenes (2026-10-11)
+- `CitySpec.sites` carve fixed civic ensembles out of the fill *after* it is planned (own random
+  stream): the full plan diff showed only the 8 buildings on the footprint gone and the site's 2
+  added; trees, blocks, ways identical. A slot that loses buildings keeps its pieces' world
+  positions but its pivot recentres (UE keeps actor transforms: re-import with --reset-layout).
+- Plaza `basins`: two 12 x 30 m basins either side of a 10 m walk along the node's second radial,
+  lawns with 1.8 m gravel edges in two opposite quarters. Greybox pieces without a colour of their
+  own take the slot type's colour: a "pool" slot painted its paving blue until `paving` got one.
+- `frame_plan` (OneFormer + SAM 3.1 classes read back onto the plan through the shot camera):
+  inverse warp, not splatting (far rows leave streaks); at eye level (1.5 m) one pixel row spans
+  ~1 m of ground at 40 m and ~5 m at 80 m, so compare within ~90 m. Depth Anything agreed with the
+  plane to 1% median. The top-down greybox plan renders its class colours as linear: compare in sRGB.
+- The library plan labelled a shot's first usable source frame "locked" when the real lock no
+  longer fit the layout (fixed: `locked` is the shot's own lock).
+- `library_instances`: an entry built at each typed building's own footprint and storeys (138
+  insula instances, ~5 MB each with 1K maps; ~10 s per build).
+- **UE offscreen renders of heavy look scenes (~120 Nanite library builds) crash GPU 0 with
+  VK_ERROR_DEVICE_LOST** (twice, the desktop GPU); the same level renders fine on GPU 1
+  (`-graphicsadapter=1`, `ue._render(adapter=1)`) while ComfyUI is down.
+- Interchange imports every GLB's embedded textures even when the pipeline assigns its own
+  material instances: ~120 instance GLBs made the import slow. Strip textures for UE imports.
+- A 12 deg sun through SkyAtmosphere plus a 4300 K sun and warm fog turned the whole look sepia;
+  16 deg at 5000 K with blue-grey haze was closer. Exposure set on the paving converges in one
+  correction to ~10% (the tone curve isn't linear). Height fog at 0.025 hides a 3.5-6.5 km ridge.

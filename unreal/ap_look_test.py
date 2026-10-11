@@ -27,12 +27,19 @@ eal = unreal.EditorAssetLibrary
 mel = unreal.MaterialEditingLibrary
 log = ap_import.log
 LOOK = "/Game/AP/LookTest"
-KIND_RGB = {"building": [0.62, 0.6, 0.57], "green": [0.12, 0.2, 0.08], "water": [0.05, 0.12, 0.14],
-            "ground": [0.32, 0.29, 0.24]}
+KIND_RGB = {"building": [0.62, 0.6, 0.57], "green": [0.12, 0.2, 0.08], "water": [0.03, 0.08, 0.09],
+            "ground": [0.32, 0.29, 0.24], "paving": [0.62, 0.6, 0.55]}
+KIND_ROUGH = {"water": 0.03, "paving": 0.45}
 
 
 def import_static(glb, folder, name):
-    """A GLB as one Nanite static mesh at folder/SM_<name> (re-imported each run)."""
+    """A GLB as one Nanite static mesh at folder/SM_<name> (kept when the GLB is unchanged)."""
+    target = f"{folder}/SM_{name}"
+    digest = ap_import.sha(glb)
+    if eal.does_asset_exist(target):
+        old = eal.load_asset(target)
+        if eal.get_metadata_tag(old, "ap:glb_sha") == digest:
+            return old
     tmp = f"{folder}/_import_{name}"
     if eal.does_directory_exist(tmp):
         eal.delete_directory(tmp)
@@ -58,6 +65,7 @@ def import_static(glb, folder, name):
     ns = mesh.get_editor_property("nanite_settings")
     ns.enabled = True
     mesh.set_editor_property("nanite_settings", ns)
+    eal.set_metadata_tag(mesh, "ap:glb_sha", digest)
     return mesh
 
 
@@ -68,7 +76,7 @@ def kind_material(kind, pbr):
         name, folder, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
     mel.set_material_instance_parent(mi, pbr)
     mel.set_material_instance_vector_parameter_value(mi, "Tint", unreal.LinearColor(*KIND_RGB[kind], 1.0))
-    mel.set_material_instance_scalar_parameter_value(mi, "Roughness", 0.15 if kind == "water" else 0.85)
+    mel.set_material_instance_scalar_parameter_value(mi, "Roughness", KIND_ROUGH.get(kind, 0.85))
     mel.update_material_instance(mi)
     eal.save_loaded_asset(mi)
     return mi
@@ -94,23 +102,31 @@ def main(args):
         raise RuntimeError(f"can't create level {args['map']}")
     asset = args["asset"]
     surface, pbr = amp.surface_material(amp.default_mask(args["mask_default"])), ap_import.master_material()
-    # the building, with its library materials per slot
-    mesh = amp.import_glb(asset, args["glb"])
-    for i, sm in enumerate(mesh.get_editor_property("static_materials")):
-        slot = str(sm.get_editor_property("material_slot_name"))
-        spec = args["slots"].get(slot) or args["slots"].get(re.sub(r"(_\d+|\.\d+)$", "", slot))
-        if spec is None:
-            report["unmatched_slots"].append(slot)
-            continue
-        mesh.set_material(i, amp.slot_instance(asset, slot, spec, surface, pbr, report))
-    eal.save_loaded_asset(mesh)
-    b = args["building"]
-    bld = spawn(eas, unreal.StaticMeshActor, unreal.Vector(*b["loc"]), unreal.Rotator(*b["rot"]), f"AP_Look_{asset}",
-                [f"ap:look={asset}"])
-    bld.static_mesh_component.set_static_mesh(mesh)
+    placements = args.get("placements") or [{"key": asset, "entry": asset, "glb": args["glb"], **args["building"]}]
+    entries = args.get("entries") or {asset: args["slots"]}
+    mis = {}
+    for pl in placements:                   # library builds, their materials shared per entry
+        e = pl["entry"]
+        mesh = import_static(pl["glb"], f"{LOOK}/{asset}/builds", pl["key"])
+        for i, sm in enumerate(mesh.get_editor_property("static_materials")):
+            slot = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
+            spec = entries[e].get(slot)
+            if spec is None:
+                report["unmatched_slots"].append(f"{e}:{slot}")
+                continue
+            if (e, slot) not in mis:
+                mis[(e, slot)] = amp.slot_instance(e, slot, spec, surface, pbr, report)
+            mesh.set_material(i, mis[(e, slot)])
+        eal.save_loaded_asset(mesh)
+        bld = spawn(eas, unreal.StaticMeshActor, unreal.Vector(*pl["loc"]), unreal.Rotator(*pl["rot"]),
+                    f"AP_Look_{pl['key']}", [f"ap:look={pl['key']}"])
+        bld.static_mesh_component.set_static_mesh(mesh)
+    report["placed"] = len(placements)
     # the greybox around it and the terrain, in world coordinates
     folder = f"{LOOK}/{asset}"
-    for name in ("context", "terrain"):
+    for name in ("context", "terrain", "backdrop"):
+        if not args.get(f"{name}_glb"):
+            continue
         m = import_static(args[f"{name}_glb"], folder, name)
         for i, sm in enumerate(m.get_editor_property("static_materials")):
             k = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
@@ -124,12 +140,39 @@ def main(args):
                 "AP_Look_sun", [])
     sun.light_component.set_editor_property("atmosphere_sun_light", True)
     sun.light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+    if s.get("lux"):
+        sun.light_component.set_intensity(s["lux"])
+    if s.get("temperature"):
+        sun.light_component.set_editor_property("use_temperature", True)
+        sun.light_component.set_editor_property("temperature", s["temperature"])
     sky = spawn(eas, unreal.SkyLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, 0, 0), "AP_Look_skylight", [])
     sky.light_component.set_editor_property("real_time_capture", True)
     sky.light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
     spawn(eas, unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_atmosphere", [])
     fog = spawn(eas, unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_fog", [])
-    fog.component.set_editor_property("fog_density", args.get("fog_density", 0.02))
+    fg = args.get("fog") or {"density": args.get("fog_density", 0.02)}
+    fc = fog.component
+    fc.set_editor_property("fog_density", fg["density"])
+    for k, prop in (("falloff", "fog_height_falloff"), ("start_cm", "start_distance")):
+        if k in fg:
+            fc.set_editor_property(prop, fg[k])
+    if "color" in fg:
+        for prop in ("fog_inscattering_luminance", "fog_inscattering_color"):
+            try:
+                fc.set_editor_property(prop, unreal.LinearColor(*fg["color"], 1.0))
+                break
+            except Exception:
+                continue
+    if args.get("exposure_bias") is not None:     # manual exposure, set on the paving by the caller
+        ppv = spawn(eas, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_exposure", [])
+        ppv.set_editor_property("unbound", True)
+        stt = ppv.get_editor_property("settings")
+        for prop, val in (("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL),
+                          ("auto_exposure_apply_physical_camera_exposure", False),
+                          ("auto_exposure_bias", float(args["exposure_bias"]))):
+            stt.set_editor_property(f"override_{prop}", True)
+            stt.set_editor_property(prop, val)
+        ppv.set_editor_property("settings", stt)
     try:
         spawn(eas, unreal.VolumetricCloud, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_clouds", [])
         report["clouds"] = True

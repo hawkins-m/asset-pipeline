@@ -200,8 +200,10 @@ def render_shots(store: ProjectStore, shots: list[str] | None = None, timeout_s:
     return rep
 
 
-def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: str, timeout_s: int) -> dict:
-    """Capture the tagged cameras of a level with the full editor offscreen (ap_shot_render.py)."""
+def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: str, timeout_s: int,
+            adapter: int = 0) -> dict:
+    """Capture the tagged cameras of a level with the full editor offscreen (ap_shot_render.py),
+    on Vulkan adapter `adapter` (0 = GPU 0; 1 = GPU 1, ComfyUI's: only while it's down)."""
     up = init(store)
     work = work_dir(store)
     report = work / f"{name}_report.json"
@@ -210,7 +212,7 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
     write_json(args_file, {"map": map_, "out_dir": str(out), "report": str(report), "timeout_s": timeout_s,
                            "shots": shots})
     editor = editor_cmd().with_name("UnrealEditor")
-    cmd = [str(editor), str(up), "-RenderOffscreen", "-graphicsadapter=0", "-unattended", "-nosplash", "-NoTraceServer",
+    cmd = [str(editor), str(up), "-RenderOffscreen", f"-graphicsadapter={adapter}", "-unattended", "-nosplash", "-NoTraceServer",
            # -ExecutePythonScript would quit the editor right after the script returns (before
            # its tick callbacks run); a console `py` command leaves the quitting to the script
            # textures build synchronously on load: asynchronously, freshly imported ones render as
@@ -491,4 +493,86 @@ def _look_at(pos, tgt) -> np.ndarray:
 def _blender_to_ue_xf_cam(m) -> dict:
     t = ue_coords.camera_to_ue(np.asarray(m).tolist())
     return {"loc": t["loc"], "rot": t["rot"]}
+
+
+def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict], entries: dict, sun: dict,
+               fog: dict, backdrop: dict | None = None, drop_slots: list[str] | None = None,
+               exposure: dict | None = None, radius: float = 600.0, timeout_s: int = 3600) -> dict:
+    """A shot rebuilt in Unreal with library builds where the greybox stood (a level of its own,
+    LookTest_<Name>): placements [{key, entry, glb, x, y, z, yaw, w, d}] in Blender world metres,
+    entries {entry: job.json} for their materials, the rest of the greybox within radius as
+    context, the terrain and an optional backdrop ridge. sun: {elevation, offset (deg right of
+    the view), temperature, lux}; fog: {density, falloff, start_cm, color}. exposure: {"box":
+    [x0, y0, x1, y1] (frame pixels), "frame": png}: manual exposure set so the render's mean
+    there matches the frame's (one corrective render). Renders to export/look/<name>/."""
+    from . import vlm
+    gb = sw_site.load_greybox(store)
+    s = next(x for x in gb["shots"] if x["id"] == shot)
+    look = s7_export.export_dir(store) / "look" / name
+    look.mkdir(parents=True, exist_ok=True)
+    job = {"camera": s["matrix"], "lens_mm": s["lens_mm"], "sensor_mm": s["sensor_mm"], "resolution": s["resolution"],
+           "radius": radius, "out_context": str(look / "context.glb"), "out_terrain": str(look / "terrain.glb"),
+           "drop": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in placements], "drop_slots": drop_slots or []}
+    if backdrop:
+        job["backdrop"] = backdrop | {"out": str(look / "backdrop.glb")}
+    write_json(look / "context_job.json", job)
+    lg = look / "context.log"
+    blender.run(config.REPO_ROOT / "scripts/blender_look_context.py", [look / "context_job.json"], lg, "look context",
+                blend=store.root / "site/greybox.blend")
+    ctx = json.loads(next(ln for ln in lg.read_text().splitlines() if ln.startswith("REPORT "))[7:])
+    pls = []
+    for p in placements:
+        yaw = np.radians(p["yaw"])
+        B = np.eye(4)
+        B[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+        B[:3, 3] = [p["x"], p["y"], p["z"]]
+        pls.append({"key": p["key"], "entry": p["entry"], "glb": str(store.root / p["glb"]), **_blender_to_ue_xf(B)})
+    C = np.array(s["matrix"])
+    w, h = s["resolution"]
+    cam = {"id": f"look_{name}", "transform": _blender_to_ue_xf_cam(C), "focal_mm": s["lens_mm"],
+           "sensor_mm": [s["sensor_mm"], round(s["sensor_mm"] * h / w, 4)], "resolution": [w, h]}
+    fwd, right = -C[:3, 2].copy(), C[:3, 0].copy()
+    fwd[2] = right[2] = 0
+    fwd, right = fwd / np.linalg.norm(fwd), right / np.linalg.norm(right)
+    o = np.radians(sun["offset"])
+    travel = -(fwd * np.cos(o) + right * np.sin(o))
+    sun_ue = {"yaw": float(np.degrees(np.arctan2(-travel[1], travel[0]))), "pitch": -float(sun["elevation"]),
+              "temperature": sun.get("temperature"), "lux": sun.get("lux")}
+    mask = work_dir(store) / "T_AP_White_M.png"
+    mask.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)
+    if editor_running(uproject(store)):
+        raise RuntimeError("the Unreal editor has this project open: close it first")
+    mp = f"/Game/AP/Maps/LookTest_{s7_export.pascal(name)}"
+    args = {"asset": name, "context_glb": job["out_context"], "terrain_glb": job["out_terrain"],
+            "backdrop_glb": job.get("backdrop", {}).get("out"), "map": mp, "placements": pls,
+            "entries": {e: library_slots(store.root / j) for e, j in entries.items()}, "mask_default": str(mask),
+            "cameras": [cam], "sun": sun_ue, "fog": fog, "exposure_bias": 0.0}
+    rep, bias = None, 0.0
+    for attempt in range(2 if exposure else 1):
+        args["exposure_bias"] = bias
+        rep = run_script(store, "ap_look_test.py", args, f"UE look scene {name}")
+        if "error" in rep:
+            raise RuntimeError(f"UE look scene failed: {rep['error']}\n{rep.get('traceback', '')}")
+        bad = [ln for ln in (work_dir(store) / "ap_look_test.log").read_text(errors="replace").splitlines()
+               if "Failed to compile Material" in ln and "/AP/" in ln]
+        if bad:
+            raise RuntimeError("UE look scene: a material failed to compile:\n" + "\n".join(bad[:5]))
+        vlm.down(gpu=0)
+        rep["render"] = _render(store, mp, [{"id": cam["id"], "resolution": cam["resolution"]}], look, "ap_look_render",
+                                timeout_s)
+        if not exposure:
+            break
+        x0, y0, x1, y1 = exposure["box"]
+        def lum(im):        # mean linear luminance of the paving box
+            a = np.asarray(im.convert("RGB").resize((w, h)), float)[y0:y1, x0:x1] / 255.0
+            return float(((a ** 2.2) @ [0.2126, 0.7152, 0.0722]).mean())
+        got = lum(Image.open(look / f"{cam['id']}.png"))
+        want = lum(Image.open(store.root / exposure["frame"]))
+        rep.setdefault("exposure", []).append({"bias": round(bias, 3), "render": round(got, 4), "frame": round(want, 4)})
+        bias += float(np.log2(max(want, 1e-4) / max(got, 1e-4)))
+    rep |= {"context": ctx, "sun": sun_ue, "camera": cam, "map": mp}
+    write_json(look / "look_scene.json", rep)
+    store.log_run({"stage": "ue.look_scene", "name": name, "shot": shot, "ok": rep["ok"] and rep["render"]["ok"]})
+    return rep
 

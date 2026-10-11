@@ -143,7 +143,8 @@ print("VOL", bm.calc_volume(signed=True))
 
 
 FORM_DIMS = [("cube", [48, 48, 40]), ("basilica", [87, 50, 24]), ("podium_tower", [37, 28, 47]),
-             ("perimeter", [45, 45, 24]), ("row", [30, 14, 10]), ("hall_vault", [43, 28, 19.5])]
+             ("perimeter", [45, 45, 24]), ("row", [30, 14, 10]), ("hall_vault", [43, 28, 19.5]),
+             ("civic_block", [31, 21, 18.2]), ("arcade_hall", [36, 22, 19.5]), ("campanile", [7, 7, 46])]
 
 
 @pytest.mark.parametrize("form,dims", FORM_DIMS)

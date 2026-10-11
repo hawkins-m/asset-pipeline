@@ -300,8 +300,9 @@ class Plaza(BaseModel):
     id: str
     center: Vec2 = (0.0, 0.0)
     radius: float = Field(gt=0)
-    type: Literal["paved", "pool", "lagoon", "court"] = "paved"   # lagoon: water nearly to the edge;
-    # court: paved with a long channel pool along `rot`
+    type: Literal["paved", "pool", "lagoon", "court", "basins"] = "paved"   # lagoon: water nearly to the
+    # edge; court: paved with a long channel pool along `rot`; basins: two long basins either side of a
+    # paved walk along `rot`, lawn beds with gravel edges in two opposite quarters
     rot: float = 0.0
     district: str | None = None
 
@@ -391,7 +392,7 @@ class CivicNode(BaseModel):
     seed: int = 0                         # re-roll an organic node (its paths' angles and lengths)
     # quad: an arcaded courtyard; forum: an enclosed rectangular square (two-storey porticoes,
     # gate arches where the radials enter, a central fountain; a market node fills it with stalls)
-    centre: Literal["auto", "plaza", "pool", "quad", "forum"] = "auto"
+    centre: Literal["auto", "plaza", "pool", "quad", "forum", "basins"] = "auto"
     stoa_share: float = Field(default=1.0, ge=0, le=1)          # share of radial gaps with a stoa
     civic_ring: Literal["arcade", "plain", "none"] = "arcade"   # the ring row of civic blocks
 
@@ -421,6 +422,27 @@ class Town(BaseModel):
     density: float = Field(default=0.55, ge=0, le=1)  # at its centre, falling off to its edge
     radials: int = Field(default=5, ge=0, le=12)
     notes: str = ""
+
+
+class SiteBuilding(BaseModel):
+    """One building of a civic site, in the site's frame (x along its width, -Y its front)."""
+    typology: str
+    at: Vec2 = (0.0, 0.0)
+    width: float = Field(gt=0)
+    depth: float = Field(gt=0)
+    storeys: int = Field(ge=1)
+
+
+class CivicSite(BaseModel):
+    """A fixed civic ensemble carved out of the planned fill (city mode): typed buildings on its
+    footprint are dropped after the fill is planned, so no other building moves or changes, and
+    its own buildings take their place with a random stream of their own."""
+    id: str
+    center: Vec2
+    width: float = Field(gt=0)
+    depth: float = Field(gt=0)
+    rot: float = 0.0
+    buildings: list[SiteBuilding] = Field(default_factory=list)
 
 
 class CitySpec(BaseModel):
@@ -456,6 +478,7 @@ class CitySpec(BaseModel):
     user_fields: list[str] = Field(default_factory=list)   # catalog sections edited in the UI
     enclosure: Enclosure | None = None    # a walled city: hard edge, gates (None: frays out)
     towns: list[Town] = Field(default_factory=list)
+    sites: list[CivicSite] = Field(default_factory=list)   # fixed civic ensembles over the fill
     aerial_pitch: float = Field(default=40.0, ge=20, le=85)  # wide-aerial of a walled city: deg down
 
 

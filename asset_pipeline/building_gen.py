@@ -13,9 +13,33 @@ import numpy as np
 from .building_parts import (FACADE, archivolt, balustrade, box, cornice, facade, height, lifted, merged, outline,
                              pierced, placed, planter, prism, ring, walls_around)
 
-FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row")
+FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row", "civic_block", "arcade_hall", "campanile")
 
 TYPE_FEATURES = {
+    "civic_block": {
+        "storey_h": 4.5, "ground_h": 6.8, "parapet": 1.2, "bays": 5,
+        "front": {"ground": {"kind": "pilotis", "recess": 2.0, "column": "square", "column_d": 0.9},
+                  "pattern": ["solid"], "cornice": [[0.3, 0.2]],
+                  "recess": [{"x0": 0.3, "x1": 0.7, "depth": 0.0, "pattern": ["loggia"], "balcony": None}],
+                  "loggia": {"w": 0.8, "h": 0.55, "sill": 0.15, "depth": 1.6, "balustrade": "glass"}},
+        "side": {"ground": {"kind": "plain"}, "pattern": ["window"], "cornice": [[0.3, 0.2]],
+                 "window": {"kind": "rect", "w": 0.3, "h": 0.4, "sill": 0.3, "reveal": 0.3, "frame": True}},
+    },
+    "arcade_hall": {
+        "storey_h": 6.5, "bays": 5, "roof_steps": 4, "roof_step_m": 1.6, "roof_rise_m": 0.7,
+        "front": {"ground": {"kind": "arcade", "recess": 3.5, "archivolt": 0.35}, "pattern": ["window"],
+                  "window": {"kind": "arch", "w": 0.38, "h": 0.6, "sill": 0.22, "reveal": 0.35, "frame": True},
+                  "courses": {"every": 1, "h": 0.3, "proj": 0.12}, "cornice": [[0.4, 0.25], [0.3, 0.45]]},
+        "side": {"ground": {"kind": "plain"}, "pattern": ["window"], "cornice": [[0.4, 0.25], [0.3, 0.45]],
+                 "window": {"kind": "arch", "w": 0.35, "h": 0.55, "sill": 0.25, "reveal": 0.35, "frame": True}},
+    },
+    "campanile": {
+        "storey_h": 6.5, "belfry_h": 7.0, "cap_h": 3.5, "cap_steps": 5, "belfry_arches": 2,
+        "shaft": {"ground": {"kind": "plain"}, "pattern": ["slot"], "slot": {"w": 0.1, "h": 0.4, "sill": 0.3},
+                  "courses": {"every": 2, "h": 0.25, "proj": 0.1}},
+        "belfry": {"ground": {"kind": "plain"}, "pattern": ["window"], "cornice": [[0.35, 0.3], [0.25, 0.5]],
+                   "window": {"kind": "arch", "w": 0.6, "h": 0.7, "sill": 0.12, "reveal": 0.4, "frame": False}},
+    },
     "hall_vault": {
         "base_h": 0.6, "vault_t": 0.5, "ribs": 0, "end_rim": {"w": 1.3, "proj": 0.6},
         "skylight": {"side": 1, "segs": [10, 12], "mullion_m": 2.2}, "ridge_cap": True,
@@ -586,8 +610,71 @@ def row(dims, p, f) -> list[dict]:
     return parts
 
 
+def _roof_slab(w, d, t, z, mat="roof"):
+    """A flat roof slab inside the walls (its edges on their inner faces: no coplanar twins)."""
+    return box(-w / 2 + t, w / 2 - t, -d / 2 + t, d / 2 - t, z - 0.45, z, mat)
+
+
+def civic_block(dims, p, f) -> list[dict]:
+    """A civic block: a deep colonnade across the front (square piers, the wall set back behind
+    them), one tall upper storey of plain wall with a centred loggia, a flat parapet; plainer
+    sides and back with small windows."""
+    w, d, h = dims
+    gh, par = f["ground_h"], f["parapet"]
+    up = max(3.0, h - gh - par)
+    nb = f["bays"]
+    Ff = _F(f.get("front"), storeys=2, ground_h=gh, storey_h=up, bay_m=w / nb, parapet=par)
+    Fs = _F(f.get("side"), storeys=2, ground_h=gh, storey_h=up, bay_m=f.get("side_bay_m", 6.0), parapet=par)
+    parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
+    parts.append(_roof_slab(w, d, Ff["thickness"], gh + up))
+    return parts
+
+
+def arcade_hall(dims, p, f) -> list[dict]:
+    """A civic hall: a round-arched arcade across the front (a walk behind it), tall upper
+    storeys with arched windows, cornice and a low hipped roof of stepped slabs."""
+    w, d, h = dims
+    st = p.get("storey_h", f["storey_h"])
+    n = max(2, round(h / st))
+    Ff = _F(f.get("front"), storeys=n, ground_h=st, storey_h=st, bay_m=w / f["bays"], parapet=0.0)
+    Fs = _F(f.get("side"), storeys=n, ground_h=st, storey_h=st, bay_m=f.get("side_bay_m", 6.0), parapet=0.0)
+    parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
+    H = height(Ff)
+    parts.append(_roof_slab(w, d, Ff["thickness"], H))
+    z, k = H, 0
+    while k < f["roof_steps"]:                     # a low hipped roof: stepped slabs closing in
+        inset = (k + 1) * f["roof_step_m"]
+        if w - 2 * inset < 2 or d - 2 * inset < 2:
+            break
+        parts.append(box(-w / 2 + inset, w / 2 - inset, -d / 2 + inset, d / 2 - inset, z, z + f["roof_rise_m"], "roof"))
+        z += f["roof_rise_m"]
+        k += 1
+    return parts
+
+
+def campanile(dims, p, f) -> list[dict]:
+    """A bell tower: a plain square shaft with slit windows, a string course, an open belfry
+    of round arches on every face, a cornice and a pyramid cap of stepped slabs."""
+    w, d, h = dims
+    bh, cap = f["belfry_h"], f["cap_h"]
+    shaft = h - bh - cap
+    st = shaft / max(1, round(shaft / f["storey_h"]))
+    Fsh = _F(f.get("shaft"), storeys=round(shaft / st), ground_h=st, storey_h=st, bay_m=w, parapet=0.0, cornice=None)
+    Fb = _F(f.get("belfry"), storeys=1, ground_h=bh, storey_h=bh, bay_m=w / f["belfry_arches"], parapet=0.0)
+    parts = walls_around(w, d, {"front": Fsh})
+    parts += lifted(walls_around(w, d, {"front": Fb}), shaft)
+    parts.append(_roof_slab(w, d, Fb["thickness"], shaft + bh))
+    z, n = shaft + bh, f["cap_steps"]
+    for k in range(n):
+        inset = (k + 1) * (min(w, d) / 2 - 0.3) / n
+        parts.append(box(-w / 2 + inset, w / 2 - inset, -d / 2 + inset, d / 2 - inset, z, z + cap / n, "roof"))
+        z += cap / n
+    return parts
+
+
 GENERATORS = {"hall_vault": hall_vault, "cube": cube, "basilica": basilica, "podium_tower": podium_tower,
-              "perimeter": perimeter, "row": row}
+              "perimeter": perimeter, "row": row, "civic_block": civic_block, "arcade_hall": arcade_hall,
+              "campanile": campanile}
 
 
 # Starting values for optional parts that a form's defaults leave off (None): what the review
