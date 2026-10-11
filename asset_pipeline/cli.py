@@ -662,7 +662,7 @@ def cmd_library_build(a) -> None:
     from .kit_proc import build_any
     store = ProjectStore.open(a.project)
     for x in a.entries:
-        build_any(store, x, log=lambda s: print(f"{x}: {s}"))
+        build_any(store, x, log=lambda s: print(f"{x}: {s}"), surface=a.surface)
 
 
 def cmd_library_sheets(a) -> None:
@@ -1138,6 +1138,10 @@ def main(argv: list[str] | None = None) -> None:
     p = libsub.add_parser("build", help="procedural route: build entries' kit pieces / buildings in Blender")
     p.add_argument("project")
     p.add_argument("entries", nargs="+")
+    p.add_argument("--surface", choices=["patch", "library"],
+                   help="buildings' storey-band surfaces: a tile cut from the sheet, or the material library "
+                        "(type per band read off the sheet, scanned PBR set tinted to its colour); default: "
+                        "the brief's `surface`, else building_proc.DEFAULT_SURFACE")
     p.set_defaults(fn=cmd_library_build)
     p = libsub.add_parser("review", help="build reviews: the task list of assets marked Needs changes / Needs new "
                                          "feature (apply), or every asset's status (show)")

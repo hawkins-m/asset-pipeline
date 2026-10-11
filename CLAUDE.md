@@ -649,3 +649,24 @@ reflects what was actually verified.
   script. Check with `cat asset_pipeline/ui/static/*.js > all.js && node --check all.js`.
 - Overlapping coplanar faces (a step's top in the plinth's plane) render black in Cycles: offset
   them or don't overlap.
+
+## Material library (proposed 2026-10-11, not the default yet)
+- `asset_pipeline/material_lib.py`: type per storey band read off the sheet by the local VLM
+  (band crops; ~10-20 s per building warm), colour from `band_colour`. ambientCG 2K sets in
+  `$AP_ROOT/materials/ambientcg/` (CC0): Concrete034, Bricks008 (limestone ashlar, 1.65 m),
+  Marble019, Plaster001, Bricks086, WoodSiding009. `ap library build --surface library`;
+  `building_proc.DEFAULT_SURFACE` stays "patch" until approved. Demo:
+  `scripts/diag/material_demo.py PROJECT ASSET` (patch vs library in Blender vs Unreal).
+- Tint = albedo x (target / scan mean) in linear RGB: baked per band for Blender (the GLB
+  carries it: ~20 MB vs ~2 MB with sheet tiles), and in `M_AP_Surface` in Unreal from the
+  texture's lowest mip, so any scan (Megascans too) takes the sheet colour.
+- The VLM answered "concrete" for the ground band of all three buildings tried: possibly a
+  bias (pilotis, shadow). Check, or set `material_types` in the brief.
+- Megascans come only through Fab with the user's Epic login (some listings are paid): the
+  UE preview looks for the type's names among material instances under /Game and falls back
+  to the ambientCG maps; the report says which.
+- **A Masks sampler with the engine's sRGB WhiteSquareTexture as default fails to compile**
+  on SM6, silently: every instance renders as the grey WorldGrid checker and the import still
+  reports ok. Use a linear TC_MASKS default; `ue.material_preview` fails on "Failed to compile
+  Material" in the log.
+

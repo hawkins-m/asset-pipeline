@@ -244,12 +244,13 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
     return res
 
 
-def build_any(store: ProjectStore, asset: str, log=print) -> dict:
-    """An asset's procedural piece, whatever its spec: a kit piece or a whole building."""
+def build_any(store: ProjectStore, asset: str, log=print, surface: str | None = None) -> dict:
+    """An asset's procedural piece, whatever its spec: a kit piece or a whole building (surface:
+    its band surfaces, building_proc.DEFAULT_SURFACE)."""
     spec = read_json(spec_path(store, asset), default=None)
     if spec is not None and spec.get("kind") == "building":
         from . import building_proc
-        return building_proc.build(store, asset, log=log)
+        return building_proc.build(store, asset, log=log, surface=surface)
     return build(store, asset, log=log)
 
 

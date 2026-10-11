@@ -252,7 +252,7 @@ So:
 
 | Route | Assets | Geometry | Surfaces |
 |---|---|---|---|
-| **Procedural (default for architecture)** | Arches, gates, colonnades, walls, cornices, facade bays; whole buildings of the catalog's forms (perimeter blocks, rows, towers, halls, cubes, basilicas, baths...) | Blender from parameters at real dimensions (greybox and catalog), with proportions, bay rhythm and storeys read from the sheet | PBR maps from the sheet: base colour (delit elevation or seamless tile), normal and roughness from luminance, palette for trim and glass |
+| **Procedural (default for architecture)** | Arches, gates, colonnades, walls, cornices, facade bays; whole buildings of the catalog's forms (perimeter blocks, rows, towers, halls, cubes, basilicas, baths...) | Blender from parameters at real dimensions (greybox and catalog), with proportions, bay rhythm and storeys read from the sheet | PBR maps from the sheet: base colour (delit elevation or seamless tile), normal and roughness from luminance, palette for trim and glass. **Proposed (2026-10-11, awaiting review):** a material library instead of sheet tiles: the sheet picks a type (concrete, limestone, marble, render, brick, timber) and colour per storey band; ambientCG CC0 scans tinted to it in Blender, Megascans in Unreal (`material_lib`, `--surface library`) |
 | **TRELLIS** | Irregular assets: rotunda-type landmarks, props, ornament (statues, capitals, fountains) | TRELLIS.2 from a three-quarter view where the sheet has one | Its own textures; stage 6 cleanup |
 
 - The sheet's job on the procedural route is the **design brief**: proportions, bay rhythm,

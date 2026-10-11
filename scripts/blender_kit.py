@@ -20,6 +20,7 @@ SPEC: {"out": "piece.glb", "repeat": 1, "parts": [...], "materials": {name: {...
       front (-Y) faces take the image planar over rect, back (+Y) faces mirrored, other faces
       fall back to the "tile" material named in "fallback"
     {"base": ..., "uv": "tile", "tile_m": 3.0}     box mapping at tile_m metres per repeat
+                                                   (tile_v_m: its height, when not square)
     {"uv": "plain", "color": [r, g, b], "rough": 0.1, "metal": 0.0}   no texture (glass, trim)
   repeat: n copies along X at the piece's width (a preview of a tiled run)
 """
@@ -157,7 +158,7 @@ def material(name, m):
 
     def img(path, non_color=False):
         n = nt.nodes.new("ShaderNodeTexImage")
-        n.image = bpy.data.images.load(path)
+        n.image = bpy.data.images.load(path, check_existing=True)     # library maps are shared
         if non_color:
             n.image.colorspace_settings.name = "Non-Color"
         return n
@@ -192,12 +193,13 @@ bm.normal_update()
 
 def tile_uv(f, m):
     t = m.get("tile_m", 3.0)
+    tv = m.get("tile_v_m", t)                # a non-square texture (a 2:1 brick scan)
     n = f.normal
     ax = max(range(3), key=lambda i: abs(n[i]))
     for loop in f.loops:
         co = loop.vert.co
         u, v = {0: (co.y, co.z), 1: (co.x, co.z), 2: (co.x, co.y)}[ax]
-        loop[uv].uv = (u / t, v / t)
+        loop[uv].uv = (u / t, v / tv)
 
 
 for f, mname in assign:

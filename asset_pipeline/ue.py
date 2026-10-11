@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from . import blender, config, ue_coords
 from .project import ProjectStore, read_json, write_json
@@ -192,22 +193,33 @@ def render_shots(store: ProjectStore, shots: list[str] | None = None, timeout_s:
     want = [s for s in man["shots"] if not shots or s["id"] in shots]
     if shots and len(want) != len(shots):
         raise ValueError(f"unknown shot(s): {sorted(set(shots) - {s['id'] for s in want})}")
+    rep = _render(store, man["map"], [{"id": s["id"], "resolution": s["resolution"]} for s in want],
+                  work_dir(store) / "shots", "ap_shot_render", timeout_s)
+    store.log_run({"stage": "ue.render", "ok": rep["ok"], "shots": len(rep["shots"]),
+                   "seconds": rep.get("seconds")})
+    return rep
+
+
+def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: str, timeout_s: int) -> dict:
+    """Capture the tagged cameras of a level with the full editor offscreen (ap_shot_render.py)."""
     up = init(store)
     work = work_dir(store)
-    out = work / "shots"
-    report = work / "ap_shot_render_report.json"
+    report = work / f"{name}_report.json"
     report.unlink(missing_ok=True)
-    args_file = work / "ap_shot_render_args.json"
-    write_json(args_file, {"map": man["map"], "out_dir": str(out), "report": str(report), "timeout_s": timeout_s,
-                           "shots": [{"id": s["id"], "resolution": s["resolution"]} for s in want]})
+    args_file = work / f"{name}_args.json"
+    write_json(args_file, {"map": map_, "out_dir": str(out), "report": str(report), "timeout_s": timeout_s,
+                           "shots": shots})
     editor = editor_cmd().with_name("UnrealEditor")
     cmd = [str(editor), str(up), "-RenderOffscreen", "-graphicsadapter=0", "-unattended", "-nosplash", "-NoTraceServer",
            # -ExecutePythonScript would quit the editor right after the script returns (before
            # its tick callbacks run); a console `py` command leaves the quitting to the script
-           "-NoSound", f"-ExecCmds=py {SCRIPTS / 'ap_shot_render.py'}", "-stdout",
+           # textures build synchronously on load: asynchronously, freshly imported ones render as
+           # the grey placeholder checker (and a tint read off their lowest mip goes wrong)
+           "-NoSound", "-dpcvars=Editor.AsyncTextureCompilation=0",
+           f"-ExecCmds=py {SCRIPTS / 'ap_shot_render.py'}", "-stdout",
            "-FullStdOutLogOutput", "-NoLogTimes"]
     os.environ["AP_UE_ARGS"] = str(args_file)
-    log = work / "ap_shot_render.log"
+    log = work / f"{name}.log"
     log.unlink(missing_ok=True)
     try:
         blender.run_logged(cmd, log, "UE shot render", cwd=up.parent)
@@ -220,8 +232,56 @@ def render_shots(store: ProjectStore, shots: list[str] | None = None, timeout_s:
         tail = log.read_text(errors="replace").splitlines()[-25:] if log.exists() else []
         raise RuntimeError("UE shot render wrote no report:\n" + "\n".join(tail))
     rep["log_errors"] = log_errors(log)
-    store.log_run({"stage": "ue.render", "ok": rep["ok"], "shots": len(rep["shots"]),
-                   "seconds": rep.get("seconds")})
+    return rep
+
+
+PREVIEW_MAP = "/Game/AP/Maps/MaterialPreview"
+
+
+def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out: Path,
+                     size=(900, 640), timeout_s: int = 3600) -> dict:
+    """One library building in Unreal with its library materials (Megascans when the project has
+    the type's surface, else the ambientCG maps), rendered from the Blender review render's
+    three-quarter view to out/threeq.png. job: the build's blender_kit job.json (its materials)."""
+    from . import material_lib, vlm
+    if editor_running(uproject(store)):
+        raise RuntimeError("the Unreal editor has this project open: close it first")
+    if list((config.ap_root() / "logs").glob("trellis-gpu0-*.lock")):
+        raise RuntimeError("GPU 0 is busy with TRELLIS; try again when it's done")
+    slots = {}
+    for name, m in read_json(job)["materials"].items():
+        if m.get("uv") == "plain":
+            slots[name] = {"plain": {"rgb_lin": m["color"], "rough": m["rough"], "metal": m.get("metal", 0.0)}}
+        elif m.get("type"):
+            src = material_lib.fetch(m["type"])
+            lib = material_lib.LIBRARY[m["type"]]
+            slots[name] = {"surface": {
+                "type": m["type"], "rgb_lin": [round(float(v), 5) for v in material_lib._srgb_to_lin(np.array(m["colour"], float))],
+                "acg_id": src["acg"], "textures": {k: src[k] for k in ("color", "normal_dx", "rough")},
+                "megascans": lib["megascans"], "uv_scale": 1.0,
+                "uv_scale_megascans": lib["tile_m"][0] / lib.get("megascans_m", 2.0)}}
+    shot = f"preview_{asset}"
+    mask = work_dir(store) / "T_AP_White_M.png"
+    mask.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)
+    rep = run_script(store, "ap_material_preview.py", {
+        "asset": asset, "glb": str(glb), "map": PREVIEW_MAP, "shot": shot, "slots": slots, "mask_default": str(mask),
+        "camera": {"az": -35, "el": 0.35, "dist_factor": 1.55, "focal_mm": 50, "sensor_mm": [36, 36 * size[1] / size[0]]}},
+        f"UE preview {asset}")
+    if "error" in rep:
+        raise RuntimeError(f"UE preview failed: {rep['error']}\n{rep.get('traceback', '')}")
+    bad = [ln for ln in (work_dir(store) / "ap_material_preview.log").read_text(errors="replace").splitlines()
+           if "Failed to compile Material" in ln and "/AP/" in ln]
+    if bad:          # it would render as the WorldGrid checker
+        raise RuntimeError("UE preview: a material failed to compile:\n" + "\n".join(bad[:5]))
+    vlm.down(gpu=0)
+    ren = _render(store, PREVIEW_MAP, [{"id": shot, "resolution": list(size)}], out, "ap_preview_render", timeout_s)
+    src = out / f"{shot}.png"
+    if src.is_file():
+        src.replace(out / "threeq.png")
+    rep["render"] = ren
+    write_json(out / "ue_preview.json", rep)
+    store.log_run({"stage": "ue.material_preview", "asset": asset, "ok": rep["ok"] and ren["ok"]})
     return rep
 
 

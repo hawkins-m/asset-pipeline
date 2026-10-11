@@ -239,28 +239,66 @@ def _plain(rgb, rough, metal=0.0):
     return {"uv": "plain", "color": [(c / 255.0) ** 2.2 for c in rgb], "rough": rough, "metal": metal}
 
 
-def materials(store: ProjectStore, brief: dict, maps: Path) -> dict:
-    """base / wall / top tiles from the view's storey-band patches (wall's when a band has none);
-    glass, trim, frame, planting and wood as plain materials in the palette's colours unless the
-    brief names them."""
-    view = store.root / brief["view"]
+# where the storey bands' surfaces come from: "patch" (a tile cut from the sheet) or "library"
+# (material_lib: a scanned PBR set per material type, tinted to the sheet's colour). A brief's
+# "surface" overrides it.
+DEFAULT_SURFACE = "patch"
+
+
+def band_types(store: ProjectStore, brief: dict, log=print) -> dict:
+    """The material type per storey band: the brief's `material_types` over what the vision LLM
+    read off the sheet's bands (kept in measured.materials, asked once)."""
+    from . import material_lib
+    meas = brief["measured"]
+    if "materials" not in meas:
+        log("reading the band materials off the sheet (vision LLM)")
+        meas["materials"] = material_lib.classify(store.root / brief["view"], meas,
+                                                  store.root / "views/library" / Path(brief["view"]).parent.name)
+    return {b: (brief.get("material_types") or {}).get(b) or meas["materials"][b]["type"] for b in ("base", "wall", "top")}
+
+
+def _band_colours(a: np.ndarray, mask: np.ndarray, brief: dict) -> dict:
+    meas, col = brief["measured"], brief.get("colors") or {}
+    rows = _band_rows(meas) if meas.get("bbox_px") else {}
+    return {n: col.get(n) or band_colour(a, mask, rows.get(n, (0, a.shape[0]))) for n in ("wall", "base", "top")}
+
+
+def materials(store: ProjectStore, brief: dict, maps: Path, surface: str | None = None, log=print) -> dict:
+    """base / wall / top surfaces (see DEFAULT_SURFACE); glass, frame, planting and wood as plain
+    materials in the palette's colours unless the brief names them."""
+    surface = surface or brief.get("surface") or DEFAULT_SURFACE
+    if surface not in ("patch", "library"):
+        raise ValueError(f"surface must be patch or library, not {surface!r}")
+    a = np.asarray(Image.open(store.root / brief["view"]).convert("RGB")).astype(np.float64)
+    colours = _band_colours(a, _object_mask(a), brief)
+    if surface == "patch":
+        out = _patch_tiles(brief, maps, a, colours)
+    else:
+        from . import material_lib
+        types = band_types(store, brief, log)
+        out = {n: material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log) for n in ("wall", "base", "top")}
+        trim = (brief.get("colors") or {}).get("trim") or [int(min(255, c * 1.02)) for c in colours["wall"]]
+        out["trim"] = material_lib.tinted(types["wall"], trim, maps / f"trim_{types['wall']}.jpg", log=log)
+        out["vault"] = dict(out["wall"])
+        out["roof"] = dict(out["wall"])
+    return out | _plain_materials(brief)
+
+
+def _patch_tiles(brief: dict, maps: Path, a: np.ndarray, colours: dict) -> dict:
+    """base / wall / top tiles from the view's storey-band patches (wall's when a band has none)."""
     meas = brief["measured"]
     pat = {**(meas.get("patches") or {}), **(brief.get("patches") or {})}
     wall_box = brief.get("patch_px") or pat.get("wall") or meas["patch_px"]
     tm = brief.get("tile_m", 4.0)
     out = {}
-    a = np.asarray(Image.open(view).convert("RGB")).astype(np.float64)
-    mask = _object_mask(a)
-    rows = _band_rows(meas) if meas.get("bbox_px") else {}
     # pixels per metre on the view: from the storey period when measured, else the bbox width
     st = (brief.get("params") or {}).get("storey_h", 3.4)
     ppm = (meas["storey_px"] / st) if meas.get("storey_px") else ((meas["bbox_px"][2] - meas["bbox_px"][0]) / brief["dims"][0]
                                                                     if meas.get("bbox_px") else 20.0)
-    col = brief.get("colors") or {}
     for name in ("wall", "base", "top"):
         bx = wall_box if name == "wall" else (pat.get(name) or wall_box)
         x0, y0, x1, y1 = bx
-        colour = col.get(name) or band_colour(a, mask, rows.get(name, (0, a.shape[0])))
+        colour = colours[name]
         # texture_detail: how much of the sheet's surface detail to keep (low for plain flat panels)
         tex = seamless_detail(a[y0:y1, x0:x1], colour, amount=float(brief.get("texture_detail", 1.0)))
         mp = kit_proc._save_maps(tex, maps / name, "tile", 1.5)
@@ -268,21 +306,28 @@ def materials(store: ProjectStore, brief: dict, maps: Path) -> dict:
                      "colour": colour}
     out["vault"] = {**out["wall"], "tile_m": tm * 1.5}
     out["roof"] = {**out["wall"], "tile_m": tm * 2}
-    pal = sorted(meas["palette"], key=lambda c: c["lum"])
-    main = meas["palette"][0]["rgb"]
-    dark = pal[0]["rgb"]
+    out["trim"] = _plain((brief.get("colors") or {}).get("trim") or [int(min(255, c * 1.02)) for c in colours["wall"]], 0.5)
+    return out
+
+
+def _plain_materials(brief: dict) -> dict:
+    """glass, rails, frames, planting and wood: untextured."""
+    meas, col = brief["measured"], brief.get("colors") or {}
+    dark = sorted(meas["palette"], key=lambda c: c["lum"])[0]["rgb"]
+    out = {}
     out["glass"] = _plain(col.get("glass") or [int(0.6 * c + 0.4 * g) for c, g in zip(dark, (70, 80, 88))], 0.06)
     out["rail_glass"] = _plain(col.get("rail_glass") or [168, 180, 186], 0.05)       # balustrade glass reads light
-    out["trim"] = _plain(col.get("trim") or [int(min(255, c * 1.02)) for c in out["wall"]["colour"]], 0.5)
     out["frame"] = _plain(col.get("frame") or [58, 52, 46], 0.4, 0.6)
     out["planting"] = _plain(col.get("planting") or [78, 98, 58], 0.9)
     out["wood"] = _plain(col.get("wood") or [150, 106, 70], 0.7)
     return out
 
 
-def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, dims=None) -> dict:
+def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, dims=None,
+          surface: str | None = None, maps: Path | None = None) -> dict:
     """Build an asset's procedural building from its brief (measured once). dims overrides the
-    brief's size (a variant, e.g. a taller cube); out the GLB path."""
+    brief's size (a variant, e.g. a taller cube); out the GLB path; surface the band surfaces
+    (DEFAULT_SURFACE); maps where the maps go (the asset's procedural/ dir)."""
     sp = kit_proc.spec_path(store, asset)
     brief = read_json(sp, default=None)
     if brief is None or brief.get("kind") != "building":
@@ -293,8 +338,11 @@ def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, d
         brief["measured"] = measure(store.root / brief["view"], brief["dims"])
         write_json(sp, brief)
     d = kit_proc.out_dir(store, asset)
-    maps = d / "procedural"
-    mats = materials(store, brief, maps)
+    maps = maps or d / "procedural"
+    had = "materials" in brief["measured"]
+    mats = materials(store, brief, maps, surface, log)
+    if not had and "materials" in brief["measured"]:             # keep a band reading made now
+        write_json(sp, brief)
     meas = brief["measured"]
     sheet = {k: meas[k] for k in ("bay_m", "storey_h") if meas.get(k)}       # the sheet's rhythm, unless the brief sets it
     f = features(brief["form"], brief.get("features"))
