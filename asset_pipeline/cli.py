@@ -615,8 +615,10 @@ def cmd_library_sheets(a) -> None:
     if a.plan_only:
         return
     for u in s2_refs.units(store, sw_library.PLAN_NAME):
-        if u.key in {x.id for x in inc} and (a.more or not s2_refs.sheets(store, u)):
-            out = s2_refs.generate(store, u, n=a.n)
+        if a.unit and u.key not in a.unit:
+            continue
+        if u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u)):
+            out = s2_refs.generate(store, u, n=a.n, view=a.view)
             print(f"{u.key}: {', '.join(p.name for p in out)}")
 
 
@@ -1066,6 +1068,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-n", type=int, default=2, help="sheets per asset")
     p.add_argument("--more", action="store_true", help="also for assets that have sheets already")
     p.add_argument("--plan-only", action="store_true", help="write the plan, generate nothing")
+    p.add_argument("--unit", nargs="+", help="only these sheet units (asset ids, e.g. a kit module), more sheets "
+                                             "even if they have some; the plan keeps every entry included")
+    p.add_argument("--view", choices=["turnaround", "three-quarter"], default="turnaround",
+                   help="object sheet layout: front/side/back, or three-quarter views (deep assets)")
     p.set_defaults(fn=cmd_library_sheets)
     p = libsub.add_parser("show", help="the library plan, by district")
     p.add_argument("project")

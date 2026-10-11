@@ -34,6 +34,14 @@ OBJECT_PROMPT = (
     "degrees, showing its rear. Same object, same size, standing upright on one shared "
     "baseline, eye-level camera, evenly spaced, isolated on a plain pure white background, "
     "no ground, no shadow, no text")
+THREE_QUARTER_PROMPT = (
+    "Three three-quarter reference views of one {name} for a 3D modeller. {description}. "
+    "Each view seen from about 40 degrees off the front and slightly above, so the front face, "
+    "one side face and the full depth all show clearly: LEFT from the front-left, MIDDLE from the "
+    "front-right, RIGHT from the back-left. Same object, same size, standing upright on one shared "
+    "baseline, evenly spaced, isolated on a plain pure white background, no ground, no shadow, "
+    "no text")
+VIEWS = ("turnaround", "three-quarter")   # object sheets: front/side/back, or three-quarter views
 KIT_PROMPT = (
     "Modular kit sheet for a 3D modeller: {n} matching pieces of one {kit}, drawn side by "
     "side at the same scale, each seen from the front, with identical trim, materials and "
@@ -100,8 +108,10 @@ def _size(cells: int, aspect: float, pixels: int = PIXELS) -> tuple[int, int]:
     return int(round(w / 64)) * 64, max(512, int(round(h / 64)) * 64)
 
 
-def request(unit: Unit, anchor: StyleAnchor | None) -> tuple[str, int, int, StyleAnchor | None]:
-    """(prompt, width, height, anchor) for a unit."""
+def request(unit: Unit, anchor: StyleAnchor | None,
+            view: str = "turnaround") -> tuple[str, int, int, StyleAnchor | None]:
+    """(prompt, width, height, anchor) for a unit. view: an object's sheet layout (VIEWS);
+    three-quarter views show a deep object's depth, which a front view leaves TRELLIS to guess."""
     a = unit.assets[0]
     if unit.kind == "material":
         style = StyleAnchor(images=[], style_text=anchor.style_text) if anchor else None
@@ -115,7 +125,10 @@ def request(unit: Unit, anchor: StyleAnchor | None) -> tuple[str, int, int, Styl
         return KIT_PROMPT.format(n=len(unit.assets), kit=a.kit, pieces=pieces), w, h, anchor
     d = a.dimensions
     w, h = _size(3, min(max(max(d.width, d.depth) / d.height, 0.5), 1.6))
-    return OBJECT_PROMPT.format(name=a.name, description=a.description.rstrip(".")), w, h, _with_refs(anchor, a)
+    tpl = THREE_QUARTER_PROMPT if view == "three-quarter" else OBJECT_PROMPT
+    if view == "three-quarter":       # a three-quarter view shows width and depth side by side
+        w, h = _size(3, min(max((d.width + d.depth) * 0.75 / d.height, 0.5), 1.6))
+    return tpl.format(name=a.name, description=a.description.rstrip(".")), w, h, _with_refs(anchor, a)
 
 
 def _with_refs(anchor: StyleAnchor | None, a: PlanAsset, root: Path | None = None) -> StyleAnchor | None:
@@ -137,11 +150,14 @@ def sheets(store: ProjectStore, unit: Unit) -> list[str]:
     return sorted(p.relative_to(store.root).as_posix() for p in d.glob("sheet_*.png"))
 
 
-def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = None) -> list[Path]:
+def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = None,
+             view: str = "turnaround") -> list[Path]:
     """Add n sheets for a unit (one batch, one seed)."""
+    if view not in VIEWS:
+        raise ValueError(f"view must be one of {VIEWS}")
     project = store.load()
     backend = backend_for("references", project)
-    prompt, w, h, anchor = request(unit, project.anchor)
+    prompt, w, h, anchor = request(unit, project.anchor, view)
     if unit.kind in ("object", "kit") and unit.assets[0].refs:      # project-relative look refs
         anchor = _with_refs(project.anchor, unit.assets[0], store.root)
     d = unit.dir(store)
@@ -157,7 +173,7 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
         r.path.rename(final)
         out.append(final)
         meta["sheets"].append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index"),
-                               "prompt": r.meta.get("prompt", prompt), "size": [w, h],
+                               "prompt": r.meta.get("prompt", prompt), "size": [w, h], "view": view,
                                "backend": backend.name,
                                "anchor": bool(anchor and anchor.images)})
         i += 1

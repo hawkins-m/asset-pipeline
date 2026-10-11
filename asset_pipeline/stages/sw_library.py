@@ -337,7 +337,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
         e["districts"] = dict(e["districts"].most_common())
         if "materials" in e:
             e["materials"] = dict(e["materials"].most_common())
-        e["size_m"] = _size(e, slots)
+        e["size_m"] = _size(e, slots, catalog.get(e["typology"]), layout.city.storey_m if layout.city else 3.4)
         e["flags"] = flags(e, min_share)
         e["description_auto"] = _description(e, catalog, mats)
         e["description"] = None
@@ -361,12 +361,26 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     return data
 
 
-def _size(e: dict, slots: dict) -> list[float]:
-    """(width, depth, height) m: props from their drawn size; others from the instance whose
-    world bounding box is the smallest footprint (the least rotated: an AABB grows with
-    the rotation), width the longer side."""
+# a fill entry's library asset is one representative building: a row form is drawn as a run
+# of this many houses, a perimeter block as a square courtyard block
+ROW_UNITS = 4
+
+
+def _size(e: dict, slots: dict, typ=None, storey_m: float = 3.4) -> list[float]:
+    """(width, depth, height) m: props from their drawn size; fill typologies (tier C) from
+    the catalog's middle sizes (their slots hold a whole block of buildings); others from the
+    instance whose world bounding box is the smallest footprint (the least rotated: an AABB
+    grows with the rotation), width the longer side."""
     if e["tier"] == "D":
         return list(PROP_DIMS.get(e["part"], (1.0, 1.0, 1.0)))
+    if e["tier"] == "C" and typ is not None and typ.width and typ.depth and typ.storeys:
+        w, d = sum(typ.width) / 2, sum(typ.depth) / 2
+        h = round(sum(typ.storeys) / 2) * storey_m
+        if typ.form == "row":
+            w = ROW_UNITS * w
+        elif typ.form == "perimeter":
+            d = w
+        return [round(max(w, d), 2), round(min(w, d), 2), round(h, 2)]
     best = None
     for sid in e["slots"]:
         (x0, y0, z0), (x1, y1, z1) = slots[sid]["bbox"]
@@ -562,6 +576,16 @@ def describe(store: ProjectStore, entry: str, text: str | None) -> dict:
             d.pop(entry)
     write_json(decisions_path(store), d)
     return d
+
+
+def district_frame(store: ProjectStore, district: str | None) -> str | None:
+    """The approved look frame of a district: its eye-level medium shot's locked frame
+    (med-<district>), else None (greybox-locked or no such shot)."""
+    layout = sw_site.load_layout(store)
+    for sh in layout.shots:
+        if sh.id == f"med-{district}" and sh.locked and sh.locked != s0_frames.LOCK_GREYBOX:
+            return sh.locked
+    return None
 
 
 def _check_entry(store: ProjectStore, entry: str) -> None:
