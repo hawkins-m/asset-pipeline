@@ -205,7 +205,7 @@ def band_colour(a: np.ndarray, mask: np.ndarray, rows: tuple[int, int]) -> list[
     return [int(v) for v in np.median(sel if len(sel) else px, 0)]
 
 
-def seamless_detail(patch: np.ndarray, colour, size: int = 256) -> np.ndarray:
+def seamless_detail(patch: np.ndarray, colour, size: int = 256, amount: float = 1.0) -> np.ndarray:
     """A tileable texture: the patch's fine detail (its gradient and large shading removed) on
     the band's own colour, made seamless by cross-fading with a copy rolled by half (no mirrored
     kaleidoscope), resampled to `size`."""
@@ -224,7 +224,7 @@ def seamless_detail(patch: np.ndarray, colour, size: int = 256) -> np.ndarray:
     # rolled copy (whose seam is in the middle) takes over. A min(u, v) pyramid printed diamonds.
     m = ((0.5 - 0.5 * np.cos(2 * np.pi * (xx + 0.5) / w)) * (0.5 - 0.5 * np.cos(2 * np.pi * (yy + 0.5) / h)))[..., None]
     det = (det * m + r * (1 - m)) / np.sqrt(m ** 2 + (1 - m) ** 2)      # keep the detail's contrast through the blend
-    tex = np.clip(np.array(colour, np.float64)[None, None] + det, 0, 255)
+    tex = np.clip(np.array(colour, np.float64)[None, None] + amount * det, 0, 255)
     return np.asarray(Image.fromarray(tex.astype(np.uint8)).resize((size, size), Image.LANCZOS))
 
 
@@ -261,7 +261,8 @@ def materials(store: ProjectStore, brief: dict, maps: Path) -> dict:
         bx = wall_box if name == "wall" else (pat.get(name) or wall_box)
         x0, y0, x1, y1 = bx
         colour = col.get(name) or band_colour(a, mask, rows.get(name, (0, a.shape[0])))
-        tex = seamless_detail(a[y0:y1, x0:x1], colour)
+        # texture_detail: how much of the sheet's surface detail to keep (low for plain flat panels)
+        tex = seamless_detail(a[y0:y1, x0:x1], colour, amount=float(brief.get("texture_detail", 1.0)))
         mp = kit_proc._save_maps(tex, maps / name, "tile", 1.5)
         out[name] = {**mp, "uv": "tile", "tile_m": round(max(1.0, (x1 - x0) / ppm), 2) if ppm else tm,
                      "colour": colour}

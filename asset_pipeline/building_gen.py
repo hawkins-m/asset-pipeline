@@ -25,7 +25,8 @@ TYPE_FEATURES = {
     "cube": {
         "wall_t": 2.4, "plinth": [[0.45, 2.6], [0.45, 1.4]],
         "niche": {"faces": ["front", "back", "left", "right"], "w": 0.5, "h": 0.75, "rise": 0.2, "depth": 4.5,
-                  "mezzanine": 0.46, "steps": 3, "door_w": 0.22, "screen": True},
+                  "mezzanine": 0.46, "steps": 3, "door_w": 0.22, "screen": True, "railing": "rail",
+                  "portal": {"kind": "open", "w": 0.3, "h": 7.0}},
         "rounds": None, "joints": {"cols": 4, "rows": 3, "groove": 0.12}, "atrium": 0.34,
     },
     "basilica": {
@@ -177,6 +178,7 @@ def cube(dims, p, f) -> list[dict]:
         z += hh
     zp, H = z, h - z
     ni = f.get("niche")
+    portals = {}
     for side, rz, length, at in (("front", 0, w, (0, -d / 2, zp)), ("back", 180, w, (0, d / 2, zp)),
                                  ("left", -90, d - 2 * t, (-w / 2, 0, zp)), ("right", 90, d - 2 * t, (w / 2, 0, zp))):
         ops, extra = [], []
@@ -191,8 +193,13 @@ def cube(dims, p, f) -> list[dict]:
                 extra.append(prism([[xa, za], [xb, zb], [xb, zb + 0.6], [xa, za + 0.6]], t, dep, "wall"))
             extra += [box(-nw / 2 - 0.6, -nw / 2, t, dep, 0.0, nh, "wall"), box(nw / 2, nw / 2 + 0.6, t, dep, 0.0, nh, "wall")]
             zm = ni["mezzanine"] * nh
-            # doors stay human whatever the niche: at most 2.6 x 3.0 m (a double door)
-            back_ops = [{"kind": "rect", "cx": 0.0, "w": min(ni["door_w"] * nw, 2.6), "z0": 0.0, "h": min(zm - 0.6, 3.0)}]
+            po = ni.get("portal") or {"kind": "door"}
+            pw = po.get("w", 0.3) * nw
+            ph = min(po.get("h", 7.0), zm - 0.8)
+            if po["kind"] in ("open", "glazed"):         # a tall portal under the mezzanine
+                back_ops = [{"kind": "rect", "cx": 0.0, "w": pw, "z0": 0.0, "h": ph, "glass": po["kind"] == "glazed"}]
+            else:                                        # doors stay human: at most 2.6 x 3.0 m (a double door)
+                back_ops = [{"kind": "rect", "cx": 0.0, "w": min(ni["door_w"] * nw, 2.6), "z0": 0.0, "h": min(zm - 0.6, 3.0)}]
             if ni.get("screen"):
                 back_ops.append({"kind": "arch", "cx": 0.0, "w": 0.4 * nw, "z0": zm + 0.8, "h": 0.6 * (nh - zm)})
             extra += pierced(-nw / 2, nw / 2, 0.0, lambda x, o=o: max(_head(o, x), 0.0), dep, dep + 0.6, back_ops,
@@ -205,8 +212,19 @@ def cube(dims, p, f) -> list[dict]:
                 for k in range(1, 5):
                     zz = so["z0"] + (so["h"] - so["w"] / 2) * k / 5
                     extra.append(box(-so["w"] / 2, so["w"] / 2, dep + 0.05, dep + 0.2, zz - 0.06, zz + 0.06, "frame"))
-            extra.append(box(-nw / 2, nw / 2, -0.8, dep, zm - 0.5, zm, "trim"))
-            extra += balustrade(-nw / 2 + 0.2, nw / 2 - 0.2, -0.8, zm, "solid", 1.05)
+            if po["kind"] == "glazed":                   # mullions, a transom at door height, two door leaves
+                y_ = dep + 0.3
+                n_m = max(2, round(pw / 1.5))
+                for k in range(n_m + 1):
+                    xx = -pw / 2 + pw * k / n_m
+                    extra.append(box(xx - 0.07, xx + 0.07, y_ - 0.08, y_ + 0.08, 0.0, ph, "frame"))
+                for zz in (2.7, ph - 0.1):
+                    extra.append(box(-pw / 2, pw / 2, y_ - 0.08, y_ + 0.08, zz - 0.08, zz + 0.08, "frame"))
+                for sx in (-1, 1):
+                    extra += [box(sx * 0.02, sx * 1.22, y_ - 0.12, y_ - 0.06, 0.0, 2.6, "frame")]
+            extra.append(box(-nw / 2, nw / 2, -0.8, dep, zm - 0.35, zm, "trim"))       # the mezzanine slab
+            extra += balustrade(-nw / 2 + 0.2, nw / 2 - 0.2, -0.75, zm, ni.get("railing", "rail"), 1.05)
+            portals[side] = (pw, ph, dep + 0.6)
             if ni.get("steps"):                  # a flight from the ground up to the plinth top, in front of the niche,
                 over = max(o_ for _, o_ in f["plinth"])          # at human scale (15 cm rise, 38 cm tread); no step
                 y_edge = -min(o_ for _, o_ in f["plinth"])       # shares a plane with a plinth tier
@@ -233,11 +251,38 @@ def cube(dims, p, f) -> list[dict]:
             nj = jt.get("cols") or max(1, int(length / jt.get("panel_w", 4.0)))
             for k in range(1, nj):
                 xx = -length / 2 + k * length / nj
-                over = [o for o in ops if o["kind"] == "seg" and abs(xx - o["cx"]) < o["w"] / 2 + 0.6]
-                z_from = max([_head(o, min(max(xx, o["cx"] - o["w"] / 2), o["cx"] + o["w"] / 2)) + 0.8 for o in over], default=0.0)
-                if z_from < H - 0.5:                     # a joint over the niche runs down to its head
+                z_from = 0.0
+                for o in ops:
+                    if o["kind"] != "seg":
+                        continue
+                    hw_ = o["w"] / 2
+                    if abs(abs(xx - o["cx"]) - hw_) < 0.7:          # on a jamb: just outside it, the full height
+                        xx = o["cx"] + (hw_ + g_ + 0.12) * (1 if xx >= o["cx"] else -1)
+                    elif abs(xx - o["cx"]) < hw_:                   # over the niche: down to its head
+                        z_from = max(z_from, _head(o, xx) + 0.8)
+                if z_from < H - 0.5:
                     wall.append(box(xx - g_, xx + g_, -0.03, 0.0, z_from, H, "frame"))
         parts += placed(wall + extra, rz, at)
+    if ni and (ni.get("portal") or {}).get("kind") == "open":
+        # an open passage runs through to the opposite face's niche (daylight at its end); where the
+        # two cross, one ceiling covers the crossing and the walls stop at its edges
+        pairs = [(("front", "back"), "y"), (("left", "right"), "x")]
+        cross = {ax: portals[a_][0] for (a_, b_), ax in pairs if a_ in portals and b_ in portals}
+        for (a_, b_), ax in pairs:
+            if a_ not in portals or b_ not in portals:
+                continue
+            pw, ph, rec = portals[a_]
+            half = (d / 2 if ax == "y" else w / 2) - rec
+            other = cross.get("x" if ax == "y" else "y")
+            runs = [(-half, -other / 2), (other / 2, half)] if other else [(-half, half)]
+            for r0, r1 in runs:
+                for sx in (-1, 1):
+                    xa, xb = sx * pw / 2, sx * (pw / 2 + 0.5)
+                    parts.append(box(xa, xb, r0, r1, zp, zp + ph, "wall") if ax == "y" else box(r0, r1, xa, xb, zp, zp + ph, "wall"))
+                parts.append(box(-pw / 2 - 0.5, pw / 2 + 0.5, r0, r1, zp + ph, zp + ph + 0.6, "wall") if ax == "y"
+                             else box(r0, r1, -pw / 2 - 0.5, pw / 2 + 0.5, zp + ph, zp + ph + 0.6, "wall"))
+            if other and ax == "y":
+                parts.append(box(-pw / 2 - 0.5, pw / 2 + 0.5, -other / 2, other / 2, zp + ph + 0.01, zp + ph + 0.61, "wall"))
     a = f["atrium"] * min(w, d)
     for x0, x1, y0, y1 in ((-w / 2, w / 2, -d / 2, -a / 2), (-w / 2, w / 2, a / 2, d / 2),
                            (-w / 2, -a / 2, -a / 2, a / 2), (a / 2, w / 2, -a / 2, a / 2)):
