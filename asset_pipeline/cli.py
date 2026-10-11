@@ -577,6 +577,22 @@ def cmd_frames_refs(a) -> None:
         print(f"    {r}")
 
 
+def cmd_library_plan(a) -> None:
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    data = sw_library.plan(store, min_share=a.min_share)
+    print(sw_library.summary(data))
+    print(f"{store.root / 'site/library.json'}, {store.root / 'site/library.html'}")
+
+
+def cmd_library_show(a) -> None:
+    from .stages import sw_library
+    data = sw_library.load(ProjectStore.open(a.project))
+    if data is None:
+        raise SystemExit("no library plan yet: ap library plan PROJECT")
+    print(sw_library.summary(data))
+
+
 def cmd_frames_show(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
@@ -989,6 +1005,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--assets", action="store_true", help="real library assets (phase 3; not built yet)")
     p.set_defaults(fn=cmd_export)
 
+    lib = sub.add_parser("library", help="world mode phase 3: the asset library from the locked shot frames")
+    libsub = lib.add_subparsers(dest="action", required=True)
+    p = libsub.add_parser("plan", help="entries from the locked frames' object-id passes (no generation)")
+    p.add_argument("project")
+    p.add_argument("--min-share", type=float, default=0.005,
+                   help="share of a source frame an entry needs to get a crop (default 0.005)")
+    p.set_defaults(fn=cmd_library_plan)
+    p = libsub.add_parser("show", help="the library plan, by district")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_library_show)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
     p.add_argument("action", choices=["init", "import", "render", "pull-layout", "backup"])
     p.add_argument("project")

@@ -152,7 +152,7 @@ Status (2026-10-06):
 |---|---|
 | 1–2 Site, greybox, shots | Done, verified (`ap site`, `ap shots`, UI Site · Shots) |
 | 3 Concept frames | Done (`ap frames`, `ap moodboard`, UI Frames); frames generated for every shot. Default: Union depth alone, 0.6 strength to 60% of the steps (A/B in CLAUDE.md "Concept frames") |
-| 4 Asset library | **Not started: waits for the frame review** |
+| 4 Asset library | Frames done (every shot locked, 2026-10-10). Step 1 (library plan) done; reference sheets wait for the user's review of the list |
 | 5–6 Export and UE 5.8 import | Proven early with the greybox as stand-in assets (UE 5.8.3, live). `ap export`, `ap ue import / render / pull-layout / backup`. Real assets will replace the stand-ins by asset id. |
 
 What phases 5–6 produce today: Nanite meshes, one ISM actor per slot, material instances,
@@ -224,7 +224,7 @@ Open items after frame review round 2 (2026-10-08):
 - **The moodboard anchor is off.** It made frames ornate and palm-heavy and lowered the
   edge match (CLAUDE.md "Frame review round 2").
 
-## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07, not started)
+## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07; step 1 done 2026-10-10)
 
 Goal: turn the catalog, the greybox and the starred frames into a library of assets.
 Stages 2–6 then build them, and the UE manifest uses them instead of the stand-ins.
@@ -247,7 +247,9 @@ differently:
 Step order, each a reviewable milestone:
 
 1. **Library plan and coverage report** (CPU only, no generation): `ap library plan`
-   writes `site/library.json`.
+   writes `site/library.json`. **Done** (`stages/sw_library.py`): sources are the locked
+   shot frames (plus shot frames of the same batch geometry); a crop per entry from the
+   object-id pass; `site/library.html` groups the entries by district and typology.
    - **Entries:** one per tier A/B asset, per tier C (typology x material) kit, and
      one placeholder per tier D noun.
    - **Coverage:** each entry's screen coverage per shot tier, from the id passes (slots
