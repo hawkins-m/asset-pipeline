@@ -407,3 +407,30 @@ def summary(store: ProjectStore) -> dict:
     return {"slots": len(data["slots"]), "types": dict(sorted(types.items())),
             "pieces": dict(sorted(pieces.items())), "shots": [s["id"] for s in data["shots"]],
             "untagged": data["untagged"], "edited": edited(store), "stale": stale(store)}
+
+
+def plan_overlap(store: ProjectStore, shot: str) -> dict:
+    """How well the greybox's ground (water, grass, paving, gravel) matches what a shot's locked
+    frame paints, on the plan: the frame's plan (site/reconcile/<shot>/plan_frame.png, from
+    frame_plan) against a top-down render of the current greybox over the same bounds. Each run is
+    appended to plan_iou.json's history."""
+    from .. import frame_plan
+    d = site_dir(store) / "reconcile" / shot
+    proj = read_json(d / "projection.json", default=None)
+    if proj is None or not (d / "plan_frame.png").exists():
+        raise FileNotFoundError(f"{d}: no frame plan (projection.json, plan_frame.png) for {shot}")
+    fr = np.asarray(Image.open(d / "plan_frame.png").convert("RGB"))
+    b = proj["bounds"]
+    cell = (b[2] - b[0]) / fr.shape[1]
+    job = {"bounds": b, "cell": cell, "out_png": str(d / "plan_greybox.png"), "out_json": str(d / "greybox_objects.json")}
+    write_json(d / "topdown_job.json", job)
+    blender.run(config.REPO_ROOT / "scripts/blender_plan_topdown.py", [d / "topdown_job.json"],
+                d / "topdown.log", "greybox plan", blend=blend_path(store))
+    gb = np.asarray(Image.open(d / "plan_greybox.png").convert("RGB"))
+    rep = frame_plan.overlap(frame_plan.decode(fr), frame_plan.decode(gb, linear=True), cell)
+    rep["greybox_sha"] = (read_json(site_dir(store) / "greybox.json", default={}) or {}).get("blend_sha256", "")[:12]
+    rep["at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    old = read_json(d / "plan_iou.json", default={}) or {}
+    hist = old.get("history") or ([{"iou": old["after"], "note": "reconcile 2026-10-11"}] if "after" in old else [])
+    write_json(d / "plan_iou.json", rep | {"history": hist + [{"iou": rep["iou"], "at": rep["at"]}]})
+    return rep

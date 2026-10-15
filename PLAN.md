@@ -300,24 +300,42 @@ So:
   - **Unreal look scenes.** `ue.look_scene` rebuilds a shot with library builds in every
     visible slot that has a brief, the greybox as context, a sun read off the frame, manual
     exposure set on a frame region, and fog. The city level is not touched.
-- **Open gaps from the last look test (by impact).**
-  1. **Light colour:** still warmer and hazier than the frame. A low sun through the sky
-     atmosphere carries its own orange. Try the sun at 18–20° with a cooler camera white
-     balance.
-  2. **Far hills:** the terrain falls to the sea where the frame paints mountains. A look-test
-     ridge is hidden by the haze. Push the fog start beyond 2 km, or decide whether the terrain
-     and coastline change (a layout decision).
-  3. **Ground surfaces:** paving and water are untextured, and the greybox meshes have no UVs.
-     Needs a world-aligned paving material and a proper water material.
-  4. **Vegetation:** greybox trees, bare lawns and planters. Waits on the Megascans and PCG pass.
-  5. **Gravel placement:** the frame puts the strips on the lawns' outer edges, not the walk
-     edges.
-  6. **Buildings without briefs:** a few fill and civic types stay greybox, and one fill entry
-     uses a stand-in brief.
-  7. **Civic site interior:** the hall and tower cover about 15% of the carved site; the rest
-     is open ground.
-  8. **Pipeline:** heavy look scenes crashed GPU 0 (device lost) and rendered on GPU 1.
-     Interchange imports every GLB's embedded textures; strip them for Unreal imports.
+- **Outcomes 2026-10-14 (one-shot look slice).**
+  - Look scenes are a tool: `ap ue look PROJECT NAME` runs from presets (code defaults <
+    `site/look_tests/defaults.json` < `site/look_tests/<name>.json`). It places every
+    per-instance build of a building still in the plan, plus kit-slot entries, that is in
+    view. It reads the paving tint, the ridge line and the exposure target off the locked
+    frame, and appends each run to the preset's history.
+  - **Ground surfaces:** `M_AP_Ground`, a world-aligned master (the greybox has no UVs).
+    Paving is generated running-bond slabs with joints. Water has generated ripples. Lawn,
+    gravel and the backdrop take a grain texture.
+  - **Light:** the sky light gets an intensity and colour (cool fill), and the camera a white
+    balance. Exposure takes three correction passes; two left the paving 27% bright.
+  - **Backdrop from the frame:** the hill class's top edge, turned into a crest at a chosen
+    distance.
+  - **Basins plazas** take explicit lawn beds (`CivicNode.beds`), each with its gravel strip
+    on a chosen edge. `ap site overlap` measures the greybox ground against the frame's plan.
+  - **Generators:** `arcade_hall` gains a single-storey arcade `range` with flat-roofed
+    setback `masses`. `campanile` gains `cap: "flat"`.
+  - `ap library instances` builds entries at their buildings' footprints.
+- **Open gaps from the 2026-10-14 look test (by impact).**
+  1. **Vegetation:** greybox lollipop trees, flat lawns. Waits on Megascans / Fab and a PCG
+     scatter pass.
+  2. **Buildings without briefs:** visible fill and civic types stay greybox (a domed
+     stand-in, a columned slab, a vaulted hall), and one fill entry uses a stand-in brief.
+  3. **Far hills:** the ridge follows the frame's line, but it is a grey sunlit slope. The
+     frame paints forest and hill towns: needs Megascans forest and cliff material, or a
+     painted far-hill texture. Whether the real terrain should rise there is a layout
+     decision.
+  4. **Water:** opaque with ripples and sky reflection; the frame's basins read turquoise
+     over a pale floor. Needs translucency or a floor colour under the surface.
+  5. **Surface wear:** paving, stone and kerbs are clean. Wants decals (stains, edge wear)
+     from Fab or Megascans.
+  6. **Lawn and kerb edges:** lawn boxes stand 0.15 m proud with streaked sides, and the
+     frame's basins have thin stone kerbs. Code: sink the beds flush and give kerbs their
+     own trim.
+  7. **Frame class maps** (`site/reconcile/<shot>/classes.png`) come from an analysis run
+     with no CLI yet: needed by every shot's tints and ridge.
 
 Step order, each a reviewable milestone:
 

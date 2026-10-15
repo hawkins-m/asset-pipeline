@@ -72,3 +72,22 @@ def build(store: ProjectStore, entry: str, buildings: list, storeys_range: tuple
     old = {i["key"]: i for i in read_json(d / "index.json", default=[]) or []}
     write_json(d / "index.json", list((old | {i["key"]: i for i in index}).values()))
     return index
+
+
+def build_entries(store: ProjectStore, entries: list[str], near: tuple[float, float] | None = None,
+                  radius: float = 600.0, log=print) -> dict[str, list[dict]]:
+    """Per-instance builds of entries from the current city plan: every typed building that
+    belongs to each entry, or only those within radius of near (x, y)."""
+    from . import city
+    from .stages import sw_site
+    layout = sw_site.load_layout(store)
+    P = city.plan(layout, sw_site.terrain(store, layout))
+    have = {p.stem for p in (store.root / "library/kits").glob("*.json")}
+    out = {}
+    for e in entries:
+        if e not in have:
+            raise FileNotFoundError(f"{e}: no brief in library/kits/")
+        bs = [b for b in P.typed if entry_of(b, have) == e
+              and (near is None or math.hypot(b.x - near[0], b.y - near[1]) <= radius)]
+        out[e] = build(store, e, bs, log=log)
+    return out

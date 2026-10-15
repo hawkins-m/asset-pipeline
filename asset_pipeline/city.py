@@ -295,7 +295,8 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
             L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=c, radius=pr,
                                   type="paved" if centre == "plaza" else centre, district=nd.id,
                                   # basins: the walk runs along a radial (the second: the first is rot)
-                                  rot=nd.rot + (360 / nd.radials if nd.radials else 0) if centre == "basins" else 0.0))
+                                  rot=nd.rot + (360 / nd.radials if nd.radials else 0) if centre == "basins" else 0.0,
+                                  beds=nd.beds if centre == "basins" else None))
         L.rings.append(Ring(id=f"{nd.id}-ring", center=c, radius=r["ring1"], width=14, district=nd.id))
         if nd.radius >= 180:
             L.rings.append(Ring(id=f"{nd.id}-garden", center=c, radius=r["garden"], width=0.08 * nd.radius,

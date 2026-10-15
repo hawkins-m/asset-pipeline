@@ -33,7 +33,7 @@ import random
 
 import numpy as np
 
-from .schema import Kit, Plot, SiteLayout, TerrainSpec
+from .schema import Kit, PlazaBed, Plot, SiteLayout, TerrainSpec
 
 PAVING_LIFT = 0.05   # paving/water sit just above the terrain to avoid z-fighting
 RADIAL_LIFT = 0.08
@@ -674,11 +674,43 @@ WALK_M = 10.0
 GRAVEL_M = 1.8
 
 
+def default_beds(radius: float) -> list[PlazaBed]:
+    """Two opposite quarters, ahead on the left and behind on the right, from the basins' ends to
+    past the paving disc (the ring road's inner edge), gravel on their walk edges."""
+    a0, a1 = BASIN[0] / 2, radius * 1.1
+    p0, p1 = WALK_M / 2, radius * 0.87
+    return [PlazaBed(along=(a0, a1), perp=(p0, p1)), PlazaBed(along=(-a1, -a0), perp=(-p1, -p0))]
+
+
+def bed_pieces(bed: PlazaBed) -> list[tuple[str, float, float, float, float]]:
+    """A bed's lawn and gravel as (piece, along centre, perp centre, length along, width perp):
+    the gravel strip takes GRAVEL_M off the lawn on its edge."""
+    (a0, a1), (p0, p1) = sorted(bed.along), sorted(bed.perp)
+    walk_lo = abs(p0) < abs(p1)                 # the low perp edge is the one beside the walk
+    centre_lo = abs(a0) < abs(a1)
+    g = GRAVEL_M
+    cut = {"walk": ("p", walk_lo), "side": ("p", not walk_lo), "centre": ("a", centre_lo),
+           "rim": ("a", not centre_lo)}.get(bed.gravel)
+    lawn, out = [a0, a1, p0, p1], []
+    if cut:
+        ax, lo = cut
+        k = (0 if ax == "a" else 2) + (0 if lo else 1)
+        e = lawn[k]
+        lawn[k] = e + g if lo else e - g
+        ga = [e, e + g] if lo else [e - g, e]
+        gb = ga if ax == "a" else [a0, a1]
+        gp = ga if ax == "p" else [p0, p1]
+        out.append(("gravel", sum(gb) / 2, sum(gp) / 2, gb[1] - gb[0], gp[1] - gp[0]))
+    out.append(("lawn", (lawn[0] + lawn[1]) / 2, (lawn[2] + lawn[3]) / 2, lawn[1] - lawn[0], lawn[3] - lawn[2]))
+    return out
+
+
 def basins_pieces(sb, pz) -> None:
     """Two long basins either side of a paved walk along pz.rot, a sculpture plinth in the
-    right-hand one (looking along rot), and lawn beds with gravel strips on their walk edges in
-    two opposite quarters: ahead on the left, behind on the right. The lawns reach past the
-    paving disc to the ring road's inner edge, as the concept frame draws them."""
+    right-hand one (looking along rot), and lawn beds with gravel strips (pz.beds, else two
+    opposite quarters: ahead on the left, behind on the right, gravel on their walk edges). The
+    default lawns reach past the paving disc to the ring road's inner edge, as the concept frame
+    draws them."""
     L, W = BASIN
     off = WALK_M / 2 + W / 2
 
@@ -689,10 +721,6 @@ def basins_pieces(sb, pz) -> None:
         put("basin-kerb", box(L + 0.8, W + 0.8, 0.35), 0, side * off, PAVING_LIFT + 0.1)
         put("pool-water", box(L, W, 0.12), 0, side * off, PAVING_LIFT + 0.36)
     put("plinth", box(3.0, 3.0, 1.4), 0, -off, PAVING_LIFT + 0.36)
-    a0, a1 = L / 2, pz.radius * 1.1               # the lawns' span along the walk, beyond the basins
-    p_in, p_out = WALK_M / 2, pz.radius * 0.87
-    for sa, sp in ((1, 1), (-1, -1)):
-        put("lawn", box(a1 - a0, p_out - p_in - GRAVEL_M, 0.15), sa * (a0 + a1) / 2,
-            sp * ((p_in + GRAVEL_M + p_out) / 2), PAVING_LIFT + 0.08)
-        put("gravel", box(a1 - a0, GRAVEL_M, 0.12), sa * (a0 + a1) / 2, sp * (p_in + GRAVEL_M / 2), PAVING_LIFT + 0.08)
-
+    for bed in pz.beds if pz.beds is not None else default_beds(pz.radius):
+        for piece, a, p, la, wp in bed_pieces(bed):
+            put(piece, box(la, wp, 0.15 if piece == "lawn" else 0.12), a, p, PAVING_LIFT + 0.08)

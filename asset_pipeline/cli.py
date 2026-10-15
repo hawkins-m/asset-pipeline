@@ -370,6 +370,14 @@ def cmd_site_build(a) -> None:
     _print_site(store)
 
 
+def cmd_site_overlap(a) -> None:
+    from .stages import sw_site
+    rep = sw_site.plan_overlap(ProjectStore.open(a.project), a.shot)
+    print("IoU with the frame's plan: " + ", ".join(f"{k} {v}" for k, v in rep["iou"].items()))
+    print("area m2 (frame / greybox): " + ", ".join(f"{k} {rep['frame_m2'][k]} / {rep['greybox_m2'][k]}"
+                                                    for k in rep["iou"]))
+
+
 def cmd_site_extract(a) -> None:
     from .stages import sw_site
     store = ProjectStore.open(a.project)
@@ -665,6 +673,18 @@ def cmd_library_build(a) -> None:
         build_any(store, x, log=lambda s: print(f"{x}: {s}"), surface=a.surface)
 
 
+def cmd_library_instances(a) -> None:
+    from . import library_instances
+    from .stages import sw_site
+    store = ProjectStore.open(a.project)
+    near = None
+    if a.near:
+        s = next(x for x in sw_site.load_layout(store).shots if x.id == a.near)
+        near = tuple(s.effective().pos[:2])
+    for e, idx in library_instances.build_entries(store, a.entries, near, a.radius).items():
+        print(f"{e}: {len(idx)} instances -> 3d/library/{e}/instances/")
+
+
 def cmd_library_sheets(a) -> None:
     from .stages import s2_refs, sw_library
     store = ProjectStore.open(a.project)
@@ -753,6 +773,13 @@ def cmd_ue(a) -> None:
             print(f"failed: {s}")
         if rep.get("error"):
             print(f"error: {rep['error']}")
+    elif a.action == "look":
+        from . import look
+        if len(a.shots) != 1:
+            raise ValueError("ap ue look PROJECT NAME (a preset in site/look_tests/NAME.json)")
+        rep = look.run(store, a.shots[0])
+        r = rep["record"]
+        print(f"{r['render']}: {r['placed']} library builds, exposure {r['exposure']}, ok={r['ok']}")
     elif a.action == "pull-layout":
         rep = ue.pull_layout(store)
         print(f"{len(rep['actors'])} actors -> {store.root / 'site/ue_layout.json'}")
@@ -992,6 +1019,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--force", action="store_true", help="replace a hand-edited greybox.blend")
     p.set_defaults(fn=cmd_site_build)
+    p = sisub.add_parser("overlap", help="ground classes of the greybox vs a locked frame's plan (site/reconcile/SHOT)")
+    p.add_argument("project")
+    p.add_argument("shot")
+    p.set_defaults(fn=cmd_site_overlap)
     p = sisub.add_parser("extract", help="re-read greybox.blend after editing it in Blender")
     p.add_argument("project")
     p.set_defaults(fn=cmd_site_extract)
@@ -1155,6 +1186,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entry")
     p.add_argument("route", choices=["procedural", "trellis", "auto"])
     p.set_defaults(fn=cmd_library_route)
+    p = libsub.add_parser("instances", help="procedural route: build entries at each of their buildings' own footprint")
+    p.add_argument("project")
+    p.add_argument("entries", nargs="+")
+    p.add_argument("--near", metavar="SHOT", help="only the buildings within --radius of this shot's camera")
+    p.add_argument("--radius", type=float, default=600.0)
+    p.set_defaults(fn=cmd_library_instances)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
     p.add_argument("project")
     p.add_argument("--only", nargs="+", help="just these entries (a pilot)")
@@ -1170,9 +1207,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
-    p.add_argument("action", choices=["init", "import", "render", "pull-layout", "backup"])
+    p.add_argument("action", choices=["init", "import", "render", "look", "pull-layout", "backup"])
     p.add_argument("project")
-    p.add_argument("shots", nargs="*", help="render: only these shots")
+    p.add_argument("shots", nargs="*", help="render: only these shots; look: the look preset's name "
+                                            "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")
     p.add_argument("--reset-layout", action="store_true",
                    help="import: move every actor back to the manifest (discards layout edits made in UE)")
     p.add_argument("--prune", action="store_true", help="import: delete pipeline actors not in the manifest")

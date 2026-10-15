@@ -497,14 +497,20 @@ def _blender_to_ue_xf_cam(m) -> dict:
 
 def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict], entries: dict, sun: dict,
                fog: dict, backdrop: dict | None = None, drop_slots: list[str] | None = None,
-               exposure: dict | None = None, radius: float = 600.0, timeout_s: int = 3600) -> dict:
+               exposure: dict | None = None, radius: float = 600.0, timeout_s: int = 3600,
+               sky: dict | None = None, white_balance: float | None = None, ground: dict | None = None,
+               adapter: int = 0) -> dict:
     """A shot rebuilt in Unreal with library builds where the greybox stood (a level of its own,
     LookTest_<Name>): placements [{key, entry, glb, x, y, z, yaw, w, d}] in Blender world metres,
     entries {entry: job.json} for their materials, the rest of the greybox within radius as
     context, the terrain and an optional backdrop ridge. sun: {elevation, offset (deg right of
     the view), temperature, lux}; fog: {density, falloff, start_cm, color}. exposure: {"box":
     [x0, y0, x1, y1] (frame pixels), "frame": png}: manual exposure set so the render's mean
-    there matches the frame's (one corrective render). Renders to export/look/<name>/."""
+    there matches the frame's (one corrective render). sky: {intensity, color} of the sky light;
+    white_balance: the camera's white point (K); ground: {kind: material spec} for paving, water,
+    lawn and gravel (look.ground: generated maps, world-aligned). adapter: the Vulkan adapter to
+    render on (look.run picks it). Built and driven by `ap ue look` (look.run). Renders to
+    export/look/<name>/."""
     from . import vlm
     gb = sw_site.load_greybox(store)
     s = next(x for x in gb["shots"] if x["id"] == shot)
@@ -547,9 +553,10 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
     args = {"asset": name, "context_glb": job["out_context"], "terrain_glb": job["out_terrain"],
             "backdrop_glb": job.get("backdrop", {}).get("out"), "map": mp, "placements": pls,
             "entries": {e: library_slots(store.root / j) for e, j in entries.items()}, "mask_default": str(mask),
-            "cameras": [cam], "sun": sun_ue, "fog": fog, "exposure_bias": 0.0}
-    rep, bias = None, 0.0
-    for attempt in range(2 if exposure else 1):
+            "cameras": [cam], "sun": sun_ue, "fog": fog, "exposure_bias": 0.0, "sky": sky,
+            "white_balance": white_balance, "ground": ground}
+    rep, bias, steps = None, 0.0, []
+    for attempt in range(int(exposure.get("iterations", 2)) if exposure else 1):
         args["exposure_bias"] = bias
         rep = run_script(store, "ap_look_test.py", args, f"UE look scene {name}")
         if "error" in rep:
@@ -560,7 +567,7 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
             raise RuntimeError("UE look scene: a material failed to compile:\n" + "\n".join(bad[:5]))
         vlm.down(gpu=0)
         rep["render"] = _render(store, mp, [{"id": cam["id"], "resolution": cam["resolution"]}], look, "ap_look_render",
-                                timeout_s)
+                                timeout_s, adapter=adapter)
         if not exposure:
             break
         x0, y0, x1, y1 = exposure["box"]
@@ -569,7 +576,8 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
             return float(((a ** 2.2) @ [0.2126, 0.7152, 0.0722]).mean())
         got = lum(Image.open(look / f"{cam['id']}.png"))
         want = lum(Image.open(store.root / exposure["frame"]))
-        rep.setdefault("exposure", []).append({"bias": round(bias, 3), "render": round(got, 4), "frame": round(want, 4)})
+        steps.append({"bias": round(bias, 3), "render": round(got, 4), "frame": round(want, 4)})
+        rep["exposure"] = steps
         bias += float(np.log2(max(want, 1e-4) / max(got, 1e-4)))
     rep |= {"context": ctx, "sun": sun_ue, "camera": cam, "map": mp}
     write_json(look / "look_scene.json", rep)

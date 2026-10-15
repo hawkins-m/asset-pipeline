@@ -718,3 +718,20 @@ reflects what was actually verified.
 - A 12 deg sun through SkyAtmosphere plus a 4300 K sun and warm fog turned the whole look sepia;
   16 deg at 5000 K with blue-grey haze was closer. Exposure set on the paving converges in one
   correction to ~10% (the tone curve isn't linear). Height fog at 0.025 hides a 3.5-6.5 km ridge.
+
+## Look scenes from presets (2026-10-14)
+- `ap ue look PROJECT NAME` (`asset_pipeline/look.py`).
+- Exposure on a frame region converges slowly through the tone curve: 0.69 -> 0.55 -> 0.47
+  against 0.43 (bias 0, -0.67, -1.02). Use three passes.
+- A frame's class median gives a bad albedo:
+  - Shadowed pixels carry the sky's blue, so the paving's median was blue-grey. Take the
+    hue from the brightest 40% and scale it to an albedo.
+  - Water's brightest pixels are reflections: use all of them.
+  - The grass and gravel classes picked up warm soil, so fixed tints went into the preset.
+- Height fog: 0.025 hid a 2.5-4 km ridge, 0.008 turned it into a pale wall, and 0.0025
+  kept it visible and hazy (falloff 0.06).
+- A crest-line backdrop needs a front slope steeper than the line of sight, or a nearer
+  row becomes the silhouette. Rows at near-1800 (below ground), -1200 (0.3 z), -600
+  (0.7 z) and near (z) keep the crest on top.
+- World-aligned tiling textures need pixel-centre sampling when generated, or the joint at
+  the wrap is half a pixel off.

@@ -27,6 +27,7 @@ TYPE_FEATURES = {
     },
     "arcade_hall": {
         "storey_h": 6.5, "bays": 5, "roof_steps": 4, "roof_step_m": 1.6, "roof_rise_m": 0.7,
+        "range": None, "masses": None,
         "front": {"ground": {"kind": "arcade", "recess": 3.5, "archivolt": 0.35}, "pattern": ["window"],
                   "window": {"kind": "arch", "w": 0.38, "h": 0.6, "sill": 0.22, "reveal": 0.35, "frame": True},
                   "courses": {"every": 1, "h": 0.3, "proj": 0.12}, "cornice": [[0.4, 0.25], [0.3, 0.45]]},
@@ -34,7 +35,8 @@ TYPE_FEATURES = {
                  "window": {"kind": "arch", "w": 0.35, "h": 0.55, "sill": 0.25, "reveal": 0.35, "frame": True}},
     },
     "campanile": {
-        "storey_h": 6.5, "belfry_h": 7.0, "cap_h": 3.5, "cap_steps": 5, "belfry_arches": 2,
+        "storey_h": 6.5, "belfry_h": 7.0, "cap_h": 3.5, "cap_steps": 5, "belfry_arches": 2, "cap": "pyramid",
+        "cap_over": 0.6,
         "shaft": {"ground": {"kind": "plain"}, "pattern": ["slot"], "slot": {"w": 0.1, "h": 0.4, "sill": 0.3},
                   "courses": {"every": 2, "h": 0.25, "proj": 0.1}},
         "belfry": {"ground": {"kind": "plain"}, "pattern": ["window"], "cornice": [[0.35, 0.3], [0.25, 0.5]],
@@ -630,9 +632,49 @@ def civic_block(dims, p, f) -> list[dict]:
     return parts
 
 
+def _arcade_range(dims, p, f) -> list[dict]:
+    """A long single-storey arcade range across the front (f["range"]: {"h", "d", "arch_h",
+    "parapet"}, metres) with plain flat-roofed masses set back behind it (f["masses"]: [{"x":
+    [f0, f1] of the width, "y": [f0, f1] of the depth behind the range, "h": fraction of the
+    building's height}]). The masses' walls stop short of each other and of the range's back
+    wall (no coplanar twins)."""
+    w, d, h = dims
+    rg, t = f["range"], 0.5
+    rh, rd = rg["h"], min(rg["d"], d)
+    par = rg.get("parapet", 0.9)
+    g = merged((f.get("front") or {}).get("ground") or {}, {"h": min(0.95, rg["arch_h"] / rh)})
+    Ff = _F(merged(f.get("front"), {"ground": g}), storeys=1, ground_h=rh, storey_h=rh, bay_m=w / f["bays"],
+            parapet=par, thickness=t)
+    Fs = _F(f.get("side"), storeys=1, ground_h=rh, storey_h=rh, bay_m=f.get("side_bay_m", 6.0), parapet=par,
+            thickness=t)
+    Fs["ground"] = {"kind": "plain"}
+    parts = placed(walls_around(w, rd, {"front": Ff, "back": Fs, "left": Fs, "right": Fs}), 0, (0, -d / 2 + rd / 2, 0))
+    parts.append(placed([_roof_slab(w, rd, t, rh)], 0, (0, -d / 2 + rd / 2, 0))[0])
+    behind = d - rd
+    for m in f.get("masses") or []:
+        x0, x1 = (-w / 2 + v * w for v in m["x"])
+        y0, y1 = (-d / 2 + rd + 0.3 + v * (behind - 0.3) for v in m["y"])
+        mw, md, mh = x1 - x0, y1 - y0, max(rh + 2.0, m["h"] * h)
+        if mw < 3 or md < 3:
+            continue
+        st = f.get("mass_storey_h", 4.5)
+        n = max(1, round(mh / st))
+        Fm = _F(m.get("facade") or f.get("mass_facade") or {"pattern": ["window", "solid"], "cornice": [[0.3, 0.2]],
+                "window": {"kind": "rect", "w": 0.35, "h": 0.4, "sill": 0.35, "reveal": 0.3, "frame": False}},
+                storeys=n, ground_h=mh - st * (n - 1), storey_h=st, bay_m=4.0, parapet=m.get("parapet", 0.6),
+                thickness=t)
+        Fm["ground"] = {"kind": "plain"}
+        parts += placed(walls_around(mw, md, {"front": Fm}), 0, ((x0 + x1) / 2, (y0 + y1) / 2, 0))
+        parts.append(placed([_roof_slab(mw, md, t, height(Fm))], 0, ((x0 + x1) / 2, (y0 + y1) / 2, 0))[0])
+    return parts
+
+
 def arcade_hall(dims, p, f) -> list[dict]:
     """A civic hall: a round-arched arcade across the front (a walk behind it), tall upper
-    storeys with arched windows, cornice and a low hipped roof of stepped slabs."""
+    storeys with arched windows, cornice and a low hipped roof of stepped slabs. With `range`:
+    a single-storey arcade range with flat-roofed masses set back behind it (_arcade_range)."""
+    if f.get("range"):
+        return _arcade_range(dims, p, f)
     w, d, h = dims
     st = p.get("storey_h", f["storey_h"])
     n = max(2, round(h / st))
@@ -654,7 +696,8 @@ def arcade_hall(dims, p, f) -> list[dict]:
 
 def campanile(dims, p, f) -> list[dict]:
     """A bell tower: a plain square shaft with slit windows, a string course, an open belfry
-    of round arches on every face, a cornice and a pyramid cap of stepped slabs."""
+    of round arches on every face, a cornice and a pyramid cap of stepped slabs (cap "flat": an
+    overhanging stone slab, cap_over metres past the walls)."""
     w, d, h = dims
     bh, cap = f["belfry_h"], f["cap_h"]
     shaft = h - bh - cap
@@ -664,6 +707,11 @@ def campanile(dims, p, f) -> list[dict]:
     parts = walls_around(w, d, {"front": Fsh})
     parts += lifted(walls_around(w, d, {"front": Fb}), shaft)
     parts.append(_roof_slab(w, d, Fb["thickness"], shaft + bh))
+    if f.get("cap") == "flat":                     # a flat stone cap: an overhanging slab, no roof
+        ov = f.get("cap_over", 0.6)
+        z = shaft + bh
+        parts.append(box(-w / 2 - ov, w / 2 + ov, -d / 2 - ov, d / 2 + ov, z, z + min(cap, 1.2), "top"))
+        return parts
     z, n = shaft + bh, f["cap_steps"]
     for k in range(n):
         inset = (k + 1) * (min(w, d) / 2 - 0.3) / n

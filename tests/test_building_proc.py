@@ -203,3 +203,43 @@ print("NOMAT", json.dumps(out))
                             str(tmp_path / f"{form}.glb")], capture_output=True, text=True, check=True, timeout=300)
         nomat = json.loads(next(ln for ln in r.stdout.splitlines() if ln.startswith("NOMAT"))[6:])
         assert nomat and not any(nomat), f"{form}: faces without a material: {nomat}"
+
+
+FEATURED = [
+    ("arcade_hall", [36, 22, 19.5], {"range": {"h": 12.5, "d": 7.0, "arch_h": 9.0}, "front": {"pattern": ["solid"]},
+                                     "masses": [{"x": [0.6, 0.94], "y": [0.0, 0.85], "h": 1.0},
+                                                {"x": [0.3, 0.56], "y": [0.15, 0.8], "h": 0.8}]}),
+    ("campanile", [10, 10, 46], {"cap": "flat", "cap_h": 1.0, "cap_over": 0.7}),
+    ("civic_block", [31, 21, 18.2], {"ground_h": 7.5, "front": {
+        "ground": {"kind": "pilotis", "recess": 3.5, "column": "square", "column_d": 1.0},
+        "recess": [{"x0": 0.35, "x1": 0.75, "depth": 0.0, "pattern": ["loggia"], "balcony": None}],
+        "loggia": {"w": 0.86, "h": 0.5, "sill": 0.03, "depth": 2.5, "balustrade": "glass"}}}),
+]
+
+
+@pytest.mark.parametrize("form,dims,feats", FEATURED)
+def test_featured_variants_have_no_coplanar_twins(form, dims, feats):
+    ps = bg.GENERATORS[form](dims, {}, bg.features(form, feats))
+    bparts.resolve_coincident(ps)
+    assert bparts.coincident_area(ps) == []
+
+
+def _zmax(parts, mat=None):
+    return max(p["z1"] + p.get("at", [0, 0, 0])[2] for p in parts if p["kind"] == "box" and (mat is None or p["mat"] == mat))
+
+
+def test_arcade_range_is_one_storey_of_tall_arches_with_masses_behind():
+    f = bg.features("arcade_hall", FEATURED[0][2])
+    ps = bg.arcade_hall([36, 22, 19.5], {}, f)
+    roofs = [p for p in ps if p["mat"] == "roof"]
+    assert len(roofs) == 1 + 2                                         # flat slabs: the range's and each mass's
+    assert _zmax(ps) == pytest.approx(19.5, abs=1.5)                   # the tallest mass
+    front = [p for p in ps if p.get("at", [0, 0, 0])[1] < -10 and p["kind"] == "box"]
+    assert front and max(p["z1"] + p.get("at", [0, 0, 0])[2] for p in front) < 14.5   # the range stays low
+
+
+def test_campanile_flat_cap_is_stone_and_overhangs():
+    ps = bg.campanile([10, 10, 46], {}, bg.features("campanile", {"cap": "flat", "cap_h": 1.0, "cap_over": 0.7}))
+    assert len([p for p in ps if p["mat"] == "roof"]) == 1            # the slab inside the walls: no pyramid
+    cap = max((p for p in ps if p["kind"] == "box"), key=lambda p: p["z1"])
+    assert cap["mat"] == "top" and cap["x1"] - cap["x0"] == pytest.approx(11.4)

@@ -1,6 +1,8 @@
 import math
 from types import SimpleNamespace
 
+import pytest
+
 from asset_pipeline import greybox, library_instances
 from asset_pipeline.city_types import Part
 from asset_pipeline.schema import Plaza
@@ -36,3 +38,23 @@ def test_instance_footprint_is_in_the_buildings_own_frame():
     x, y, z, w, d = library_instances.footprint(b)
     assert abs(x - 100) < 1e-6 and abs(y - 50) < 1e-6 and z == 12.0
     assert abs(w - 40) < 1e-6 and abs(d - 14) < 1e-6
+
+
+def test_plaza_beds_put_gravel_on_the_chosen_edge():
+    from asset_pipeline.schema import PlazaBed
+    out = {g: greybox.bed_pieces(PlazaBed(along=(-45, -29), perp=(3.5, 35.7), gravel=g))
+           for g in ("walk", "side", "centre", "rim", "none")}
+    gv = {g: next((p for p in v if p[0] == "gravel"), None) for g, v in out.items()}
+    assert gv["none"] is None and len(out["none"]) == 1
+    assert gv["centre"][1] == pytest.approx(-29.9) and gv["centre"][3] == pytest.approx(1.8)   # the end facing the centre
+    assert gv["rim"][1] == pytest.approx(-44.1)
+    assert gv["walk"][2] == pytest.approx(4.4) and gv["side"][2] == pytest.approx(34.8)
+    for g, v in out.items():                                # lawn + gravel cover the bed exactly
+        assert sum(p[3] * p[4] for p in v) == pytest.approx(16 * 32.2)
+
+
+def test_default_beds_are_the_old_quarters():
+    sb = _SB()
+    greybox.basins_pieces(sb, Plaza(id="p", center=(0, 0), radius=30, type="basins", rot=0.0))
+    gravel = sorted((round(p[2], 2), round(p[3], 2)) for p in sb.pieces if p[0] == "gravel")
+    assert gravel == [(-24.0, -5.9), (24.0, 5.9)]           # on the walk edges, ahead-left and behind-right

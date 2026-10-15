@@ -14,7 +14,10 @@ JOB: {"camera": 4x4 Blender matrix, "lens_mm", "sensor_mm", "resolution": [w, h]
       "drop": [{"x", "y", "w", "d", "yaw"}], "drop_slots": [ids]      library builds placed at
               these footprints: the objects standing on them (and whole slots) are dropped
   "backdrop": {"bearing", "spread", "dist": [near, far], "height": [lo, hi], "out": glb}
-              (optional) a far ridge across the view: look-test dressing where the terrain has none}
+              (optional) a far ridge across the view: look-test dressing where the terrain has none;
+              or {"crest": [[bearing deg, z m], ...], "dist": [near, far], "pad_deg", "out"}: a ridge
+              whose crest stands at `near` along that line (read off the frame), pad_deg wider each side}
+Kinds (one material each): building, green (trees, hedges), lawn, water, paving, gravel, ground.
 Prints REPORT {placement, removed, objects, faces}.
 """
 import json
@@ -116,9 +119,10 @@ def footprints():
     return drop
 
 
-GREEN = ("tree", "pine", "cypress", "olive", "lawn", "park", "garden", "planting", "hedge", "grass", "shrub")
+GREEN = ("tree", "pine", "cypress", "olive", "planting", "hedge", "shrub")
+LAWN = ("lawn", "park", "garden", "grass")
 WATER = ("pool-water", "lagoon", "canal", "water")
-PAVING = ("paving", "kerb", "gravel", "plinth", "radial", "avenue", "street", "ring", "stair", "lane")
+PAVING = ("paving", "kerb", "plinth", "radial", "avenue", "street", "ring", "stair", "lane")
 
 
 def kind(o):
@@ -127,6 +131,10 @@ def kind(o):
         return "water"
     if any(k in n for k in GREEN):
         return "green"
+    if any(k in n for k in LAWN):
+        return "lawn"
+    if "gravel" in n:
+        return "gravel"
     if any(k in n for k in PAVING) or (o.parent and o.parent.name.startswith(STREETS)):
         return "paving"
     return "building"
@@ -138,7 +146,8 @@ else:
     drop, centre, placement = one_building()
 mats = {}
 for k, rgb in (("building", (0.62, 0.6, 0.57)), ("green", (0.12, 0.2, 0.08)), ("water", (0.05, 0.12, 0.14)),
-               ("paving", (0.7, 0.68, 0.63)), ("ground", (0.32, 0.29, 0.24))):
+               ("paving", (0.7, 0.68, 0.63)), ("ground", (0.32, 0.29, 0.24)), ("lawn", (0.15, 0.3, 0.08)),
+               ("gravel", (0.45, 0.4, 0.33)), ("backdrop", (0.1, 0.13, 0.08))):
     m = bpy.data.materials.new(k)
     m.use_nodes = True
     m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1)
@@ -179,7 +188,44 @@ def export(objs, path, material=None):
 ctx = export(keep, job["out_context"])
 export([bpy.data.objects["terrain"]], job["out_terrain"], mats["ground"])
 bd = job.get("backdrop")
-if bd:                       # a ridge: a band of quads between dist[0] and dist[1], peak heights eased
+
+
+def crest_ridge(bd):
+    """A ridge whose crest follows bd["crest"] ([bearing, z] sorted by bearing) at dist[0]: a steep
+    front from below the ground up to the crest (so the crest is the silhouette), falling behind."""
+    cr = sorted(bd["crest"])
+    bs = [c[0] for c in cr]
+    zs = [c[1] for c in cr]
+    pad = bd.get("pad_deg", 25.0)
+    near, far = bd["dist"]
+    rows = ((near - 1800, None), (near - 1200, 0.3), (near - 600, 0.7), (near, 1.0),
+            (near + 0.35 * (far - near), 0.82), (far, 0.35))
+    cx, cy = cam.matrix_world.translation.x, cam.matrix_world.translation.y
+    n = 160
+    lo, hi = bs[0] - pad, bs[-1] + pad
+    grid = []
+    for i in range(n + 1):
+        b = lo + (hi - lo) * i / n
+        k = max(0, min(len(bs) - 1, sum(1 for x in bs if x <= b) - 1))
+        if b <= bs[0]:
+            z = zs[0]
+        elif b >= bs[-1]:
+            z = zs[-1]
+        else:
+            t = (b - bs[k]) / max(bs[k + 1] - bs[k], 1e-6)
+            z = zs[k] + (zs[k + 1] - zs[k]) * t
+        a = math.radians(b)
+        grid.append([bm.verts.new((cx + d * math.cos(a), cy + d * math.sin(a), -40.0 if f is None else z * f))
+                     for d, f in rows])
+    for i in range(n):
+        for r in range(len(rows) - 1):
+            bm.faces.new((grid[i][r], grid[i + 1][r], grid[i + 1][r + 1], grid[i][r + 1]))
+
+
+if bd and bd.get("crest"):
+    bm = bmesh.new()
+    crest_ridge(bd)
+elif bd:                     # a ridge: a band of quads between dist[0] and dist[1], peak heights eased
     rnd = random.Random(7)
     bm = bmesh.new()
     n, rows = 96, 6
@@ -201,6 +247,7 @@ if bd:                       # a ridge: a band of quads between dist[0] and dist
     for i in range(n):
         for r in range(rows):
             bm.faces.new((grid[i][r], grid[i + 1][r], grid[i + 1][r + 1], grid[i][r + 1]))
+if bd:
     bm.normal_update()
     bm.faces.ensure_lookup_table()
     f0 = bm.faces[len(bm.faces) // 2]                      # face the camera (Unreal culls back faces)
@@ -210,5 +257,5 @@ if bd:                       # a ridge: a band of quads between dist[0] and dist
     bm.to_mesh(me)
     ob = bpy.data.objects.new("backdrop", me)
     sc.collection.objects.link(ob)
-    export([ob], bd["out"], mats["ground"])
+    export([ob], bd["out"], mats["backdrop"])
 print("REPORT " + json.dumps({"placement": placement, "removed": len(drop), "objects": len(keep), "faces": len(ctx.data.polygons)}))

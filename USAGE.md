@@ -408,6 +408,37 @@ needs backing up is the work you do in UE, such as lighting and Sequencer.
 - To restore, copy a snapshot back with the editor closed:
   `rsync -a <backup_dir>/my-project/latest/ ~/Projects/Unreal/my-project/`.
 
+**Look scenes** rebuild one shot in a level of its own (`/Game/AP/Maps/LookTest_<Name>`) to
+match its locked frame. The city level is never touched.
+
+```
+ap library instances my-project civic-hall campanile --near my-shot   # builds at each building's footprint
+ap site overlap my-project my-shot     # greybox ground vs the frame's plan (IoU per class)
+ap ue look my-project my-shot          # build + render from site/look_tests/my-shot.json
+```
+
+- **Presets.** The code defaults are overridden by `site/look_tests/defaults.json` (the
+  project's look), which a shot preset `site/look_tests/<name>.json` overrides key by key. A
+  shot preset needs only `{"shot": "<id>"}` plus what differs for that shot. Keys:
+  - `sun`: `elevation`, `offset` (degrees right of the view), `temperature`, `lux`.
+  - `sky`: the sky light's `intensity` and `color`.
+  - `white_balance`: the camera's white point in K. 6500 is neutral.
+  - `fog`.
+  - `exposure.box`: a frame region in pixels. Exposure is set so the render's mean there
+    matches the frame's.
+  - `paving` / `water` / `lawn` / `gravel`: world-aligned surfaces. Paving takes `slab_m`,
+    `joint_mm` and `roughness`. A `tint` of `"frame"` reads the colour off the frame, scaled
+    to `albedo`.
+  - `backdrop`: `{"from_frame": true, "dist": [near, far]}` traces a ridge along the frame's
+    hill line.
+  - `render_gpu`: `auto` picks GPU 1 when ComfyUI is down.
+- **What gets placed.** Every per-instance library build of a building still in the plan,
+  plus kit-slot entries at their slot, within `radius` and in view.
+- **What comes from the frame.** The tints, the ridge and the exposure target are read from
+  the locked frame and its class map (`site/reconcile/<shot>/classes.png`).
+- **History.** Each run appends its record (render, tints, exposure) to the preset's
+  `history`.
+
 **After the import, the UE level is the source of truth for the layout.** Edit it by hand
 or through an Unreal MCP server.
 - **Actor names and tags are stable:**

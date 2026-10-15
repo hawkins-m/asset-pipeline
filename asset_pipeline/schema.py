@@ -296,6 +296,16 @@ class Radial(BaseModel):
     center: Vec2 = (0.0, 0.0)
 
 
+class PlazaBed(BaseModel):
+    """A lawn bed of a basins plaza, in metres in the plaza's axis frame: `along` the walk from
+    the centre (+ ahead, looking along rot), `perp` from the walk's axis (+ left). The gravel
+    strip runs along one edge: walk (beside the walk), side (the edge away from the walk), centre
+    (the end facing the plaza centre), rim (the end away from it) or none."""
+    along: tuple[float, float]
+    perp: tuple[float, float]
+    gravel: Literal["walk", "side", "centre", "rim", "none"] = "walk"
+
+
 class Plaza(BaseModel):
     id: str
     center: Vec2 = (0.0, 0.0)
@@ -305,6 +315,7 @@ class Plaza(BaseModel):
     # paved walk along `rot`, lawn beds with gravel edges in two opposite quarters
     rot: float = 0.0
     district: str | None = None
+    beds: list[PlazaBed] | None = None    # basins: its lawn beds (None: two opposite quarters)
 
 
 class Plot(BaseModel):
@@ -395,6 +406,7 @@ class CivicNode(BaseModel):
     centre: Literal["auto", "plaza", "pool", "quad", "forum", "basins"] = "auto"
     stoa_share: float = Field(default=1.0, ge=0, le=1)          # share of radial gaps with a stoa
     civic_ring: Literal["arcade", "plain", "none"] = "arcade"   # the ring row of civic blocks
+    beds: list[PlazaBed] | None = None    # centre basins: the plaza's lawn beds (None: the default quarters)
 
 
 class Enclosure(BaseModel):

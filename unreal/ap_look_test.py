@@ -7,9 +7,13 @@ args.json:
      "slots": {...as ap_material_preview...}, "mask_default": png,
      "building": {"loc": [cm], "rot": [roll, pitch, yaw]},
      "cameras": [{"id", "transform": {"loc", "rot"}, "focal_mm", "sensor_mm": [w, h]}],
-     "sun": {"pitch", "yaw"}, "fog_density", "report"}
-The context (greybox neighbours) and terrain come in world coordinates, Nanite on, with plain
-materials per kind (building, green, water, ground).
+     "sun": {"pitch", "yaw", "temperature", "lux"}, "fog": {...} | "fog_density", "report",
+     "sky": {"intensity", "color"}, "white_balance": K,
+     "ground": {kind: {"tint", "roughness", "normal_strength", "tile_m": [u, v], "color", "color_scale",
+                       "rough", "normal"}} for paving, water, lawn, gravel}
+The context (greybox neighbours) and terrain come in world coordinates, Nanite on, with a
+material per kind (building, green, lawn, water, paving, gravel, ground, backdrop). Kinds with a
+"ground" spec take M_AP_Ground: world-aligned maps (the greybox has no UVs) x Tint.
 """
 import json
 import os
@@ -28,8 +32,104 @@ mel = unreal.MaterialEditingLibrary
 log = ap_import.log
 LOOK = "/Game/AP/LookTest"
 KIND_RGB = {"building": [0.62, 0.6, 0.57], "green": [0.12, 0.2, 0.08], "water": [0.03, 0.08, 0.09],
-            "ground": [0.32, 0.29, 0.24], "paving": [0.62, 0.6, 0.55]}
+            "ground": [0.32, 0.29, 0.24], "paving": [0.62, 0.6, 0.55], "lawn": [0.15, 0.3, 0.08],
+            "gravel": [0.45, 0.4, 0.33], "backdrop": [0.1, 0.13, 0.08]}
 KIND_ROUGH = {"water": 0.03, "paving": 0.45}
+GROUND = "/Game/AP/Materials/M_AP_Ground"
+GROUND_VERSION = "1"
+
+
+def ground_material(mask_default):
+    """World-aligned surface master: UV = world XY / TileCm; BaseColorTex x ColorScale x Tint,
+    RoughnessTex.G x Roughness, NormalTex (DirectX) blended in by NormalStrength."""
+    m = eal.load_asset(GROUND) if eal.does_asset_exist(GROUND) else None
+    if m and eal.get_metadata_tag(m, "ap:version") == GROUND_VERSION:
+        return m
+    if m:
+        mel.delete_all_material_expressions(m)
+    else:
+        m = amp.tools.create_asset(GROUND.rsplit("/", 1)[1], GROUND.rsplit("/", 1)[0], unreal.Material,
+                                   unreal.MaterialFactoryNew())
+
+    def expr(cls, x, y, **props):
+        e = mel.create_material_expression(m, cls, x, y)
+        for k, v in props.items():
+            e.set_editor_property(k, v)
+        return e
+    white = ap_import.engine_asset("/Engine/EngineResources/WhiteSquareTexture")
+    wp = expr(unreal.MaterialExpressionWorldPosition, -2000, 0)
+    wxy = expr(unreal.MaterialExpressionComponentMask, -1800, 0, r=True, g=True, b=False, a=False)
+    mel.connect_material_expressions(wp, "", wxy, "")
+    tile = expr(unreal.MaterialExpressionVectorParameter, -2000, 200, parameter_name="TileCm",
+                default_value=unreal.LinearColor(100, 100, 0, 0))
+    txy = expr(unreal.MaterialExpressionComponentMask, -1800, 200, r=True, g=True, b=False, a=False)
+    mel.connect_material_expressions(tile, "", txy, "")
+    uv = expr(unreal.MaterialExpressionDivide, -1600, 100)
+    mel.connect_material_expressions(wxy, "", uv, "A")
+    mel.connect_material_expressions(txy, "", uv, "B")
+    base = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, -400, parameter_name="BaseColorTex", texture=white)
+    mel.connect_material_expressions(uv, "", base, "UVs")
+    tint = expr(unreal.MaterialExpressionVectorParameter, -1300, -150, parameter_name="Tint",
+                default_value=unreal.LinearColor(0.5, 0.5, 0.5, 1))
+    cs = expr(unreal.MaterialExpressionScalarParameter, -1300, -50, parameter_name="ColorScale", default_value=1.0)
+    m1 = expr(unreal.MaterialExpressionMultiply, -1000, -300)
+    mel.connect_material_expressions(base, "RGB", m1, "A")
+    mel.connect_material_expressions(tint, "", m1, "B")
+    m2 = expr(unreal.MaterialExpressionMultiply, -800, -250)
+    mel.connect_material_expressions(m1, "", m2, "A")
+    mel.connect_material_expressions(cs, "", m2, "B")
+    sat = expr(unreal.MaterialExpressionSaturate, -600, -250)
+    mel.connect_material_expressions(m2, "", sat, "")
+    mel.connect_material_property(sat, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    rtex = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, 200, parameter_name="RoughnessTex",
+                texture=mask_default, sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_MASKS)
+    mel.connect_material_expressions(uv, "", rtex, "UVs")
+    rough = expr(unreal.MaterialExpressionScalarParameter, -1000, 350, parameter_name="Roughness", default_value=0.5)
+    r1 = expr(unreal.MaterialExpressionMultiply, -800, 250)
+    mel.connect_material_expressions(rtex, "G", r1, "A")
+    mel.connect_material_expressions(rough, "", r1, "B")
+    rs = expr(unreal.MaterialExpressionSaturate, -600, 250)
+    mel.connect_material_expressions(r1, "", rs, "")
+    mel.connect_material_property(rs, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    normal = expr(unreal.MaterialExpressionTextureSampleParameter2D, -1300, 550, parameter_name="NormalTex",
+                  texture=ap_import.engine_asset("/Engine/EngineMaterials/DefaultNormal"),
+                  sampler_type=unreal.MaterialSamplerType.SAMPLERTYPE_NORMAL)
+    mel.connect_material_expressions(uv, "", normal, "UVs")
+    flat = expr(unreal.MaterialExpressionConstant3Vector, -1000, 500, constant=unreal.LinearColor(0, 0, 1, 1))
+    nstr = expr(unreal.MaterialExpressionScalarParameter, -1000, 700, parameter_name="NormalStrength", default_value=1.0)
+    nl = expr(unreal.MaterialExpressionLinearInterpolate, -600, 550)
+    mel.connect_material_expressions(flat, "", nl, "A")
+    mel.connect_material_expressions(normal, "RGB", nl, "B")
+    mel.connect_material_expressions(nstr, "", nl, "Alpha")
+    mel.connect_material_property(nl, "", unreal.MaterialProperty.MP_NORMAL)
+    mel.recompile_material(m)
+    eal.set_metadata_tag(m, "ap:version", GROUND_VERSION)
+    eal.save_loaded_asset(m)
+    log(f"built ground material v{GROUND_VERSION}")
+    return m
+
+
+def ground_instance(kind, spec, master):
+    """MI_look_<kind> under M_AP_Ground with the spec's maps (imported once per file) and values."""
+    path = f"{LOOK}/Materials/MI_look_{kind}"
+    folder, name = path.rsplit("/", 1)
+    mi = eal.load_asset(path) if eal.does_asset_exist(path) else amp.tools.create_asset(
+        name, folder, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    mel.set_material_instance_parent(mi, master)
+    tex_dir = f"{LOOK}/Textures"
+    for key, param, tk in (("color", "BaseColorTex", "color"), ("rough", "RoughnessTex", "rough"),
+                           ("normal", "NormalTex", "normal")):
+        if spec.get(key):
+            mel.set_material_instance_texture_parameter_value(mi, param, amp.import_texture(spec[key], tex_dir, tk))
+    u, v = spec["tile_m"]
+    mel.set_material_instance_vector_parameter_value(mi, "TileCm", unreal.LinearColor(u * 100, v * 100, 0, 0))
+    mel.set_material_instance_vector_parameter_value(mi, "Tint", unreal.LinearColor(*spec["tint"], 1.0))
+    mel.set_material_instance_scalar_parameter_value(mi, "ColorScale", spec.get("color_scale", 1.0))
+    mel.set_material_instance_scalar_parameter_value(mi, "Roughness", spec["roughness"])
+    mel.set_material_instance_scalar_parameter_value(mi, "NormalStrength", spec.get("normal_strength", 1.0))
+    mel.update_material_instance(mi)
+    eal.save_loaded_asset(mi)
+    return mi
 
 
 def import_static(glb, folder, name):
@@ -124,13 +224,19 @@ def main(args):
     report["placed"] = len(placements)
     # the greybox around it and the terrain, in world coordinates
     folder = f"{LOOK}/{asset}"
+    gspec = args.get("ground") or {}
+    gm = ground_material(amp.default_mask(args["mask_default"])) if gspec else None
+    kind_mis = {k: ground_instance(k, v, gm) for k, v in gspec.items()}
+    report["ground"] = sorted(kind_mis)
     for name in ("context", "terrain", "backdrop"):
         if not args.get(f"{name}_glb"):
             continue
         m = import_static(args[f"{name}_glb"], folder, name)
         for i, sm in enumerate(m.get_editor_property("static_materials")):
             k = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
-            m.set_material(i, kind_material(k if k in KIND_RGB else "building", pbr))
+            if name == "backdrop":
+                k = "backdrop"
+            m.set_material(i, kind_mis.get(k) or kind_material(k if k in KIND_RGB else "building", pbr))
         eal.save_loaded_asset(m)
         a = spawn(eas, unreal.StaticMeshActor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), f"AP_Look_{name}", [])
         a.static_mesh_component.set_static_mesh(m)
@@ -148,6 +254,11 @@ def main(args):
     sky = spawn(eas, unreal.SkyLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, 0, 0), "AP_Look_skylight", [])
     sky.light_component.set_editor_property("real_time_capture", True)
     sky.light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+    sk = args.get("sky") or {}
+    if sk.get("intensity") is not None:     # raised for the shadows' cool fill
+        sky.light_component.set_intensity(float(sk["intensity"]))
+    if sk.get("color"):
+        sky.light_component.set_light_color(unreal.LinearColor(*sk["color"], 1.0))
     spawn(eas, unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_atmosphere", [])
     fog = spawn(eas, unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_fog", [])
     fg = args.get("fog") or {"density": args.get("fog_density", 0.02)}
@@ -167,9 +278,12 @@ def main(args):
         ppv = spawn(eas, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_exposure", [])
         ppv.set_editor_property("unbound", True)
         stt = ppv.get_editor_property("settings")
-        for prop, val in (("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL),
-                          ("auto_exposure_apply_physical_camera_exposure", False),
-                          ("auto_exposure_bias", float(args["exposure_bias"]))):
+        pp = [("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL),
+              ("auto_exposure_apply_physical_camera_exposure", False),
+              ("auto_exposure_bias", float(args["exposure_bias"]))]
+        if args.get("white_balance"):            # the camera's white point (6500 K: neutral)
+            pp.append(("white_temp", float(args["white_balance"])))
+        for prop, val in pp:
             stt.set_editor_property(f"override_{prop}", True)
             stt.set_editor_property(prop, val)
         ppv.set_editor_property("settings", stt)

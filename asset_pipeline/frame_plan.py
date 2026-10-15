@@ -153,3 +153,35 @@ def plan_inverse(cls: np.ndarray, matrix, lens_mm: float, sensor_mm: float, z: f
     grd = np.isin(k, [CLASSES.index(g) for g in GROUND])
     out[ok & grd] = k[ok & grd]
     return out
+
+
+def decode(rgb: np.ndarray, linear: bool = False) -> np.ndarray:
+    """A plan image back to class indices (nearest of COLOURS; white and light grey are 0). linear:
+    the image holds the class colours as linear values shown as sRGB (the greybox top-down render)."""
+    a = np.asarray(rgb, float)[..., :3] / 255.0
+    if linear:
+        a = np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+    a *= 255.0
+    names = [c for c in CLASSES if c != "other"]
+    pal = np.array([COLOURS[c] for c in names], float)
+    d = ((a[..., None, :] - pal) ** 2).sum(-1)
+    k = d.argmin(-1)
+    out = np.array([CLASSES.index(c) for c in names], np.uint8)[k]
+    out[d.min(-1) > 40.0 ** 2] = 0
+    return out
+
+
+def overlap(frame: np.ndarray, greybox: np.ndarray, cell: float) -> dict:
+    """Per ground class, how well the greybox plan matches the frame's plan over the cells where
+    the frame sees the ground (it can't say anything about the rest): IoU, and the class's area
+    in each (m2)."""
+    seen = np.isin(frame, [CLASSES.index(g) for g in GROUND])
+    out = {"iou": {}, "frame_m2": {}, "greybox_m2": {}}
+    for g in GROUND:
+        k = CLASSES.index(g)
+        f, b = frame == k, (greybox == k) & seen
+        u = (f | b).sum()
+        out["iou"][g] = round(float((f & b).sum() / u), 3) if u else None
+        out["frame_m2"][g] = round(float(f.sum() * cell * cell))
+        out["greybox_m2"][g] = round(float(b.sum() * cell * cell))
+    return out
