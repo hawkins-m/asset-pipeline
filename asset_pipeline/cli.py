@@ -804,6 +804,29 @@ def cmd_ue(a) -> None:
               + (f", removed {', '.join(rep['removed'])}" if rep["removed"] else ""))
 
 
+def cmd_terrain(a) -> None:
+    from . import terrain_build as tb
+    from . import terrain_plan as tp
+    store = ProjectStore.open(a.project)
+    if a.action == "analyse":
+        r = tp.analyse(store)
+        for sh in r["shots"]:
+            if sh["lock"] == "frame":
+                print(f"{sh['shot']}: ridge bearings {sh.get('bearing_span')}, elevation {sh.get('elevation_span')}")
+    elif a.action == "build":
+        r = tb.build(store)
+        for x in r["ranges"]:
+            print(f"{x['name']}: height factor {x['height_factor']}, width {x['width_factor']}, foothills {x['foothill_factor']}")
+        print(f"cells in a locked frame's sky after erosion: {r['cells_over_sky_after_erosion']}; max z {r['max_z']} m")
+    elif a.action == "apply":
+        print(tb.apply(store))
+    elif a.action == "landscape":
+        print(tb.landscape_tiles(store))
+        print(tb.outer_glb(store))
+    elif a.action == "ue":
+        print(tb.ue_assets(store))
+
+
 def cmd_ui(a) -> None:
     import uvicorn
     from .ui.app import create_app
@@ -1242,6 +1265,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)
+
+    p = sub.add_parser("terrain", help="world mode: terrain beyond the city, fitted to the locked shots")
+    p.add_argument("action", choices=["analyse", "build", "apply", "landscape", "ue"],
+                   help="analyse: locked shots' skylines; build: ranges from site/terrain_plan/proposal.json, sky fit, "
+                        "erosion; apply: point the layout at it; landscape: Unreal tiles + outer ring GLB; ue: auto "
+                        "material + outer ring in the Unreal project")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_terrain)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)

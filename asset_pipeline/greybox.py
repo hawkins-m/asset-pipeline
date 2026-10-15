@@ -576,12 +576,12 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
     return plots
 
 
-def build_spec(layout: SiteLayout, heights: np.ndarray) -> dict:
+def build_spec(layout: SiteLayout, heights: np.ndarray, plan_heights: np.ndarray | None = None) -> dict:
     """The greybox build spec (JSON-able). `heights` is the terrain (rows north -> south)."""
     city_plan = None
     if layout.city is not None:
         from . import city
-        city_plan = city.plan(layout, heights)
+        city_plan = city.plan(layout, heights if plan_heights is None else plan_heights)
         layout = city_plan.layout          # plus the civic cores
     t = layout.terrain
     hs = Heights(heights, t.extent_m)

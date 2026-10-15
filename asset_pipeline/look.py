@@ -211,7 +211,7 @@ def _candidates(store: ProjectStore, shot: dict, radius: float, only=None) -> tu
     lib = store.root / "3d" / "library"
     cam = np.asarray(shot["matrix"], float)[:3, 3]
     layout = sw_site.load_layout(store)
-    P = city.plan(layout, sw_site.terrain(store, layout))
+    P = city.plan(layout, sw_site.plan_terrain(store, layout))
     live = {}
     for b in P.typed:          # buildings still in the plan: (typology) -> centres
         x, y, *_ = library_instances.footprint(b)
@@ -504,7 +504,7 @@ def split_tiles(store: ProjectStore, shot: dict, slot_ids: list[str], out_dir: P
     idx = _key(np.asarray(Image.open(out_dir / "instance_ids.png").convert("RGB")))
     total = idx.size
     layout = sw_site.load_layout(store)
-    P = city.plan(layout, sw_site.terrain(store, layout))
+    P = city.plan(layout, sw_site.plan_terrain(store, layout))
     foot = []
     for b in P.typed:
         x, y, z, w, d = library_instances.footprint(b)

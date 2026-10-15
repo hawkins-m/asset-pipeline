@@ -460,6 +460,40 @@ ap library pending my-project --shot my-shot               # slots without an ap
 ap library pending my-project --shot my-shot --no-draft    # without the vision model's draft briefs
 ```
 
+**Terrain beyond the city.** Fitted to the locked shots: every frame that paints hills
+beyond the walls sets a ridge, and no frame's painted sky may get land.
+
+```
+ap terrain analyse my-project      # each locked frame's far skyline vs the current terrain
+ap terrain build my-project        # ranges from site/terrain_plan/proposal.json, sky fit, erosion
+ap terrain apply my-project        # the layout's terrain -> site/terrain_far (core + far + outer ring)
+ap site build my-project && ap shots render my-project
+ap terrain landscape my-project    # Unreal Landscape tiles + import values, outer ring GLB
+ap terrain ue my-project           # auto material + outer ring (Nanite) in the Unreal project
+```
+
+- **Sky fit.** A range breaking a frame's sky is lowered smoothly, never clipped. Its crest
+  drops, its flanks narrow (mean slope ≤ 35°) or its foothills shrink, and each change
+  eases in along the crest over at least 1 km. `site/terrain_far/build.json` records the
+  factors, and `check.json` the land over each frame's sky and the share of each frame's
+  painted mountains the terrain fills.
+- **The city plan doesn't move.** It is always planned on the tile without the far build:
+  the plan reshuffles on any change to its heightfield.
+- **Landscape import (manual).** Unreal 5.8's Python can't create a Landscape from a
+  heightmap. In the editor:
+  1. Open the level, enable World Partition, and go to Landscape mode › Import from File.
+  2. Pick `site/terrain_far/landscape/terrain_x0_y0.png`. The tiled import finds the other
+     15 tiles.
+  3. Enter the values from `landscape.json`: location, scale (X/Y 295.2756 cm, Z 500), section
+     size 127 quads, 2 × 2 sections per component, 32 × 32 components.
+  4. Assign `/Game/AP/Terrain/MI_AP_TerrainAuto` as the Landscape material.
+  5. Place `/Game/AP/Terrain/SM_OuterRing` at the origin. It is already in world
+     coordinates.
+- **Auto material** (`M_AP_LandscapeAuto`). It blends by slope and height: grass low and flat,
+  scrub above `ScrubFromM`, rock past `RockSlopeCos` (about 35°). Rock is ambientCG
+  Travertine009. Grass and scrub are Plaster001's fine detail, tinted, because the scans on
+  disk have no vegetation; proper scans or Megascans can go into the same parameters.
+
 **After the import, the UE level is the source of truth for the layout.** Edit it by hand
 or through an Unreal MCP server.
 - **Actor names and tags are stable:**

@@ -121,7 +121,7 @@ def plan_city(store: ProjectStore) -> dict:
     layout = load_layout(store)
     if layout.city is None:
         raise ValueError("the layout has no city spec (ap site init --city, or add \"city\" to layout.json)")
-    h = terrain(store, layout)
+    h = plan_terrain(store, layout)
     P = city.plan(layout, h)
     city.plan_image(P, h).save(site_dir(store) / "city_plan.png")
     write_json(site_dir(store) / "city.json", P.stats)
@@ -203,8 +203,21 @@ def _record(store: ProjectStore, **extra) -> None:
 
 # --- terrain -----------------------------------------------------------------------------
 
-def terrain(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
-    """Generate (or load) the heightmap, write site/terrain.png + .json; returns metres."""
+def plan_terrain(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
+    """The heights the city is planned on. With a built far terrain (terrain.far), the tile as it
+    was generated, without the far build: the plan reads the heightfield everywhere and
+    reshuffles on any change (even the 16-bit rounding of a re-saved heightmap moved 2,307 of
+    2,317 buildings), so it keeps its own terrain; the greybox meshes and piece heights use the
+    real one, which matches it inside the walls."""
+    if not layout.terrain.far:
+        return terrain(store, layout)
+    plain = layout.model_copy(deep=True)
+    plain.terrain.heightmap, plain.terrain.far = None, None
+    return terrain(store, plain, write=False)
+
+
+def terrain(store: ProjectStore, layout: SiteLayout, write: bool = True) -> np.ndarray:
+    """Generate (or load) the heightmap, write site/terrain.png + .json (write); returns metres."""
     t = layout.terrain
     out = site_dir(store)
     if t.heightmap:
@@ -219,10 +232,11 @@ def terrain(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
     lo, hi = float(h.min()), float(h.max())
     if lo < t.z_range[0] or hi > t.z_range[1]:
         raise ValueError(f"terrain spans {lo:.1f}..{hi:.1f} m, outside z_range {t.z_range}: widen it")
-    Image.fromarray(greybox.to_png16(h, t.z_range)).save(out / "terrain.png")
-    write_json(out / "terrain.json", {"extent_m": t.extent_m, "resolution": int(h.shape[0]),
-                                      "z_range": list(t.z_range), "min_z": round(lo, 3), "max_z": round(hi, 3),
-                                      "rows": "north (+Y) -> south"})
+    if write:
+        Image.fromarray(greybox.to_png16(h, t.z_range)).save(out / "terrain.png")
+        write_json(out / "terrain.json", {"extent_m": t.extent_m, "resolution": int(h.shape[0]),
+                                          "z_range": list(t.z_range), "min_z": round(lo, 3), "max_z": round(hi, 3),
+                                          "rows": "north (+Y) -> south"})
     return h
 
 
@@ -243,17 +257,21 @@ def build(store: ProjectStore, force: bool = False) -> dict:
                          f"(use force; the old file is kept as greybox.prev.blend)")
     t = time.time()
     h = terrain(store, layout)
-    spec = greybox.build_spec(layout, h)
+    hp = plan_terrain(store, layout) if layout.terrain.far else h
+    spec = greybox.build_spec(layout, h, plan_heights=hp)
     work = site_dir(store) / "build"
     work.mkdir(parents=True, exist_ok=True)
     small = _downsample(h, max(BLENDER_TERRAIN_MAX, min(BLENDER_TERRAIN_CAP,
                                                         math.ceil(layout.terrain.extent_m / BLENDER_TERRAIN_STEP_M) + 1)))
     np.save(work / "terrain.npy", small)
     spec["terrain"]["npy"] = str(work / "terrain.npy")
+    if layout.terrain.far:                    # the terrain beyond the tile (terrain_build): far ring + outer ring
+        fd = store.root / layout.terrain.far
+        spec["terrain"]["far"] = [str(fd / n) for n in ("far.npz", "outer.npz") if (fd / n).is_file()]
     spec["terrain"]["resolution"] = int(small.shape[0])
     if spec.get("city"):
         write_json(site_dir(store) / "city.json", spec["city"])
-        city.plan_image(city.plan(layout, h), h).save(site_dir(store) / "city_plan.png")
+        city.plan_image(city.plan(layout, hp), hp).save(site_dir(store) / "city_plan.png")
     write_json(work / "spec.json", spec)
     if b.exists():
         shutil.copyfile(b, b.with_suffix(".prev.blend"))

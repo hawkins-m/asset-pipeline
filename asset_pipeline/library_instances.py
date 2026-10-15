@@ -81,7 +81,7 @@ def build_entries(store: ProjectStore, entries: list[str], near: tuple[float, fl
     from . import city
     from .stages import sw_site
     layout = sw_site.load_layout(store)
-    P = city.plan(layout, sw_site.terrain(store, layout))
+    P = city.plan(layout, sw_site.plan_terrain(store, layout))
     have = {p.stem for p in (store.root / "library/kits").glob("*.json")}
     out = {}
     for e in entries:

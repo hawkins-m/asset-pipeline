@@ -379,6 +379,7 @@ class TerrainSpec(BaseModel):
     city_radius_m: float = 470.0          # flattened plateau (0: none; city mode uses pads)
     city_z: float = 18.0
     heightmap: str | None = None          # project-relative PNG instead of generating
+    far: str | None = None                # project-relative dir with far.npz / outer.npz (terrain_build): beyond the tile
     z_range: Vec2 = (-40.0, 160.0)        # PNG 0..65535 <-> metres
 
 

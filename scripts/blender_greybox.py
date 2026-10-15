@@ -266,6 +266,33 @@ def terrain_mesh(heights, extent):
     return me
 
 
+def npz_mesh(path, name, core_half):
+    """A heightfield (.npz: x0, y0, cell, h rows south -> north, NaN = none) as a mesh, leaving out
+    the cells inside the core tile (core_half: half its extent), which overlap it by one cell."""
+    z = np.load(path)
+    x0, y0, cell, h = float(z["x0"]), float(z["y0"]), float(z["cell"]), z["h"].astype(np.float64)
+    n, m = h.shape
+    X, Y = np.meshgrid(x0 + np.arange(m) * cell, y0 + np.arange(n) * cell)
+    inner = (np.abs(X) < core_half - cell) & (np.abs(Y) < core_half - cell)
+    ok = np.isfinite(h) & ~inner
+    vid = np.full(h.shape, -1, np.int64)
+    vid[ok] = np.arange(int(ok.sum()))
+    verts = np.stack([X[ok], Y[ok], h[ok]], 1)
+    a, b, c, d = vid[:-1, :-1], vid[:-1, 1:], vid[1:, 1:], vid[1:, :-1]
+    good = (a >= 0) & (b >= 0) & (c >= 0) & (d >= 0)
+    quads = np.stack([a[good], b[good], c[good], d[good]], 1)          # rows run south -> north: normals up
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(verts))
+    me.vertices.foreach_set("co", verts.astype(np.float32).ravel())
+    me.loops.add(quads.size)
+    me.loops.foreach_set("vertex_index", quads.astype(np.int32).ravel())
+    me.polygons.add(len(quads))
+    me.polygons.foreach_set("loop_start", (np.arange(len(quads)) * 4).astype(np.int32))
+    me.update(calc_edges=True)
+    me.validate()
+    return me
+
+
 def shot_camera(s, cam_obj=None):
     pos, look = Vector(s["pos"]), Vector(s["look_at"])
     if cam_obj is None:
@@ -301,6 +328,15 @@ def build(spec_path, out):
     set_props(terrain, ap_id="terrain", ap_type="terrain", ap_category="terrain", ap_kit=None,
               ap_district=None, ap_piece="terrain")
     terrain.color = (*COLORS["terrain"], 1)
+    for k, path in enumerate(spec["terrain"].get("far") or []):    # beyond the tile: far ring, outer ring
+        nm = "terrain_far" if k == 0 else "terrain_outer"
+        fm = npz_mesh(path, nm, spec["terrain"]["extent_m"] / 2)
+        fm.materials.append(mat)
+        fo = bpy.data.objects.new(nm, fm)
+        site.objects.link(fo)
+        set_props(fo, ap_id=nm.replace("_", "-"), ap_type="terrain", ap_category="terrain", ap_kit=None,
+                  ap_district=None, ap_piece="terrain")
+        fo.color = (*COLORS["terrain"], 1)
     sea_size = max(spec["terrain"]["extent_m"] * 4, 100000.0)   # to the horizon of a high wide
     bm = bmesh.new()
     bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=sea_size / 2)

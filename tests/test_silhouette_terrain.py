@@ -85,3 +85,21 @@ def test_colonnade_takes_measured_piers_and_infill():
     assert sorted(round(p["x0"], 2) for p in piers) == [-10.0, -4.0, 2.0, 8.6]
     infill = [p for p in ps if p["kind"] == "box" and p["z0"] == 0.0 and p not in piers]
     assert len(infill) == 1 and infill[0]["x0"] == pytest.approx(3.4) and infill[0]["x1"] == pytest.approx(8.6)
+
+
+def test_first_sky_run_skips_reflections_and_keeps_arches():
+    from asset_pipeline.terrain_build import first_sky_run
+    sky = np.zeros((10, 3), bool)
+    sky[0:4, 0] = True; sky[8:10, 0] = True        # sky, then a building, then a reflection in water
+    sky[3:6, 1] = True                             # sky seen through an arch (building above it)
+    start, end = first_sky_run(sky)
+    assert list(start) == [0, 3, 0] and list(end) == [4, 6, 0]
+
+
+def test_spread_eases_a_cap_along_the_crest_and_never_exceeds_it():
+    from asset_pipeline.terrain_build import _spread
+    req = np.ones(200); req[100] = 0.4
+    f = _spread(req, 21, 5.0)
+    assert f[100] <= 0.4 + 1e-9 and (f <= req + 1e-9).all()
+    assert f[90] < 0.75 and f[60] > 0.95                   # eased over the window, back to full beyond it
+    assert np.abs(np.diff(f)).max() < 0.15                  # no step: no cliff along the crest

@@ -759,3 +759,15 @@ reflects what was actually verified.
   - Frames disagree: a range that fills one shot's mountains can land in another frame's
     painted sky. `carve` keeps the proposal under every frame-locked shot's lowest sky
     pixel per column; sky through arches counts.
+- **Terrain build** (`terrain_build.py`, 2026-10-14):
+  - **The city plan reshuffles on any terrain change.** Even 1 cm of PNG rounding moved
+    2,307 of 2,317 buildings. `sw_site.plan_terrain` keeps planning on the tile without the
+    far build. Check with an in-memory plan diff after any terrain edit.
+  - **Sky fit:** count only cells that land inside a frame's first sky run from the top (not
+    sky reflected in water, not land above the frame's top edge), with a 1.5 px tolerance.
+    Capping every cell at the lowest band squashed the ranges to a tenth of their height.
+    Fitting the crest height alone lost the ranges to a few flank and foothill cells:
+    narrowing (mean slope ≤ 35°) and foothill factors kept most of the height.
+  - Locked frames disagree. Smooth crests (≥ 1 km falloff) filled 35 / 80 / 16% of three
+    frames' painted mountains. The flat-topped grid clip filled 79 / 100 / 51%: the
+    difference is the notches.

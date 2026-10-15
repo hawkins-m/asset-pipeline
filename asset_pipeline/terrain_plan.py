@@ -258,7 +258,8 @@ def preview(store: ProjectStore, shots: list[str]) -> Path:
     return d / "preview"
 
 
-def violations(store: ProjectStore, shots: list[str], threshold: int = 6) -> dict:
+def violations(store: ProjectStore, shots: list[str], threshold: int = 6, before: Path | None = None,
+               after: Path | None = None, out: Path | None = None) -> dict:
     """Per frame-locked shot: the share of the frame where the proposal adds land (its preview
     differs from the current one) but the locked frame paints sky: a range there breaks the lock.
     Also fill: the share of the frame's painted mountain / hill the proposal covers (not sky in its
@@ -266,10 +267,10 @@ def violations(store: ProjectStore, shots: list[str], threshold: int = 6) -> dic
     from .stages import sw_site
     d = store.root / "site" / "terrain_plan"
     locks = {s.id: s.locked for s in sw_site.load_layout(store).shots}
-    out = {}
+    out_path, res = out, {}
     for sh in shots:
-        a = np.asarray(Image.open(d / "now" / sh / "preview.png").convert("RGB"), int)
-        b = np.asarray(Image.open(d / "preview" / sh / "preview.png").convert("RGB"), int)
+        a = np.asarray(Image.open((before or d / "now") / sh / "preview.png").convert("RGB"), int)
+        b = np.asarray(Image.open((after or d / "preview") / sh / "preview.png").convert("RGB"), int)
         added = np.abs(a - b).max(-1) > threshold
         rec = {"changed": round(float(added.mean()), 4)}
         if locks.get(sh) and locks[sh] != "greybox":
@@ -284,9 +285,9 @@ def violations(store: ProjectStore, shots: list[str], threshold: int = 6) -> dic
             if mtn.sum() > 500:
                 rec["fill_now"] = round(float((~n_sky)[mtn].mean()), 3)
                 rec["fill"] = round(float((~p_sky)[mtn].mean()), 3)
-        out[sh] = rec
-    write_json(d / "changed_share.json", out)
-    return out
+        res[sh] = rec
+    write_json(out_path or d / "changed_share.json", res)
+    return res
 
 
 def carve(store: ProjectStore, hf: dict) -> dict:
