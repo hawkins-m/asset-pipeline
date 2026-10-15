@@ -136,7 +136,7 @@ def check(store: ProjectStore, shot: dict, items: list[dict], log=print) -> dict
             res[it["key"]] = {"entry": it["entry"], "error": "SAM found no building in the frame there", "box": list(box)}
             continue
         ign = occ & ~fm if occ is not None else None
-        r = score(fm, rm, ign) | {"occluded_px": int(ign.sum()) if ign is not None else 0, "entry": it["entry"], "box": list(box), "box_from": src, "shot": shot["id"],
+        r = score(fm, rm, ign) | {"occluded_px": int((ign & rm).sum()) if ign is not None else 0, "entry": it["entry"], "box": list(box), "box_from": src, "shot": shot["id"],
                              "at": time.strftime("%Y-%m-%d %H:%M:%S")}
         ov = out / "overlay" / f"{it['key']}.png"
         overlay(frame, fm, rm, ov, box)
