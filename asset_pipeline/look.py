@@ -32,6 +32,8 @@ from .project import ProjectStore, read_json, write_json
 DEFAULTS = {
     "radius": 600.0,
     "render_gpu": "auto",                 # auto: GPU 1 when ComfyUI is down (heavy scenes lose GPU 0)
+    "gate": True,                         # place only builds Approved in library review
+    "greybox": [0.5, 0.5, 0.5],           # the massing left for everything else: neutral matte grey
     "sun": {"elevation": 20.0, "offset": 30.0, "temperature": 5800.0, "lux": 10.0},
     "sky": {"intensity": 1.0, "color": [1.0, 1.0, 1.0]},
     "white_balance": 6500.0,              # the camera's white point (K): 6500 is neutral in Unreal
@@ -182,9 +184,28 @@ def _box_pts(x, y, z, w, d, yaw, hgt=20.0) -> np.ndarray:
     return np.array(pts)
 
 
-def placements(store: ProjectStore, shot: dict, radius: float) -> tuple[list[dict], list[str], dict]:
+def approved(store: ProjectStore) -> set[str]:
+    """Assets whose build is Approved in library review (the vetting gate for look scenes)."""
+    from . import library_review
+    return {a for a, r in library_review.reviews(store).items() if r.get("status") == "approved"}
+
+
+def placements(store: ProjectStore, shot: dict, radius: float, gate: bool = True,
+               only: set[str] | None = None) -> tuple[list[dict], list[str], dict, list[dict]]:
     """The library builds to place for a shot: (placements, kit slots they replace, entries
-    {entry: its procedural job.json})."""
+    {entry: its procedural job.json}, held). With gate, only builds whose asset is Approved in
+    library review are placed; the others come back as `held` and their greybox stays. only:
+    just these entries (the silhouette check)."""
+    p, d, e = _candidates(store, shot, radius, only)
+    if not gate:
+        return p, d, e, []
+    ok = approved(store)
+    keep = [x for x in p if x["entry"] in ok]
+    return (keep, [x["slot"] for x in keep if x.get("slot")], {k: v for k, v in e.items() if k in ok},
+            [x for x in p if x["entry"] not in ok])
+
+
+def _candidates(store: ProjectStore, shot: dict, radius: float, only=None) -> tuple[list[dict], list[str], dict]:
     from . import city, library_instances
     from .stages import sw_site
     lib = store.root / "3d" / "library"
@@ -198,6 +219,8 @@ def placements(store: ProjectStore, shot: dict, radius: float) -> tuple[list[dic
     out, entries = [], {}
     for idx in sorted(lib.glob("*/instances/index.json")):
         e = idx.parent.parent.name
+        if only is not None and e not in only:
+            continue
         job = idx.parent.parent / "procedural" / "job.json"
         if not job.exists():
             continue
@@ -216,6 +239,8 @@ def placements(store: ProjectStore, shot: dict, radius: float) -> tuple[list[dic
     drop_slots = []
     for ent in (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", []):
         e = ent["id"]
+        if only is not None and e not in only:
+            continue
         glb, job = lib / e / "procedural.glb", lib / e / "procedural" / "job.json"
         brief = read_json(store.root / "library" / "kits" / f"{e}.json", default=None)
         if not (ent.get("slot_ids") and glb.exists() and job.exists() and brief and brief.get("kind") == "building"):
@@ -230,7 +255,7 @@ def placements(store: ProjectStore, shot: dict, radius: float) -> tuple[list[dic
             if math.hypot(x - cam[0], y - cam[1]) > radius or not in_view(shot, _box_pts(x, y, z, w, d, _yaw(m), hgt)):
                 continue
             out.append({"key": f"{e}_{sid}".replace("-", "m"), "entry": e, "glb": glb.relative_to(store.root).as_posix(),
-                        "x": float(x), "y": float(y), "z": float(z), "yaw": _yaw(m), "w": w, "d": d})
+                        "x": float(x), "y": float(y), "z": float(z), "yaw": _yaw(m), "w": w, "d": d, "slot": sid})
             entries[e] = job.relative_to(store.root).as_posix()
             drop_slots.append(sid)
     return out, drop_slots, entries
@@ -397,8 +422,9 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
     layout_shot = next(s for s in sw_site.load_layout(store).shots if s.id == p["shot"])
     shot = shot | {"locked": layout_shot.locked}
     out = store.root / "export" / "look" / name
-    pls, drop_slots, entries = placements(store, shot, p["radius"])
-    log(f"{name}: {len(pls)} library builds in view ({len(drop_slots)} at kit slots), {len(entries)} entries")
+    pls, drop_slots, entries, held = placements(store, shot, p["radius"], gate=p.get("gate", True))
+    log(f"{name}: {len(pls)} approved library builds placed ({len(drop_slots)} at kit slots); "
+        f"{len(held)} held back as greybox ({len(set(h['entry'] for h in held))} entries not approved)")
     gr = ground(store, p, shot, out / "textures")
     log(f"{name}: ground tints " + ", ".join(f"{k} {v['tint']} ({v['from']})" for k, v in gr["tints"].items()))
     bd, bd_info = backdrop(store, p, shot)
@@ -411,7 +437,12 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
     rep = ue.look_scene(store, name, p["shot"], pls, entries, sun=p["sun"], fog=p["fog"], backdrop=bd,
                         drop_slots=drop_slots, radius=p["radius"],
                         exposure=exp | {"frame": str(shot["locked"])} if exp and shot.get("locked") else None,
-                        sky=p["sky"], white_balance=p["white_balance"], ground=gr["materials"], adapter=int(gpu))
+                        sky=p["sky"], white_balance=p["white_balance"], ground=gr["materials"], adapter=int(gpu),
+                        greybox_rgb=p.get("greybox"), held=held, held_slots=[h["slot"] for h in held if h.get("slot")])
+    sil = {}
+    if pls and shot.get("locked"):
+        from . import silhouette
+        sil = silhouette.check(store, shot, pls, log=log)
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     render = out / f"look_{name}.png"
     keep = out / f"look_{name}_{time.strftime('%Y%m%d_%H%M%S')}.png"
@@ -420,8 +451,120 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
     rec = {"at": stamp, "placed": len(pls), "render": keep.relative_to(store.root).as_posix(), "render_gpu": gpu,
            "sun": p["sun"], "sky": p["sky"], "white_balance": p["white_balance"], "fog": p["fog"],
            "exposure": rep.get("exposure"), "tints": gr["tints"], "backdrop": bd_info,
+           "held": sorted({h["entry"] for h in held}), "silhouettes": {k: {x: v.get(x) for x in ("entry", "iou", "aspect_frame", "aspect_build", "score", "error")} for k, v in sil.items()},
            "ok": bool(rep.get("ok") and rep.get("render", {}).get("ok"))}
     own = read_json(preset_dir(store) / f"{name}.json", default={})
     own["history"] = (own.get("history") or []) + [rec]
     write_json(preset_dir(store) / f"{name}.json", own)
     return rep | {"record": rec}
+
+
+def shot_of(store: ProjectStore, shot_id: str) -> dict:
+    """The greybox shot with its locked frame."""
+    from .stages import sw_site
+    gb = sw_site.load_greybox(store)
+    shot = next(s for s in gb["shots"] if s["id"] == shot_id)
+    return shot | {"locked": next(s for s in sw_site.load_layout(store).shots if s.id == shot_id).locked}
+
+
+def silhouette_of(store: ProjectStore, entry: str, shot_id: str, radius: float = 600.0, log=print) -> dict:
+    """The silhouette check of one entry's builds in view of a shot, approved or not."""
+    from . import silhouette
+    shot = shot_of(store, shot_id)
+    pls = placements(store, shot, radius, gate=False, only={entry})[0]
+    if not pls:
+        raise ValueError(f"no build of {entry} in view of {shot_id}")
+    return silhouette.check(store, shot, pls, log=log)
+
+
+SLOT_SKIP = ("pool", "plaza", "radial", "avenue", "street", "stair", "lane", "ring", "terrain", "park", "sea", "garden")
+DRAFT_PROMPT = """This crop is from a concept frame of a city. Describe the main building in it (the one
+filling most of the crop) as a short design brief for a procedural building generator. Judge only
+what you can see. Pick the closest form: {forms}, or "other". Give its storeys, its front's
+length over its height as you see it, the ground storey (colonnade, arcade, shopfronts, plain wall,
+doors), the upper storeys' facade (window rhythm, loggias, balconies, blank wall), the roof (flat,
+parapet, hipped, pitched, dome, terrace), the materials and colours, and any distinctive features.
+Keep each field to a phrase."""
+
+
+def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=print) -> list[dict]:
+    """Every building or structure slot a shot shows that has no approved build, ranked by how
+    much of the frame it covers (its id pass), with its frame crop, its state and (draft) a brief
+    drafted from the crop by the vision model. Written to export/look/<shot>/slots/slots.json."""
+    from pydantic import BaseModel
+    from typing import Literal
+
+    from . import building_gen, library_review
+    from .stages import sw_shots, sw_site
+    shot = shot_of(store, shot_id)
+    ids = read_json(sw_shots.shot_dir(store, shot_id) / "ids.json")
+    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
+    lib = (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", [])
+    entry_of = {}
+    for e in lib:
+        for sid in e.get("slot_ids") or []:
+            entry_of.setdefault(sid, []).append(e["id"])
+    ok, revs = approved(store), library_review.reviews(store)
+    out_dir = store.root / "export" / "look" / shot_id / "slots"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    frame = Image.open(store.root / shot["locked"]).convert("RGB") if shot.get("locked") else None
+    rows = []
+    for sid, v in sorted(ids["slots"].items(), key=lambda kv: -kv[1]["frac"]):
+        s = slots.get(sid) or {}
+        if s.get("category") == "terrain" or (s.get("type") or "") in SLOT_SKIP or v["frac"] < 0.0002:
+            continue
+        ents = entry_of.get(sid, [])
+        if not ents and s.get("typology"):     # entries newer than library.json: by typology (+ material)
+            t = s["typology"].replace("_", "-")
+            ents = [k for k in ((f"{t}-{s['material']}" if s.get("material") else None), t)
+                    if k and (store.root / "library" / "kits" / f"{k}.json").exists()][:1]
+        if ents and all(e in ok for e in ents):
+            continue
+        states = []
+        for e in ents or [None]:
+            d = store.root / "3d" / "library" / (e or "_")
+            if e is None:
+                states.append("greybox (no library entry)")
+            elif (d / "procedural.glb").exists() or (d / "instances").exists():
+                st = (revs.get(e) or {}).get("status")
+                states.append(f"{e}: built, {library_review.STATUSES.get(st, 'not reviewed').lower()}")
+            elif (store.root / "library" / "kits" / f"{e}.json").exists():
+                states.append(f"{e}: brief, not built")
+            else:
+                states.append(f"{e}: library entry, no brief")
+        row = {"slot": sid, "type": s.get("type"), "typology": s.get("typology"), "material": s.get("material"),
+               "frame_share": round(v["frac"], 4), "entries": ents, "state": states}
+        if frame is not None:
+            w, h = frame.size
+            x0, y0, x1, y1 = v["bbox"]
+            px, py = 0.1 * (x1 - x0), 0.1 * (y1 - y0)
+            box = (int(max(0, x0 - px) * w), int(max(0, y0 - py) * h), int(min(1, x1 + px) * w), int(min(1, y1 + py) * h))
+            crop = out_dir / f"{sid}.png"
+            frame.crop(box).save(crop)
+            row |= {"crop": crop.relative_to(store.root).as_posix(), "crop_box": list(box)}
+        rows.append(row)
+    if draft and frame is not None:
+        from .llm.base import structured
+        from .llm.registry import llm_for
+
+        class Draft(BaseModel):
+            form: Literal[tuple(list(building_gen.FORMS) + ["other"])]
+            storeys: int
+            length_over_height: float
+            ground: str
+            upper: str
+            roof: str
+            materials: str
+            features: str
+        llm = llm_for(None)
+        prompt = DRAFT_PROMPT.format(forms=", ".join(building_gen.FORMS))
+        for r in rows:
+            t0 = time.time()
+            try:
+                r["draft"] = structured(llm, prompt, [store.root / r["crop"]], Draft).model_dump()
+            except Exception as e:          # a failed draft leaves the row, says why
+                r["draft_error"] = f"{type(e).__name__}: {e}"
+            log(f"{r['slot']}: {r['frame_share'] * 100:.2f}% of the frame, {'; '.join(r['state'])}"
+                f" ({time.time() - t0:.0f} s)")
+    write_json(out_dir / "slots.json", {"shot": shot_id, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "slots": rows})
+    return rows

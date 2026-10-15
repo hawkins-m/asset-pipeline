@@ -318,6 +318,27 @@ So:
   - **Generators:** `arcade_hall` gains a single-storey arcade `range` with flat-roofed
     setback `masses`. `campanile` gains `cap: "flat"`.
   - `ap library instances` builds entries at their buildings' footprints.
+- **Vetting gate and silhouettes (2026-10-14, later).**
+  - Look scenes place only Approved builds; everything else stays matte-grey greybox. No
+    asset is Approved yet, so look renders are all greybox until reviews happen.
+  - Each placed build is scored against its frame mask (`silhouette.py`; IoU × aspect match).
+    The target is 0.85.
+  - `ap library pending` lists a shot's slots without an approved build, by frame share, with
+    crops and briefs drafted by the vision model. Wide tile slots give wide crops, and their
+    drafts describe whatever building dominates the crop.
+  - Look scenes no longer carry a far-hill backdrop: terrain is planned separately.
+- **Terrain beyond the city (proposal, 2026-10-14; not applied).** `terrain_plan.py` reads
+  every locked frame's far skyline and proposes ranges, carved so no locked frame's sky gets
+  land:
+  - north-west foothills about 2.6 km out, crests 0.3-0.7 km;
+  - a northern range about 5.2 km out, crests 1.0-1.9 km;
+  - an eastern range about 6.5 km out, crests 0.6-1.7 km.
+
+  Open decisions:
+  - The northern range can fill only half of one medium frame's painted mountains without
+    entering other frames' skies.
+  - A crag one frame paints just outside the north wall conflicts with three others.
+
 - **Open gaps from the 2026-10-14 look test (by impact).**
   1. **Vegetation:** greybox lollipop trees, flat lawns. Waits on Megascans / Fab and a PCG
      scatter pass.

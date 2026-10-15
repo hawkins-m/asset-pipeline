@@ -96,9 +96,9 @@ def one_building():
                           "dims": [round(hi[i] - lo[i], 2) for i in range(3)], "pieces": sorted(block)}
 
 
-def footprints():
+def footprints(key="drop", slot_key="drop_slots"):
     """The objects standing on the library builds' footprints, and the dropped slots."""
-    slots = set(job.get("drop_slots", []))
+    slots = set(job.get(slot_key, []))
     drop = set()
     for o in bpy.data.objects:
         if o.type != "MESH" or o.name == "terrain" or not o.parent:
@@ -109,7 +109,7 @@ def footprints():
         if o.parent.name.startswith(STREETS):
             continue
         c = sum(world_box(o), Vector()) / 2
-        for f in job["drop"]:
+        for f in job.get(key) or []:
             a = math.radians(f["yaw"])
             dx, dy = c.x - f["x"], c.y - f["y"]
             u, v = dx * math.cos(a) + dy * math.sin(a), -dx * math.sin(a) + dy * math.cos(a)
@@ -185,6 +185,13 @@ def export(objs, path, material=None):
     return j
 
 
+held = set()
+if job.get("hold"):              # held-back builds' greybox: its own mesh (matte grey massing in Unreal)
+    held = footprints("hold", "hold_slots") - drop
+    hk = [o for o in keep if o.name in held]
+    keep = [o for o in keep if o.name not in held]
+    if hk:
+        export(hk, job["out_held"], mats["building"])
 ctx = export(keep, job["out_context"])
 export([bpy.data.objects["terrain"]], job["out_terrain"], mats["ground"])
 bd = job.get("backdrop")
@@ -258,4 +265,5 @@ if bd:
     ob = bpy.data.objects.new("backdrop", me)
     sc.collection.objects.link(ob)
     export([ob], bd["out"], mats["backdrop"])
-print("REPORT " + json.dumps({"placement": placement, "removed": len(drop), "objects": len(keep), "faces": len(ctx.data.polygons)}))
+print("REPORT " + json.dumps({"placement": placement, "removed": len(drop), "held": len(held), "objects": len(keep),
+                             "faces": len(ctx.data.polygons)}))

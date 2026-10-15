@@ -438,6 +438,20 @@ ap ue look my-project my-shot          # build + render from site/look_tests/my-
   the locked frame and its class map (`site/reconcile/<shot>/classes.png`).
 - **History.** Each run appends its record (render, tints, exposure) to the preset's
   `history`.
+- **Vetting gate.** A library build is placed only once its asset is *Approved* in Library ›
+  Asset review. Every other visible slot keeps its greybox massing in neutral matte grey
+  (`greybox` in the preset; `"gate": false` turns the gate off).
+- **Silhouette check.** Each placed build is rendered alone from the shot camera and compared
+  with that building's mask in the locked frame. The mask is SAM 3.1 "building" in the entry's
+  crop box, with trees in front left out. The score is IoU × the match of the two bounding-box
+  aspect ratios. Results go to `3d/library/<asset>/silhouette.json` and show in the review
+  detail view.
+
+```
+ap library silhouette my-project my-entry --shot my-shot   # any entry, approved or not
+ap library pending my-project --shot my-shot               # slots without an approved build, by frame share
+ap library pending my-project --shot my-shot --no-draft    # without the vision model's draft briefs
+```
 
 **After the import, the UE level is the source of truth for the layout.** Edit it by hand
 or through an Unreal MCP server.

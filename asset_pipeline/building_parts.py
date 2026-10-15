@@ -239,6 +239,7 @@ FACADE = {
     "loggia": {"w": 0.72, "h": 0.78, "sill": 0.0, "depth": 1.8, "balustrade": "glass"},
     "blind": {"kind": "rect", "w": 0.6, "h": 0.72, "sill": 0.14, "depth": 0.14},
     "ground": {"kind": "plain"},        # plain | shop | sparse | arcade | pilotis | recessed | blind_arcade
+                                        # (pilotis / recessed: "recess" m, "door_w" / "door_h" of the back wall's doors)
     "balcony": None,                    # {"kind": slab|band, "depth", "balustrade", "planters", "drape", "every", "on", "from"}
     "pilasters": None,                  # {"every": bays, "w", "proj", "from_ground"}
     "courses": None,                    # {"every": storeys, "h", "proj"}
@@ -375,8 +376,8 @@ def facade(L: float, F: dict) -> list[dict]:
         if gk in ("pilotis", "recessed"):
             rec = g.get("recess", 3.0)
             parts += pierced(x0, x1, 0.0, gh, dy + rec, dy + rec + t,
-                             [{"kind": "rect", "cx": x0 + bw * (b + 0.5), "w": 0.8 * bw, "z0": 0.0, "h": 0.82 * gh}
-                              for b in range(nb)], F["mat"]["ground"], inset=0.15)
+                             [{"kind": "rect", "cx": x0 + bw * (b + 0.5), "w": g.get("door_w", 0.8) * bw, "z0": 0.0,
+                               "h": g.get("door_h", 0.82) * gh} for b in range(nb)], F["mat"]["ground"], inset=0.15)
             if gk == "pilotis":
                 for b in range(nb + 1):
                     if 0 < b < nb or si == 0 or si == len(segs) - 1:

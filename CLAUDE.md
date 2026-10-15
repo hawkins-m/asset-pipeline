@@ -735,3 +735,23 @@ reflects what was actually verified.
   (0.7 z) and near (z) keep the crest on top.
 - World-aligned tiling textures need pixel-centre sampling when generated, or the joint at
   the wrap is half a pixel off.
+
+## Vetting gate, silhouettes, terrain plan (2026-10-14)
+- **Silhouette check** (`asset_pipeline/silhouette.py`):
+  - The frame's building mask is SAM 3.1 "building" in a box; its trees are left out of the
+    IoU (the frame mask has holes there).
+  - At eye level the ground line is useless for depth: a pixel there is about 5 m of ground.
+    `measure` reads lengths on the slot's front plane instead. It was within 2% on a known
+    build.
+- **Look-scene GPU hang:** a gated look scene (no builds dropped from the context) hit
+  `VK_ERROR_DEVICE_LOST` on GPU 1 twice in a row, idle card included. The same level with
+  the held buildings' greybox exported as a mesh of its own (`held.glb`) rendered fine. The
+  exact trigger is unknown.
+- **Terrain from frames** (`asset_pipeline/terrain_plan.py`, analysis only):
+  - A painted ridge fixes elevation angles, not distance.
+  - ADE20K names come as "mountain, mount": split on the comma.
+  - Skyline trees and roofs are mostly the city's own; only mountain / hill labels count as
+    far land.
+  - Frames disagree: a range that fills one shot's mountains can land in another frame's
+    painted sky. `carve` keeps the proposal under every frame-locked shot's lowest sky
+    pixel per column; sky through arches counts.

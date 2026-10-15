@@ -685,6 +685,20 @@ def cmd_library_instances(a) -> None:
         print(f"{e}: {len(idx)} instances -> 3d/library/{e}/instances/")
 
 
+def cmd_library_silhouette(a) -> None:
+    from . import look
+    store = ProjectStore.open(a.project)
+    for e in a.entries:
+        look.silhouette_of(store, e, a.shot)
+
+
+def cmd_library_pending(a) -> None:
+    from . import look
+    rows = look.pending_slots(ProjectStore.open(a.project), a.shot, draft=not a.no_draft)
+    for r in rows:
+        print(f"{r['frame_share'] * 100:6.2f}%  {r['slot']}: {'; '.join(r['state'])}")
+
+
 def cmd_library_sheets(a) -> None:
     from .stages import s2_refs, sw_library
     store = ProjectStore.open(a.project)
@@ -1192,6 +1206,17 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--near", metavar="SHOT", help="only the buildings within --radius of this shot's camera")
     p.add_argument("--radius", type=float, default=600.0)
     p.set_defaults(fn=cmd_library_instances)
+    p = libsub.add_parser("silhouette", help="builds vs their building's mask in a shot's locked frame (IoU, aspect)")
+    p.add_argument("project")
+    p.add_argument("entries", nargs="+")
+    p.add_argument("--shot", required=True)
+    p.set_defaults(fn=cmd_library_silhouette)
+    p = libsub.add_parser("pending", help="slots a shot shows without an approved build, by frame share, with "
+                                          "frame crops and briefs drafted by the vision model")
+    p.add_argument("project")
+    p.add_argument("--shot", required=True)
+    p.add_argument("--no-draft", action="store_true", help="skip the vision model's drafts")
+    p.set_defaults(fn=cmd_library_pending)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
     p.add_argument("project")
     p.add_argument("--only", nargs="+", help="just these entries (a pilot)")

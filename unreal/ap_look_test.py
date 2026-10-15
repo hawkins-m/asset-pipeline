@@ -202,8 +202,11 @@ def main(args):
         raise RuntimeError(f"can't create level {args['map']}")
     asset = args["asset"]
     surface, pbr = amp.surface_material(amp.default_mask(args["mask_default"])), ap_import.master_material()
-    placements = args.get("placements") or [{"key": asset, "entry": asset, "glb": args["glb"], **args["building"]}]
-    entries = args.get("entries") or {asset: args["slots"]}
+    if "placements" in args:                # a look scene: possibly none (nothing approved yet)
+        placements, entries = args["placements"], args.get("entries") or {}
+    else:                                   # the single-building look test
+        placements = [{"key": asset, "entry": asset, "glb": args["glb"], **args["building"]}]
+        entries = {asset: args["slots"]}
     mis = {}
     for pl in placements:                   # library builds, their materials shared per entry
         e = pl["entry"]
@@ -224,18 +227,21 @@ def main(args):
     report["placed"] = len(placements)
     # the greybox around it and the terrain, in world coordinates
     folder = f"{LOOK}/{asset}"
+    if args.get("greybox_rgb"):              # the massing of every slot without an approved build
+        KIND_RGB["building"] = list(args["greybox_rgb"])
+        KIND_ROUGH["building"] = 0.9
     gspec = args.get("ground") or {}
     gm = ground_material(amp.default_mask(args["mask_default"])) if gspec else None
     kind_mis = {k: ground_instance(k, v, gm) for k, v in gspec.items()}
     report["ground"] = sorted(kind_mis)
-    for name in ("context", "terrain", "backdrop"):
+    for name in ("context", "held", "terrain", "backdrop"):
         if not args.get(f"{name}_glb"):
             continue
         m = import_static(args[f"{name}_glb"], folder, name)
         for i, sm in enumerate(m.get_editor_property("static_materials")):
             k = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
-            if name == "backdrop":
-                k = "backdrop"
+            if name in ("backdrop", "held"):     # held: greybox of builds not approved yet, matte grey
+                k = "backdrop" if name == "backdrop" else "building"
             m.set_material(i, kind_mis.get(k) or kind_material(k if k in KIND_RGB else "building", pbr))
         eal.save_loaded_asset(m)
         a = spawn(eas, unreal.StaticMeshActor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), f"AP_Look_{name}", [])

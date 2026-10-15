@@ -499,7 +499,8 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
                fog: dict, backdrop: dict | None = None, drop_slots: list[str] | None = None,
                exposure: dict | None = None, radius: float = 600.0, timeout_s: int = 3600,
                sky: dict | None = None, white_balance: float | None = None, ground: dict | None = None,
-               adapter: int = 0) -> dict:
+               adapter: int = 0, greybox_rgb: list[float] | None = None, held: list[dict] | None = None,
+               held_slots: list[str] | None = None) -> dict:
     """A shot rebuilt in Unreal with library builds where the greybox stood (a level of its own,
     LookTest_<Name>): placements [{key, entry, glb, x, y, z, yaw, w, d}] in Blender world metres,
     entries {entry: job.json} for their materials, the rest of the greybox within radius as
@@ -518,7 +519,10 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
     look.mkdir(parents=True, exist_ok=True)
     job = {"camera": s["matrix"], "lens_mm": s["lens_mm"], "sensor_mm": s["sensor_mm"], "resolution": s["resolution"],
            "radius": radius, "out_context": str(look / "context.glb"), "out_terrain": str(look / "terrain.glb"),
-           "drop": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in placements], "drop_slots": drop_slots or []}
+           "drop": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in placements], "drop_slots": drop_slots or [],
+           "hold": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in held or []], "hold_slots": held_slots or [],
+           "out_held": str(look / "held.glb")}
+    (look / "held.glb").unlink(missing_ok=True)
     if backdrop:
         job["backdrop"] = backdrop | {"out": str(look / "backdrop.glb")}
     write_json(look / "context_job.json", job)
@@ -551,10 +555,11 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
         raise RuntimeError("the Unreal editor has this project open: close it first")
     mp = f"/Game/AP/Maps/LookTest_{s7_export.pascal(name)}"
     args = {"asset": name, "context_glb": job["out_context"], "terrain_glb": job["out_terrain"],
+            "held_glb": str(look / "held.glb") if (look / "held.glb").exists() else None,
             "backdrop_glb": job.get("backdrop", {}).get("out"), "map": mp, "placements": pls,
             "entries": {e: library_slots(store.root / j) for e, j in entries.items()}, "mask_default": str(mask),
             "cameras": [cam], "sun": sun_ue, "fog": fog, "exposure_bias": 0.0, "sky": sky,
-            "white_balance": white_balance, "ground": ground}
+            "white_balance": white_balance, "ground": ground, "greybox_rgb": greybox_rgb}
     rep, bias, steps = None, 0.0, []
     for attempt in range(int(exposure.get("iterations", 2)) if exposure else 1):
         args["exposure_bias"] = bias

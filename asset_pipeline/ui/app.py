@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from .. import config, review, ue, vlm
+from .. import config, review, silhouette, ue, vlm
 from ..comfy.client import ComfyClient, ComfyError
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
@@ -919,7 +919,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
         building = brief.get("kind") == "building"
         views = []
-        if building:
+        if building and brief.get("sheet"):   # briefs from a frame crop have no sheet
             sheet_dir = (store.root / brief["sheet"]).parent
             views = sorted(p.relative_to(store.root).as_posix() for p in sheet_dir.glob("sheet_*.png"))
         return {"asset": asset, "brief": brief, "building": building,
@@ -930,6 +930,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                              "storey_m": typ.storey_m or (layout.city.storey_m if layout.city else 3.4)} if typ else None),
                 "entry": e and {k: e.get(k) for k in ("id", "tier", "typology", "district", "material", "size_m", "instances")},
                 "usage": lr.usage(store, asset), "images": lr.images(store, asset), "review": lr.get(store, asset),
+                "silhouette": silhouette.load(store, asset),
                 "round": lr.current_round(store), "statuses": lr.STATUSES, "sheets": views,
                 "jobs": [j.public() for j in jobs.list(slug_of(store)) if j.kind == "library.rebuild"
                          and j.tag.get("asset") == asset and j.status in ("queued", "running")]}

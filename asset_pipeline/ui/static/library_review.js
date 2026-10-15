@@ -63,7 +63,7 @@ function lrWatch() {      // while its rebuild runs, reload the images every 2.5
     const asset = lr.asset; if (!asset) return;
     const d = await api(`/api/projects/${slug}/library/asset/${asset}`).catch(() => null);
     if (!d || lr.asset !== asset) return;
-    lr.data = {...lr.data, images: d.images, jobs: d.jobs, review: d.review, usage: d.usage};
+    lr.data = {...lr.data, images: d.images, jobs: d.jobs, review: d.review, usage: d.usage, silhouette: d.silhouette};
     lrRenderViewer(); lrRenderReview();
     if (!d.jobs.length) { clearInterval(lr.poll); lr.poll = null; }
   }, 2500);
@@ -163,7 +163,19 @@ function lrRenderUsage() {
     <p style="margin:0 0 4px">${u.instances} instance(s) in the greybox${u.size_m ? ` · library size ${u.size_m.map(v => +v.toFixed(1)).join(" × ")} m` : ""}</p>
     ${u.shots.length ? `<ul class="list lr-shots">${u.shots.map(s => `<li><span>${esc(s.shot)} <span class="hint">${esc(s.tier)}</span></span>
       <span>${(100 * s.frac).toFixed(2)}% ${s.lock ? `<span class="mark ${s.lock === "frame" ? "m-chg" : "m-none"}">${LOCK[s.lock]}</span>` : ""}</span></li>`).join("")}</ul>`
-      : `<p class="hint" style="margin:0">No shot shows it.</p>`}`;
+      : `<p class="hint" style="margin:0">No shot shows it.</p>`}
+    ${lrSilhouette()}`;
+}
+
+function lrSilhouette() {    // silhouette checks against locked frames (ap library silhouette / ap ue look)
+  const sh = lr.data.silhouette || {}, ids = Object.keys(sh);
+  if (!ids.length) return `<p class="hint" style="margin:4px 0 0">No silhouette check yet (<code>ap library silhouette</code>).</p>`;
+  return `<p style="margin:6px 0 2px"><b>Silhouette vs locked frame</b></p><ul class="list lr-shots">${ids.map(id => {
+    const r = sh[id], ok = r.score >= 0.85;
+    return `<li><span>${esc(id)} <span class="mark ${ok ? "m-ok" : "m-chg"}">score ${r.score.toFixed(2)}</span></span>
+      <span class="hint" style="margin:0">IoU ${r.iou.toFixed(2)} · aspect ${r.aspect_build} / frame ${r.aspect_frame}</span></li>
+      ${r.overlay ? `<li><img src="${fileUrl(r.overlay, r.at)}" alt="silhouette overlay ${esc(id)}" style="max-width:100%"></li>` : ""}`;
+  }).join("")}</ul>`;
 }
 
 // --- the brief form ------------------------------------------------------------------------

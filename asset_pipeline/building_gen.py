@@ -17,7 +17,7 @@ FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row", "
 
 TYPE_FEATURES = {
     "civic_block": {
-        "storey_h": 4.5, "ground_h": 6.8, "parapet": 1.2, "bays": 5,
+        "storey_h": 4.5, "ground_h": 6.8, "parapet": 1.2, "bays": 5, "colonnade": None,
         "front": {"ground": {"kind": "pilotis", "recess": 2.0, "column": "square", "column_d": 0.9},
                   "pattern": ["solid"], "cornice": [[0.3, 0.2]],
                   "recess": [{"x0": 0.3, "x1": 0.7, "depth": 0.0, "pattern": ["loggia"], "balcony": None}],
@@ -617,13 +617,38 @@ def _roof_slab(w, d, t, z, mat="roof"):
     return box(-w / 2 + t, w / 2 - t, -d / 2 + t, d / 2 - t, z - 0.45, z, mat)
 
 
+def _projecting_colonnade(w, d, gh, c) -> list[dict]:
+    """A square-pier colonnade standing proj metres in front of the facade (local y = -d/2), extend
+    metres past each end, under a flat ledge (ledge_h thick, its top at gh); the corridor's
+    floor-to-soffit stays open. bays: pier spacing over the whole run."""
+    proj, ext, pw, lh = c.get("proj", 1.5), c.get("extend", 0.0), c.get("pier", 1.0), c.get("ledge_h", 1.0)
+    L, y0 = w + 2 * ext, -d / 2 - proj
+    parts = [box(-L / 2, L / 2, y0, -d / 2, gh - lh, gh, "base")]                       # the ledge
+    for b in range(c["bays"] + 1):
+        x = -L / 2 + pw / 2 + (L - pw) * b / c["bays"]
+        parts.append(box(x - pw / 2, x + pw / 2, y0, y0 + pw, 0.0, gh - lh, "base"))
+    return parts
+
+
 def civic_block(dims, p, f) -> list[dict]:
     """A civic block: a deep colonnade across the front (square piers, the wall set back behind
     them), one tall upper storey of plain wall with a centred loggia, a flat parapet; plainer
-    sides and back with small windows."""
+    sides and back with small windows. With `colonnade` ({"bays", "proj", "depth", "extend",
+    "pier", "ledge_h"}): the piers stand proj metres in front of the upper face under a flat
+    ledge, and the ground wall is set back to a corridor `depth` metres deep from the piers,
+    with full-height glass doors (the front's ground "door_w" / "door_h")."""
     w, d, h = dims
     gh, par = f["ground_h"], f["parapet"]
     up = max(3.0, h - gh - par)
+    c = f.get("colonnade")
+    if c:
+        nb = c["bays"]
+        g = merged((f.get("front") or {}).get("ground") or {}, {"kind": "recessed", "recess": c.get("depth", 3.0) - c.get("proj", 1.5)})
+        Ff = _F(merged(f.get("front"), {"ground": g}), storeys=2, ground_h=gh, storey_h=up, bay_m=w / nb, parapet=par)
+        Fs = _F(f.get("side"), storeys=2, ground_h=gh, storey_h=up, bay_m=f.get("side_bay_m", 6.0), parapet=par)
+        parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
+        parts.append(_roof_slab(w, d, Ff["thickness"], gh + up))
+        return parts + _projecting_colonnade(w, d, gh, c)
     nb = f["bays"]
     Ff = _F(f.get("front"), storeys=2, ground_h=gh, storey_h=up, bay_m=w / nb, parapet=par)
     Fs = _F(f.get("side"), storeys=2, ground_h=gh, storey_h=up, bay_m=f.get("side_bay_m", 6.0), parapet=par)
