@@ -171,10 +171,12 @@ function lrSilhouette() {    // silhouette checks against locked frames (ap libr
   const sh = lr.data.silhouette || {}, ids = Object.keys(sh);
   if (!ids.length) return `<p class="hint" style="margin:4px 0 0">No silhouette check yet (<code>ap library silhouette</code>).</p>`;
   return `<p style="margin:6px 0 2px"><b>Silhouette vs locked frame</b></p><ul class="list lr-shots">${ids.map(id => {
-    const r = sh[id], ok = r.score >= 0.85;
-    return `<li><span>${esc(id)} <span class="mark ${ok ? "m-ok" : "m-chg"}">score ${r.score.toFixed(2)}</span></span>
+    const r = sh[id], ok = r.score >= 0.85, ook = (r.openings_iou ?? 0) >= 0.7;
+    return `<li><span>${esc(id)} <span class="mark ${ok ? "m-ok" : "m-chg"}">silhouette ${r.score.toFixed(2)}</span>
+        ${r.openings_iou != null ? `<span class="mark ${ook ? "m-ok" : "m-chg"}">openings ${r.openings_iou.toFixed(2)}</span>` : ""}</span>
       <span class="hint" style="margin:0">IoU ${r.iou.toFixed(2)} · aspect ${r.aspect_build} / frame ${r.aspect_frame}</span></li>
-      ${r.overlay ? `<li><img src="${fileUrl(r.overlay, r.at)}" alt="silhouette overlay ${esc(id)}" style="max-width:100%"></li>` : ""}`;
+      ${r.overlay ? `<li><img src="${fileUrl(r.overlay, r.at)}" alt="silhouette overlay ${esc(id)}" style="max-width:100%"></li>` : ""}
+      ${r.openings_overlay ? `<li><img src="${fileUrl(r.openings_overlay, r.at)}" alt="openings overlay ${esc(id)}" style="max-width:100%"></li>` : ""}`;
   }).join("")}</ul>`;
 }
 

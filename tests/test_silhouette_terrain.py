@@ -66,3 +66,22 @@ def test_gate_keeps_only_approved(monkeypatch):
     p, drop, ent, held = look.placements(None, {}, 600)
     assert [x["entry"] for x in p] == ["b"] and drop == ["s2"] and ent == {"b": "jb"}
     assert [x["entry"] for x in held] == ["a"]
+
+
+def test_frame_openings_are_the_dark_pixels_inside_the_outline():
+    rgb = np.full((50, 80, 3), 210, np.uint8)
+    rgb[10:20, 10:20] = 40                    # a dark opening
+    rgb[30:40, 60:70] = 170                   # lit stone in shade: not an opening
+    fm = _rect(50, 80, 5, 5, 75, 45)
+    o = sl.frame_openings(rgb, fm)
+    assert o[10:20, 10:20].all() and not o[30:40, 60:70].any() and o.sum() == 100
+
+
+def test_colonnade_takes_measured_piers_and_infill():
+    from asset_pipeline import building_gen as bg
+    c = {"bays": 3, "proj": 1.5, "pier": 1.4, "ledge_h": 1.2, "piers": [-10.0, -4.0, 2.0, 8.6], "infill": [2]}
+    ps = bg._projecting_colonnade(20.0, 10.0, 7.4, c)
+    piers = [p for p in ps if p["kind"] == "box" and p["z0"] == 0.0 and p["x1"] - p["x0"] == pytest.approx(1.4)]
+    assert sorted(round(p["x0"], 2) for p in piers) == [-10.0, -4.0, 2.0, 8.6]
+    infill = [p for p in ps if p["kind"] == "box" and p["z0"] == 0.0 and p not in piers]
+    assert len(infill) == 1 and infill[0]["x0"] == pytest.approx(3.4) and infill[0]["x1"] == pytest.approx(8.6)

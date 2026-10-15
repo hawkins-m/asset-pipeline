@@ -793,7 +793,7 @@ def cmd_ue(a) -> None:
             raise ValueError("ap ue look PROJECT NAME (a preset in site/look_tests/NAME.json)")
         rep = look.run(store, a.shots[0])
         r = rep["record"]
-        print(f"{r['render']}: {r['placed']} library builds, exposure {r['exposure']}, ok={r['ok']}")
+        print(f"{r['render']}: {r['placed']} library builds, GPU {r['render_gpu']}, exposure {r['exposure']}, ok={r['ok']}")
     elif a.action == "pull-layout":
         rep = ue.pull_layout(store)
         print(f"{len(rep['actors'])} actors -> {store.root / 'site/ue_layout.json'}")

@@ -200,10 +200,43 @@ def render_shots(store: ProjectStore, shots: list[str] | None = None, timeout_s:
     return rep
 
 
+VRAM_LIMIT_GB = 4.0       # more than this held on a GPU by others (Blender, ComfyUI, the VLM): don't render there
+
+
+def gpu_vram() -> dict[int, float]:
+    """VRAM in use per GPU (GB), from rocm-smi: card N = GPU N = Vulkan adapter N."""
+    import subprocess
+    r = subprocess.run(["/opt/rocm/bin/rocm-smi", "--showmeminfo", "vram", "--json"], capture_output=True, text=True,
+                       timeout=30)
+    d = json.loads(r.stdout)
+    return {int(k[4:]): int(v["VRAM Total Used Memory (B)"]) / 1e9 for k, v in d.items() if k.startswith("card")}
+
+
+def pick_gpu(preferred: int, limit_gb: float = VRAM_LIMIT_GB, wait_s: float = 1800.0, log=print) -> int:
+    """The GPU to render on: `preferred` unless others hold more than limit_gb there, then the
+    other one; if both are busy, wait (polling every 30 s) up to wait_s, then refuse. Every
+    Unreal render goes through this (the 2026-10-14 device-lost crashes came from a Blender
+    session sharing the GPU)."""
+    t0 = time.time()
+    while True:
+        used = gpu_vram()
+        for g in (preferred, 1 - preferred):
+            if used.get(g, 99.0) <= limit_gb:
+                log(f"rendering on GPU {g} (VRAM in use: " + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())) + ")")
+                return g
+        if time.time() - t0 > wait_s:
+            raise RuntimeError("both GPUs hold more than %.0f GB of other work: " % limit_gb
+                               + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())))
+        log("both GPUs busy (" + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())) + "); waiting")
+        time.sleep(30)
+
+
 def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: str, timeout_s: int,
             adapter: int = 0) -> dict:
     """Capture the tagged cameras of a level with the full editor offscreen (ap_shot_render.py),
-    on Vulkan adapter `adapter` (0 = GPU 0; 1 = GPU 1, ComfyUI's: only while it's down)."""
+    on Vulkan adapter `adapter` (0 = GPU 0; 1 = GPU 1, ComfyUI's: only while it's down), or the
+    other one when pick_gpu finds `adapter` busy. The report says which ("adapter")."""
+    adapter = pick_gpu(adapter)
     up = init(store)
     work = work_dir(store)
     report = work / f"{name}_report.json"
@@ -234,6 +267,7 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
         tail = log.read_text(errors="replace").splitlines()[-25:] if log.exists() else []
         raise RuntimeError("UE shot render wrote no report:\n" + "\n".join(tail))
     rep["log_errors"] = log_errors(log)
+    rep["adapter"] = adapter
     return rep
 
 

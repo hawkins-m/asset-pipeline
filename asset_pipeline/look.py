@@ -448,7 +448,8 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
     keep = out / f"look_{name}_{time.strftime('%Y%m%d_%H%M%S')}.png"
     if render.exists():
         keep.write_bytes(render.read_bytes())
-    rec = {"at": stamp, "placed": len(pls), "render": keep.relative_to(store.root).as_posix(), "render_gpu": gpu,
+    rec = {"at": stamp, "placed": len(pls), "render": keep.relative_to(store.root).as_posix(),
+           "render_gpu": rep.get("render", {}).get("adapter", gpu),
            "sun": p["sun"], "sky": p["sky"], "white_balance": p["white_balance"], "fog": p["fog"],
            "exposure": rep.get("exposure"), "tints": gr["tints"], "backdrop": bd_info,
            "held": sorted({h["entry"] for h in held}), "silhouettes": {k: {x: v.get(x) for x in ("entry", "iou", "aspect_frame", "aspect_build", "score", "error")} for k, v in sil.items()},
@@ -477,6 +478,68 @@ def silhouette_of(store: ProjectStore, entry: str, shot_id: str, radius: float =
     return silhouette.check(store, shot, pls, log=log)
 
 
+DETAIL_SHARE = 0.02         # slots at or above this share of the frame are reviewed in detail
+TIERS = {"detail": "massing, colour, opening rhythm, and the details the frame shows (reveals, rails, piers, doors)",
+         "massing": "massing, colour and opening rhythm only"}
+TILE_TYPES = ("townhouses", "wall", "cohousing_court", "insula", "garden_slab", "perimeter", "row")
+WALL_RUN = 12               # wall bays per "building" when a wall slot is split
+
+
+def split_tiles(store: ProjectStore, shot: dict, slot_ids: list[str], out_dir: Path, min_share: float = 0.0002) -> dict:
+    """Tile slots split into their buildings through an object-level id pass from the shot camera
+    (scripts/blender_instance_ids.py): each greybox piece is assigned to the typed building whose
+    footprint holds it (walls: runs of WALL_RUN bays), and each building gets its visible pixels'
+    frame share and bounding box. {slot: [{"key", "share", "bbox", "pieces"}]} (largest first)."""
+    import re
+
+    from . import blender, city, config, library_instances
+    from .stages import sw_site
+    from .stages.sw_shots import _key
+    job = {"shot": shot["id"], "slots": slot_ids, "out_png": str(out_dir / "instance_ids.png"),
+           "out_json": str(out_dir / "instance_ids.json")}
+    write_json(out_dir / "instance_ids_job.json", job)
+    blender.run(config.REPO_ROOT / "scripts/blender_instance_ids.py", [out_dir / "instance_ids_job.json"],
+                out_dir / "instance_ids.log", "instance ids", blend=sw_site.blend_path(store))
+    objs = {int(k): v for k, v in read_json(out_dir / "instance_ids.json")["objects"].items()}
+    idx = _key(np.asarray(Image.open(out_dir / "instance_ids.png").convert("RGB")))
+    total = idx.size
+    layout = sw_site.load_layout(store)
+    P = city.plan(layout, sw_site.terrain(store, layout))
+    foot = []
+    for b in P.typed:
+        x, y, z, w, d = library_instances.footprint(b)
+        foot.append((b, x, y, w, d, math.radians(b.rot)))
+    groups = {}
+    for i, o in objs.items():
+        cx, cy = o["center"][:2]
+        if o["piece"].startswith("wall") or o["slot"].startswith("wall"):
+            m = re.search(r"\.(\d+)$", o["name"])
+            key = f"{o['slot']}:run{int(m.group(1)) // WALL_RUN if m else 0}"
+        else:
+            key = None
+            for b, x, y, w, d, a in foot:
+                u = (cx - x) * math.cos(a) + (cy - y) * math.sin(a)
+                v = -(cx - x) * math.sin(a) + (cy - y) * math.cos(a)
+                if abs(u) <= w / 2 + 1.0 and abs(v) <= d / 2 + 1.0:
+                    key = f"{o['slot']}:{b.typology}@{round(x)},{round(y)}"
+                    break
+            key = key or f"{o['slot']}:other"
+        groups.setdefault(o["slot"], {}).setdefault(key, []).append(i)
+    out = {}
+    for slot, g in groups.items():
+        rows = []
+        for key, ids in g.items():
+            m = np.isin(idx, ids)
+            n = int(m.sum())
+            if n < min_share * total:
+                continue
+            ys, xs = np.nonzero(m)
+            rows.append({"key": key, "share": round(n / total, 5), "pieces": len(ids),
+                         "bbox": [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]})
+        out[slot] = sorted(rows, key=lambda r: -r["share"])
+    return out
+
+
 SLOT_SKIP = ("pool", "plaza", "radial", "avenue", "street", "stair", "lane", "ring", "terrain", "park", "sea", "garden")
 DRAFT_PROMPT = """This crop is from a concept frame of a city. Describe the main building in it (the one
 filling most of the crop) as a short design brief for a procedural building generator. Judge only
@@ -489,8 +552,13 @@ Keep each field to a phrase."""
 
 def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=print) -> list[dict]:
     """Every building or structure slot a shot shows that has no approved build, ranked by how
-    much of the frame it covers (its id pass), with its frame crop, its state and (draft) a brief
-    drafted from the crop by the vision model. Written to export/look/<shot>/slots/slots.json."""
+    much of the frame it covers (its id pass), with its frame crop, its state, its review tier
+    (detail at DETAIL_SHARE of the frame or more, else massing) and (draft) a brief drafted from
+    the crop by the vision model. Tile slots (townhouses, walls...) are split into their
+    buildings (split_tiles): one crop and draft per building. Written to
+    export/look/<shot>/slots/slots.json."""
+    import re
+
     from pydantic import BaseModel
     from typing import Literal
 
@@ -532,8 +600,10 @@ def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=pri
                 states.append(f"{e}: brief, not built")
             else:
                 states.append(f"{e}: library entry, no brief")
+        tier = "detail" if v["frac"] >= DETAIL_SHARE else "massing"
         row = {"slot": sid, "type": s.get("type"), "typology": s.get("typology"), "material": s.get("material"),
-               "frame_share": round(v["frac"], 4), "entries": ents, "state": states}
+               "frame_share": round(v["frac"], 4), "entries": ents, "state": states, "tier": tier,
+               "tier_needs": TIERS[tier]}
         if frame is not None:
             w, h = frame.size
             x0, y0, x1, y1 = v["bbox"]
@@ -543,6 +613,22 @@ def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=pri
             frame.crop(box).save(crop)
             row |= {"crop": crop.relative_to(store.root).as_posix(), "crop_box": list(box)}
         rows.append(row)
+    tiles = [r["slot"] for r in rows if (r["type"] or "") in TILE_TYPES]
+    if tiles and frame is not None:              # tile slots: one crop (and draft) per building
+        split = split_tiles(store, shot, tiles, out_dir)
+        w, h = frame.size
+        for r in rows:
+            if r["slot"] not in split:
+                continue
+            r["buildings"] = []
+            for b in split[r["slot"]]:
+                x0, y0, x1, y1 = b["bbox"]
+                px, py = max(8, int(0.15 * (x1 - x0))), max(8, int(0.15 * (y1 - y0)))
+                box = (max(0, x0 - px), max(0, y0 - py), min(w, x1 + px), min(h, y1 + py))
+                crop = out_dir / f"{r['slot']}__{re.sub(r'[^A-Za-z0-9_.-]+', '_', b['key'].split(':', 1)[1])}.png"
+                frame.crop(box).save(crop)
+                r["buildings"].append(b | {"crop": crop.relative_to(store.root).as_posix(), "crop_box": list(box),
+                                           "tier": "detail" if b["share"] >= DETAIL_SHARE else "massing"})
     if draft and frame is not None:
         from .llm.base import structured
         from .llm.registry import llm_for
@@ -558,12 +644,18 @@ def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=pri
             features: str
         llm = llm_for(None)
         prompt = DRAFT_PROMPT.format(forms=", ".join(building_gen.FORMS))
+        def drafted(target, crop):
+            try:
+                target["draft"] = structured(llm, prompt, [store.root / crop], Draft).model_dump()
+            except Exception as e:          # a failed draft leaves the row, says why
+                target["draft_error"] = f"{type(e).__name__}: {e}"
         for r in rows:
             t0 = time.time()
-            try:
-                r["draft"] = structured(llm, prompt, [store.root / r["crop"]], Draft).model_dump()
-            except Exception as e:          # a failed draft leaves the row, says why
-                r["draft_error"] = f"{type(e).__name__}: {e}"
+            if r.get("buildings"):           # tile slots: each building drafts from its own crop
+                for b in r["buildings"]:
+                    drafted(b, b["crop"])
+            else:
+                drafted(r, r["crop"])
             log(f"{r['slot']}: {r['frame_share'] * 100:.2f}% of the frame, {'; '.join(r['state'])}"
                 f" ({time.time() - t0:.0f} s)")
     write_json(out_dir / "slots.json", {"shot": shot_id, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "slots": rows})

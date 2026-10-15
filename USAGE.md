@@ -446,6 +446,13 @@ ap ue look my-project my-shot          # build + render from site/look_tests/my-
   crop box, with trees in front left out. The score is IoU × the match of the two bounding-box
   aspect ratios. Results go to `3d/library/<asset>/silhouette.json` and show in the review
   detail view.
+- **Openings check** (with the silhouette check). It compares what reads as an opening or a
+  recess inside the outline. On the frame side, that's the pixels darker than 0.45 × the
+  building's median. On the build side, it's the glazing plus every surface set back 0.3 m or
+  more behind the front face; side walls are left out. The target is IoU ≥ 0.7.
+- **Slot list tiers.** Slots covering 2% of the frame or more are reviewed in detail. Smaller
+  ones need only massing, colour and opening rhythm. Tile slots (townhouses, walls) are split
+  into their buildings through an object-level id pass, with one crop and one draft each.
 
 ```
 ap library silhouette my-project my-entry --shot my-shot   # any entry, approved or not

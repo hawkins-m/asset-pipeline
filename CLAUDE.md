@@ -107,6 +107,11 @@ reflects what was actually verified.
 - Silent truncation leaves no NaNs and no errors behind. To check a generated asset,
   look at it from several angles (`scripts/blender_check_glb.py`) and compare against a
   CPU reference (`scripts/diag/`).
+- **Before any Unreal render, check VRAM on both GPUs** (`rocm-smi --showmeminfo vram`; card N = GPU N =
+  Vulkan adapter N). If another process (the user's Blender, ComfyUI, the VLM) holds more than a
+  few GB on the target GPU, wait or use the other one, and say which GPU was used.
+  `ue.pick_gpu` (4 GB limit) does this for every `ue._render`; the desktop holds ~2 GB on GPU 0.
+  The 2026-10-14 `VK_ERROR_DEVICE_LOST` crashes came from a Blender session on the same GPU.
 - Pin a job to one GPU with `HIP_VISIBLE_DEVICES`. GPU 1 is ComfyUI's GPU (both instances), so check
   whether ComfyUI is running before using it.
 
@@ -743,10 +748,9 @@ reflects what was actually verified.
   - At eye level the ground line is useless for depth: a pixel there is about 5 m of ground.
     `measure` reads lengths on the slot's front plane instead. It was within 2% on a known
     build.
-- **Look-scene GPU hang:** a gated look scene (no builds dropped from the context) hit
-  `VK_ERROR_DEVICE_LOST` on GPU 1 twice in a row, idle card included. The same level with
-  the held buildings' greybox exported as a mesh of its own (`held.glb`) rendered fine. The
-  exact trigger is unknown.
+- **Look-scene GPU hang:** a gated look scene hit `VK_ERROR_DEVICE_LOST` on GPU 1 twice while the
+  user's Blender session was using that GPU (see the VRAM rule above); the held greybox is
+  exported as a mesh of its own (`held.glb`) since.
 - **Terrain from frames** (`asset_pipeline/terrain_plan.py`, analysis only):
   - A painted ridge fixes elevation angles, not distance.
   - ADE20K names come as "mountain, mount": split on the comma.

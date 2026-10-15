@@ -620,13 +620,20 @@ def _roof_slab(w, d, t, z, mat="roof"):
 def _projecting_colonnade(w, d, gh, c) -> list[dict]:
     """A square-pier colonnade standing proj metres in front of the facade (local y = -d/2), extend
     metres past each end, under a flat ledge (ledge_h thick, its top at gh); the corridor's
-    floor-to-soffit stays open. bays: pier spacing over the whole run."""
+    floor-to-soffit stays open. bays: pier spacing over the whole run; or "piers": the measured
+    left edges of the piers (metres from the centre, read off a frame) for an uneven run;
+    "infill": bay indices closed by a stone panel 0.4 m behind the piers' faces."""
     proj, ext, pw, lh = c.get("proj", 1.5), c.get("extend", 0.0), c.get("pier", 1.0), c.get("ledge_h", 1.0)
     L, y0 = w + 2 * ext, -d / 2 - proj
     parts = [box(-L / 2, L / 2, y0, -d / 2, gh - lh, gh, "base")]                       # the ledge
-    for b in range(c["bays"] + 1):
-        x = -L / 2 + pw / 2 + (L - pw) * b / c["bays"]
+    # piers: evenly over the run, or at measured positions (their left edges, metres from the centre)
+    xs = [x0 + pw / 2 for x0 in c["piers"]] if c.get("piers") else \
+        [-L / 2 + pw / 2 + (L - pw) * b / c["bays"] for b in range(c["bays"] + 1)]
+    for x in xs:
         parts.append(box(x - pw / 2, x + pw / 2, y0, y0 + pw, 0.0, gh - lh, "base"))
+    for i in c.get("infill") or []:            # closed bays: a stone panel set just behind the piers' faces
+        if 0 <= i < len(xs) - 1:
+            parts.append(box(xs[i] + pw / 2, xs[i + 1] - pw / 2, y0 + 0.4, y0 + 0.8, 0.0, gh - lh, "base"))
     return parts
 
 

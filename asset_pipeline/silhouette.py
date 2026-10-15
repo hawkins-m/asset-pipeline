@@ -7,6 +7,10 @@ render's box grown by 25%).
              the frame (its tree class, from the reconcile's class map)
     aspect   bounding-box width / height of each; match = the smaller over the larger
     score    iou x aspect match (1 = same outline)
+    openings IoU of what reads as an opening or recess inside both outlines (side walls left out:
+             their shade isn't an opening): the frame's pixels
+             darker than 0.45 x its median there, against the build's glazing and every surface
+             set back 0.3 m or more behind its front face
 
 Results per asset in 3d/library/<asset>/silhouette.json ({shot: result}); masks and overlays in
 export/look/<shot>/silhouette/. `ap library silhouette`, and every `ap ue look` for its placed
@@ -49,14 +53,29 @@ def score(frame: np.ndarray, render: np.ndarray, ignore: np.ndarray | None = Non
 
 
 def render_masks(store: ProjectStore, shot: dict, items: list[dict], out: Path) -> dict[str, np.ndarray]:
+    """Per item its silhouette mask; its openings mask under "<key>_openings"."""
     job = {"camera": shot["matrix"], "lens_mm": shot["lens_mm"], "sensor_mm": shot["sensor_mm"],
-           "resolution": shot["resolution"], "out_dir": str(out),
-           "items": [{k: it[k] for k in ("key", "x", "y", "z", "yaw")} | {"glb": str(store.root / it["glb"])} for it in items]}
+           "resolution": shot["resolution"], "out_dir": str(out), "openings": True,
+           "items": [{k: it[k] for k in ("key", "x", "y", "z", "yaw", "w", "d")} | {"glb": str(store.root / it["glb"])}
+                     for it in items]}
     jp = out / "silhouette_job.json"
     out.mkdir(parents=True, exist_ok=True)
     write_json(jp, job)
     blender.run(config.REPO_ROOT / "scripts/blender_silhouette.py", [jp], out / "silhouette.log", "silhouettes")
-    return {it["key"]: np.asarray(Image.open(out / f"{it['key']}.png").convert("L")) > 127 for it in items}
+    res = {}
+    for it in items:
+        res[it["key"]] = np.asarray(Image.open(out / f"{it['key']}.png").convert("L")) > 127
+        o = np.asarray(Image.open(out / f"{it['key']}_openings.png").convert("RGB"))
+        res[f"{it['key']}_openings"], res[f"{it['key']}_side"] = o[..., 0] > 127, o[..., 1] > 127
+    return res
+
+
+DARK = 0.45      # a frame pixel inside the building reads as an opening or recess below DARK x its median luminance
+
+
+def frame_openings(frame_rgb: np.ndarray, fm: np.ndarray) -> np.ndarray:
+    lum = frame_rgb[..., :3].astype(float) @ [0.2126, 0.7152, 0.0722]
+    return fm & (lum < DARK * np.median(lum[fm]))
 
 
 def crop_box(store: ProjectStore, entry: str, shot_id: str, size) -> tuple[int, int, int, int] | None:
@@ -114,6 +133,7 @@ def check(store: ProjectStore, shot: dict, items: list[dict], log=print) -> dict
         raise ValueError(f"{shot['id']} has no locked frame to compare with")
     frame = store.root / shot["locked"]
     w, h = shot["resolution"]
+    frame_rgb = np.asarray(Image.open(frame).convert("RGB").resize((w, h)))
     out = store.root / "export" / "look" / shot["id"] / "silhouette"
     renders = render_masks(store, shot, items, out / "render")
     from . import frame_plan, look
@@ -136,14 +156,24 @@ def check(store: ProjectStore, shot: dict, items: list[dict], log=print) -> dict
             res[it["key"]] = {"entry": it["entry"], "error": "SAM found no building in the frame there", "box": list(box)}
             continue
         ign = occ & ~fm if occ is not None else None
-        r = score(fm, rm, ign) | {"occluded_px": int((ign & rm).sum()) if ign is not None else 0, "entry": it["entry"], "box": list(box), "box_from": src, "shot": shot["id"],
+        # openings: the frame's dark recesses and openings inside its outline vs the build's
+        fo = frame_openings(frame_rgb, fm)
+        bo = renders[f"{it['key']}_openings"] & rm
+        keep = fm & rm & ~(occ if occ is not None else np.zeros_like(fm)) & ~renders[f"{it['key']}_side"]
+        u = ((fo | bo) & keep).sum()
+        op = {"openings_iou": round(float((fo & bo & keep).sum() / u), 3) if u else 0.0,
+              "openings_frame_share": round(float(fo[keep].mean()), 3) if keep.any() else 0.0,
+              "openings_build_share": round(float(bo[keep].mean()), 3) if keep.any() else 0.0}
+        overlay(frame, fo & keep, bo & keep, out / "overlay" / f"{it['key']}_openings.png", box)
+        r = score(fm, rm, ign) | op | {"openings_overlay": (out / "overlay" / f"{it['key']}_openings.png").relative_to(store.root).as_posix()} | {"occluded_px": int((ign & rm).sum()) if ign is not None else 0, "entry": it["entry"], "box": list(box), "box_from": src, "shot": shot["id"],
                              "at": time.strftime("%Y-%m-%d %H:%M:%S")}
         ov = out / "overlay" / f"{it['key']}.png"
         overlay(frame, fm, rm, ov, box)
         r["overlay"] = ov.relative_to(store.root).as_posix()
         res[it["key"]] = r
         log(f"{it['entry']} ({it['key']}): IoU {r['iou']}, aspect frame {r['aspect_frame']} / build "
-            f"{r['aspect_build']}, score {r['score']}")
+            f"{r['aspect_build']}, score {r['score']}; openings IoU {r['openings_iou']} "
+            f"(frame {r['openings_frame_share']}, build {r['openings_build_share']} of the outline)")
     for key, r in res.items():                 # per asset, the best-placed instance per shot
         if "score" not in r:
             continue

@@ -236,7 +236,7 @@ FACADE = {
     "window": {"kind": "rect", "w": 0.45, "h": 0.55, "sill": 0.28, "reveal": 0.25, "frame": True, "mullions": 0,
                "rise": None, "archivolt": 0.0},
     "slot": {"w": 0.16, "h": 0.72, "sill": 0.12},
-    "loggia": {"w": 0.72, "h": 0.78, "sill": 0.0, "depth": 1.8, "balustrade": "glass"},
+    "loggia": {"w": 0.72, "h": 0.78, "sill": 0.0, "depth": 1.8, "balustrade": "glass"},   # + "jamb" (m), "doors": "sliding"
     "blind": {"kind": "rect", "w": 0.6, "h": 0.72, "sill": 0.14, "depth": 0.14},
     "ground": {"kind": "plain"},        # plain | shop | sparse | arcade | pilotis | recessed | blind_arcade
                                         # (pilotis / recessed: "recess" m, "door_w" / "door_h" of the back wall's doors)
@@ -375,9 +375,12 @@ def facade(L: float, F: dict) -> list[dict]:
         gk = g["kind"]
         if gk in ("pilotis", "recessed"):
             rec = g.get("recess", 3.0)
-            parts += pierced(x0, x1, 0.0, gh, dy + rec, dy + rec + t,
-                             [{"kind": "rect", "cx": x0 + bw * (b + 0.5), "w": g.get("door_w", 0.8) * bw, "z0": 0.0,
-                               "h": g.get("door_h", 0.82) * gh} for b in range(nb)], F["mat"]["ground"], inset=0.15)
+            doors = [{"kind": "rect", "cx": x0 + bw * (b + 0.5), "w": g.get("door_w", 0.8) * bw, "z0": 0.0,
+                      "h": g.get("door_h", 0.82) * gh} for b in range(nb)]
+            parts += pierced(x0, x1, 0.0, gh, dy + rec, dy + rec + t, doors, F["mat"]["ground"], inset=0.15)
+            if g.get("door_frames"):                       # framed glass doors in the stone back wall
+                for o in doors:
+                    parts += frame(o, dy + rec + 0.12, mullions=g.get("door_mullions", 1))
             if gk == "pilotis":
                 for b in range(nb + 1):
                     if 0 < b < nb or si == 0 or si == len(segs) - 1:
@@ -418,12 +421,17 @@ def facade(L: float, F: dict) -> list[dict]:
                 if o.get("loggia"):
                     lg = F["loggia"]
                     a, b_, zb, zt = o["cx"] - o["w"] / 2, o["cx"] + o["w"] / 2, o["z0"], o["z0"] + o["h"]
-                    dep = lg["depth"]
-                    parts += [box(a, a + 0.15, dy + t, dy + dep, zb, zt, F["mat"]["upper"]),
-                              box(b_ - 0.15, b_, dy + t, dy + dep, zb, zt, F["mat"]["upper"])]
-                    parts += pierced(a, b_, zb, zt, dy + dep, dy + dep + 0.2,
-                                     [{"kind": "rect", "cx": o["cx"], "w": 0.8 * o["w"], "z0": zb, "h": 0.9 * (zt - zb)}],
-                                     F["mat"]["upper"], inset=0.05)
+                    dep, jt = lg["depth"], lg.get("jamb", 0.15)
+                    parts += [box(a, a + jt, dy + t, dy + dep, zb, zt, F["mat"]["upper"]),
+                              box(b_ - jt, b_, dy + t, dy + dep, zb, zt, F["mat"]["upper"])]
+                    if lg.get("doors") == "sliding":    # full-width glass sliding doors at the back
+                        door = {"kind": "rect", "cx": o["cx"], "w": o["w"] - 2 * jt - 0.1, "z0": zb, "h": 0.94 * (zt - zb)}
+                        parts += pierced(a + jt, b_ - jt, zb, zt, dy + dep, dy + dep + 0.2, [door], F["mat"]["upper"], inset=0.05)
+                        parts += frame(door, dy + dep - 0.03, mullions=lg.get("mullions", 2))
+                    else:
+                        parts += pierced(a, b_, zb, zt, dy + dep, dy + dep + 0.2,
+                                         [{"kind": "rect", "cx": o["cx"], "w": 0.8 * o["w"], "z0": zb, "h": 0.9 * (zt - zb)}],
+                                         F["mat"]["upper"], inset=0.05)
                     parts += balustrade(a, b_, dy + 0.02, zb, lg["balustrade"])
                     if lg.get("planters"):                  # planted loggias (hanging gardens)
                         parts += planter(a + 0.2, b_ - 0.2, dy + 0.25, dy + 0.85, zb, h=0.5, seed=int(s * 3 + o["cx"]))
