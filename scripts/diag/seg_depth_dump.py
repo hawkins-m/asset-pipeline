@@ -1,14 +1,15 @@
 """Per-pixel ADE20K labels and relative depth for painted frames (runs in envs/segdepth).
 
     HIP_VISIBLE_DEVICES=0 $AP_ROOT/envs/segdepth/bin/python scripts/diag/seg_depth_dump.py \
-        OUT_DIR FRAME [FRAME ...] [--models oneformer mask2former depth]
+        OUT_DIR FRAME [FRAME ...] [--models oneformer depth mask2former]
 
 Writes per frame <OUT_DIR>/<frame slug>.<model>.png (uint8 ADE20K class index per pixel;
 depth: uint16 relative inverse depth, near = high) and <OUT_DIR>/ade20k.json (index -> name).
 Models from $AP_ROOT/models (scripts/install_segdepth.sh):
   oneformer   OneFormer Swin-L ADE20K, semantic task (MIT)
-  mask2former Mask2Former Swin-L ADE20K semantic (MIT)
   depth       Depth Anything V2 Small (Apache-2.0; Base/Large/Giant are CC-BY-NC-4.0)
+  mask2former EXPERIMENTAL, A/B only, not by default: Mask2Former Swin-L ADE20K semantic
+              (HF card "other"; install_segdepth.sh mask2former)
 """
 import argparse
 import json
@@ -36,7 +37,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("frames", nargs="+")
-    ap.add_argument("--models", nargs="+", default=["oneformer", "mask2former", "depth"])
+    ap.add_argument("--models", nargs="+", default=["oneformer", "depth"])
     a = ap.parse_args()
     gfx1201_guard.install()
     out = Path(a.out)

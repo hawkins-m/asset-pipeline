@@ -32,11 +32,11 @@ gfx1201_guard.install()
 AP_ROOT = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline"))
 MODEL_DIR = AP_ROOT / "models" / "TRELLIS.2-4B"
 
-# Upstream's DINOv3 and RMBG-2.0 repos are gated. The DINOv3 mirror's weights are
-# sha256-identical to facebook/dinov3-vitl16-pretrain-lvd1689m; RMBG-2.0 is a BiRefNet
-# finetune, and ZhengPeng7/BiRefNet is the original (MIT) with the same interface.
+# DINOv3: Meta's official repo (gated: accept the DINOv3 License on Hugging Face first).
+# AP_DINOV3_REPO overrides it. RMBG-2.0 (upstream's default) is a gated BiRefNet finetune;
+# ZhengPeng7/BiRefNet is the original (MIT) with the same interface.
 OVERRIDES = {
-    "image_cond_model": "PIA-SPACE-LAB/dinov3-vitl-pretrain-lvd1689m",
+    "image_cond_model": os.environ.get("AP_DINOV3_REPO", "facebook/dinov3-vitl16-pretrain-lvd1689m"),
     "rembg_model": "ZhengPeng7/BiRefNet",
 }
 ROCM_CONFIG = "pipeline.rocm.json"

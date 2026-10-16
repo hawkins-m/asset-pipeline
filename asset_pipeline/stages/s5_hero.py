@@ -1,4 +1,8 @@
-"""Hero tier, PROTOTYPE: chosen view -> Wan 2.2 turntable orbit -> consistent frames.
+"""Hero tier, EXPERIMENTAL: chosen view -> Wan 2.2 turntable orbit -> consistent frames.
+
+Not part of the open-weights entry's documented path: Hunyuan3D-2mv (multiview_mesh) is under
+the Tencent Hunyuan Community License (not licensed in the EU, UK or South Korea), and its
+SaveGLB output needs AP_COMFY_BACKEND=httpx (the Comfy API proxy drops 3D outputs).
 
 See PLAN.md "Hero tier". Steps 1-2 only (no multi-view 3D backend yet):
 - orbit(): Wan 2.2 I2V 14B (ComfyUI, GPU 1, 4-step lightx2v) animates the asset's chosen

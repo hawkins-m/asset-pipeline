@@ -999,7 +999,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--seed", type=int, default=42)
     p.set_defaults(fn=cmd_3d)
 
-    hr = sub.add_parser("hero", help="hero tier PROTOTYPE: Wan 2.2 turntable orbit of the chosen view")
+    hr = sub.add_parser("hero", help="EXPERIMENTAL hero tier: Wan 2.2 turntable orbit of the chosen view")
     hsub = hr.add_subparsers(dest="hero_cmd", required=True)
     p = hsub.add_parser("orbit", help="orbit video frames + drift / closure analysis (GPU 1, ~3 min)")
     p.add_argument("project")
@@ -1013,7 +1013,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("asset")
     p.add_argument("orbit", help="orbit dir name, e.g. orbit_s2")
     p.set_defaults(fn=cmd_hero_angles)
-    p = hsub.add_parser("mesh", help="Hunyuan3D-2mv shape from orbit frames you pick (GPU 1, ~30 s)")
+    p = hsub.add_parser("mesh", help="EXPERIMENTAL: Hunyuan3D-2mv shape from orbit frames you pick (GPU 1, ~30 s; httpx backend only)")
     p.add_argument("project")
     p.add_argument("plan")
     p.add_argument("asset")

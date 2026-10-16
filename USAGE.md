@@ -792,7 +792,12 @@ mid-request.
 The UI runs ComfyUI work (GPU 1) and GPU 0 work (analysis, 3D) in two separate queues, so a
 3D build doesn't wait behind sheet generation.
 
-# Hero assets (prototype)
+# Hero assets (experimental)
+
+> **Experimental, not part of the open-weights entry.** Wan 2.2 orbits and Hunyuan3D-2mv
+> (Tencent Hunyuan Community License: not licensed in the EU, UK or South Korea) stay here
+> for local experiments. `ap hero mesh` needs `AP_COMFY_BACKEND=httpx`: the Comfy API proxy
+> doesn't return 3D outputs.
 
 Tag an asset **hero** in the Views and 3D tab for the planned multi-view path (PLAN.md). Until it
 exists, hero assets go through TRELLIS like the others. The first step can be tried from

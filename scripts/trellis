@@ -7,6 +7,8 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 source "$REPO/scripts/rocm_build_env.sh"
+# Machine-local settings (e.g. AP_DINOV3_REPO), outside the repo.
+[ -f "$AP_ROOT/local.env" ] && source "$AP_ROOT/local.env"
 
 if [ $# -lt 1 ] || [ "$1" = -h ] || [ "$1" = --help ]; then
   sed -n 2,6p "$0" | sed 's/^# \{0,1\}//'

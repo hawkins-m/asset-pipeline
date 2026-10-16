@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Install the crop-refinement models (library crops, sw_library) in their own venv:
 #   OneFormer Swin-L ADE20K  (shi-labs/oneformer_ade20k_swin_large, MIT)   per-pixel ADE20K labels
-#   Mask2Former Swin-L ADE20K (facebook/mask2former-swin-large-ade-semantic) for the A/B
 #   Depth Anything V2 Small  (depth-anything/Depth-Anything-V2-Small-hf, Apache-2.0)
 #     Base / Large / Giant are CC-BY-NC-4.0: don't use them for project work.
-# Usage: scripts/install_segdepth.sh [venv] [models]
+#   EXPERIMENTAL, not installed by default: Mask2Former Swin-L ADE20K
+#   (facebook/mask2former-swin-large-ade-semantic, HF card "other"), only for the A/B in
+#   scripts/diag/crop_refine_ab.py.
+# Usage: scripts/install_segdepth.sh [venv] [models] [mask2former]
 set -euo pipefail
 AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
 ENV="$AP_ROOT/envs/segdepth"
@@ -20,10 +22,14 @@ stage_venv() {
 }
 
 stage_models() {
-  for repo in shi-labs/oneformer_ade20k_swin_large facebook/mask2former-swin-large-ade-semantic \
-              depth-anything/Depth-Anything-V2-Small-hf; do
+  for repo in shi-labs/oneformer_ade20k_swin_large depth-anything/Depth-Anything-V2-Small-hf; do
     "$ENV/bin/hf" download "$repo" --local-dir "$MODELS/${repo#*/}"
   done
+}
+
+stage_mask2former() {   # experimental A/B only
+  "$ENV/bin/hf" download facebook/mask2former-swin-large-ade-semantic \
+    --local-dir "$MODELS/mask2former-swin-large-ade-semantic"
 }
 
 [ $# -gt 0 ] || set -- venv models
