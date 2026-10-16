@@ -44,7 +44,7 @@ Verified on one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx120
 - Area path (`scripts/demo.sh area`) on one shot of a larger private test city (about 2.3k
   buildings, 381 exported assets, 29k instances): two frames about 1 min each through the SDK
   backend, 11 procedural builds in about 1 min, about 620 per-building instances near the shot in
-  25 min (CPU), export about 3 min, Unreal import about 2 min, look scene about 11 min (three
+  25 min (CPU), export about 3 min, Unreal import about 2 min, look scene 5-11 min (three
   exposure passes, GPU). 138 builds placed in the rendered scene.
 
 **NVIDIA / CUDA is untested.** The code has a CUDA path (see below), but only ROCm has been run.
