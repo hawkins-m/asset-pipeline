@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Install TRELLIS.2 into its own venv on ROCm / gfx1201.
 #
-# Recipe: github.com/bioritmovideo/trellis2-rocm-gfx1201 (validated on R9700), with HIP
-# patches for the native extensions taken from github.com/egore/comfyui-trellis2-gguf-rocm
-# and nvdiffrast from github.com/Painter3000/amd-nvdiffrast-rocm72-gfx1201.
+# Recipe: github.com/bioritmovideo/trellis2-rocm-gfx1201 (validated on R9700) and
+# nvdiffrast from github.com/Painter3000/amd-nvdiffrast-rocm72-gfx1201. The CuMesh HIP
+# build fixes are our own, derived from compiler errors (see stage_cumesh).
 #
 # Usage: scripts/install_trellis2.sh <stage>...
 # Stages (in order): venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify
@@ -67,21 +67,50 @@ stage_cumesh() {
   local d="$SRC/CuMesh"
   clone https://github.com/visualbruno/CuMesh.git "$d" --recursive
   cd "$d"
-  if git diff --quiet; then
-    # HIP patches (egore). Text replacement must come before inserting the #define.
-    sed -i 's/::cuda::std::tuple/CUMESH_TUPLE/g' src/clean_up.cu
+  # HIP build fixes, each from a compiler error on ROCm 7.2 / clang 22. Idempotent.
+  # 1. clean_up.cu: hipCUB's radix-sort decomposer returns rocprim::tuple (not
+  #    cuda::std::tuple), whose converting constructor is explicit.
+  if ! grep -q rocprim src/clean_up.cu; then
     python3 - src/clean_up.cu <<'EOF'
 import sys; p = sys.argv[1]; s = open(p).read()
-block = ("#include <cub/cub.cuh>\n#ifdef __HIP_PLATFORM_AMD__\n#include <rocprim/types/tuple.hpp>\n"
-         "#define CUMESH_TUPLE rocprim::tuple\n#else\n#define CUMESH_TUPLE ::cuda::std::tuple\n#endif")
-s = s.replace("#include <cub/cub.cuh>", block, 1)
-s = s.replace("return {key.x, key.y, key.z};",
-              "return CUMESH_TUPLE<int&, int&, int&>(key.x, key.y, key.z);")
-open(p, "w").write(s)
+old = "    __host__ __device__ ::cuda::std::tuple<int&, int&, int&> operator()(int3& key) const\n"
+new = """#ifdef __HIP_PLATFORM_AMD__
+    __host__ __device__ ::rocprim::tuple<int&, int&, int&> operator()(int3& key) const
+#else
+    __host__ __device__ ::cuda::std::tuple<int&, int&, int&> operator()(int3& key) const
+#endif
+"""
+assert s.count(old) == 1
+s = s.replace(old, new)
+old = "        return {key.x, key.y, key.z};\n"
+new = """#ifdef __HIP_PLATFORM_AMD__
+        return ::rocprim::tuple<int&, int&, int&>{key.x, key.y, key.z};
+#else
+        return {key.x, key.y, key.z};
+#endif
+"""
+assert s.count(old) == 1
+open(p, "w").write(s.replace(old, new))
 EOF
-    sed -i 's/__device__ __forceinline__ Vec3f();/__host__ __device__ __forceinline__ Vec3f();/' src/dtypes.cuh
-    sed -i 's/^__device__ __forceinline__ Vec3f::Vec3f() {/__host__ __device__ __forceinline__ Vec3f::Vec3f() {/' src/dtypes.cuh
-    sed -i -E '/"(--extended-lambda|--expt-relaxed-constexpr|-U__CUDA_NO_HALF(_OPERATORS|_CONVERSIONS|2_OPERATORS)__)",/d' setup.py
+  fi
+  # 2. setup.py: --extended-lambda and --expt-relaxed-constexpr are nvcc-only; clang rejects
+  #    them when building the cubvh extension.
+  if ! grep -q 'nvcc-only options' setup.py; then
+    python3 - setup.py <<'EOF'
+import sys; p = sys.argv[1]; s = open(p).read()
+old = """                "nvcc": ["-O3","-std=c++20"] + cc_flag + [
+                    "--extended-lambda",
+                    "--expt-relaxed-constexpr",
+"""
+new = """                "nvcc": ["-O3","-std=c++20"] + cc_flag + ([] if IS_HIP else [
+                    # nvcc-only options; hipcc/clang rejects them
+                    "--extended-lambda",
+                    "--expt-relaxed-constexpr",
+                ]) + [
+"""
+assert s.count(old) == 1
+open(p, "w").write(s.replace(old, new))
+EOF
   fi
   # ROCm 7.2 on gfx1201: hipMemcpy2D device-to-device silently copies only the first
   # 2^20 rows (returns success). CuMesh::init uses it for vertices/faces, so any mesh
