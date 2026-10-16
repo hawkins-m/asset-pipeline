@@ -373,6 +373,9 @@ reflects what was actually verified.
   the target path after consolidating, so the importer deletes it before the rename, and
   the rename leaves redirectors in `_import` that are deleted directly (UE 5.8's Python
   AssetTools has no `fixup_referencers`). Verified 2026-10-06 on a full relayout.
+- The commandlet deletes the importer's redirectors in memory only; their files stayed in
+  `Content/AP/_import` and the next import of a changed GLB there failed ("already an asset of
+  class ObjectRedirector"). `ue.import_` removes that folder first (editor closed).
 - A wholesale relayout needs `ap ue import --reset-layout --prune` (after `ap ue backup`):
   otherwise actors whose ids the new layout reuses keep their old UE transform (UE is the
   layout source of truth) and the old layout's actors stay.
@@ -528,6 +531,12 @@ reflects what was actually verified.
 - `1536_cascade` runs out of GPU memory in CuMesh `fill_holes` → `get_edges`. That is a
   genuine OOM error, not silent corruption. Not investigated yet.
 - `1024` (non-cascade) has not been re-verified since the GEMM guard went in.
+- CuMesh's HIP fixes are our own since 2026-10-15 (rocprim tuple in the radix-sort decomposer,
+  nvcc-only flags dropped for cubvh; `stage_cumesh`). The installed build is that one; the
+  previous build and source are in `$AP_ROOT/backups/cumesh-egore-2026-10-15` and
+  `$AP_ROOT/src/CuMesh-egore-old`. On the turret (seed 42, 1024_cascade) the raw mesh is
+  identical; final meshes differ by ~0.1% of faces, the same as two runs of one build
+  (1,281 faces between repeats): GPU nondeterminism.
 
 ## Walled city and locked shots (2026-10-10)
 - `CitySpec.enclosure`: blocks only inside a ring road behind a circular wall (archwall

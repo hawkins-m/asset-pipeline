@@ -13,8 +13,9 @@
 #       the preset site/look_tests/demo-SHOT.json: created on first run as a copy of the
 #       shot's own preset (if any) with the vetting gate off, so unapproved builds are placed.
 #
-# Times (2x R9700, warm): frames ~50-100 s each, builds a few s each, instances ~10 s per
-# building, export a few minutes on a large city, UE import ~1 min, look render a few minutes.
+# Times measured on 2x R9700 (a city of ~2.3k buildings): frames ~35-60 s each, builds a few s
+# each, instances ~2.4 s per building (~620 near one shot: 25 min, CPU), export ~3 min, UE
+# import ~2 min, look scene ~11 min.
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 AP="${AP:-$REPO/scripts/ap}"

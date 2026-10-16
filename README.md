@@ -36,11 +36,16 @@ Terraformer Pipeline.
 Verified on one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx1201), ROCm
 7.2.4, ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
-- Full test suite: 309 passed.
-- The two ComfyUI backends (below) give identical SAM 3.1 results (`pytest -m comfy`, which
-  needs a live ComfyUI).
-- Starter path (`scripts/demo.sh starter`) through the SDK backend: greybox about 4 s, two
-  shots' passes about 10 s, two concept frames about 50-60 s each on one R9700.
+- Full test suite: 311 tests (309 offline; 2 more need a live ComfyUI), all passing.
+- The two ComfyUI backends (below) give identical SAM 3.1 results (`pytest -m comfy`), and
+  the SDK backend's cancel and error handling were checked against a live ComfyUI.
+- Starter path (`scripts/demo.sh starter`) through the SDK backend, on a fresh `AP_ROOT`:
+  greybox and two shots' passes in about 16 s (CPU), two concept frames in 67 s.
+- Area path (`scripts/demo.sh area`) on one shot of a larger private test city (about 2.3k
+  buildings, 381 exported assets, 29k instances): two frames about 1 min each through the SDK
+  backend, 11 procedural builds in about 1 min, about 620 per-building instances near the shot in
+  25 min (CPU), export about 3 min, Unreal import about 2 min, look scene about 11 min (three
+  exposure passes, GPU). 138 builds placed in the rendered scene.
 
 **NVIDIA / CUDA is untested.** The code has a CUDA path (see below), but only ROCm has been run.
 Expect to debug it.
@@ -50,7 +55,7 @@ Expect to debug it.
 - Linux (verified on Ubuntu 26.04). Windows and macOS are not supported.
 - Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
 - ComfyUI, 0.24 or newer (the tested version), with the model files below. The workflows use
-  core nodes plus the `SAM3_Detect` node; `ap preflight` shows what is missing.
+  only core nodes (SAM 3.1 included); `ap preflight` shows which model files are missing.
 - Blender 5.x on `PATH`, or set `AP_BLENDER` (verified with 5.2.2; the snap works).
 - Unreal Engine 5.8 (free with an Epic account) for the last steps only: import and look
   scenes. The demo's starter path does not need it.
@@ -181,8 +186,7 @@ This generates two new frames for the shot, builds the listed buildings procedur
 instantiates them near the shot's camera, exports GLBs, imports into Unreal headless and renders
 a look scene (`demo-SHOT` preset, vetting gate off so unapproved builds are placed). It needs an
 existing project with a shot and library entries; read `scripts/demo.sh` and USAGE.md for the
-details. On the author's machine (2x R9700) frames take 50-100 s each, builds a few seconds,
-UE import about a minute.
+details. Measured times are in Status above; the per-building instances are the slow step.
 
 ## ROCm notes
 
