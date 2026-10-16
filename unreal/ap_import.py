@@ -3,7 +3,7 @@
 Run headless by `ap ue import` (UnrealEditor-Cmd ... -run=pythonscript), or inside the
 editor: `py /path/to/ap_import.py /path/to/args.json`. args.json:
     {"manifest": ".../export/manifest.json", "report": ".../import_report.json",
-     "reset_layout": false, "prune": false}
+     "reset_layout": false, "prune": false, "prune_expect": null, "prune_max": 10}
 
 What it builds (all under /Game/AP):
     Materials/M_AP_PBR                       master material: BaseColorTex x Tint;
@@ -29,7 +29,9 @@ Ownership (the UE level is the layout's source of truth once imported):
     value the pipeline wrote last (tag ap:pbr:<name>): once you change it in Unreal, it's
     yours and re-imports keep it;
   - tags not starting with "ap:" are kept;
-  - pipeline actors missing from the manifest are reported, and deleted only with prune.
+  - pipeline actors missing from the manifest are reported (report["orphans"]), and deleted
+    only with prune, and then only if their count is prune_expect, or at most prune_max (10)
+    without one; otherwise nothing is deleted and report["prune_refused"] holds the count.
 """
 import hashlib
 import json
@@ -243,6 +245,15 @@ def import_mesh(asset, root, mi, report):
     return mesh
 
 
+PRUNE_MAX = 10   # without an expected count, prune deletes at most this many actors
+
+
+def prune_allowed(n: int, expect: int | None, limit: int = PRUNE_MAX) -> bool:
+    """May prune delete n actors? Only exactly the expected count when one is given (it is
+    the count someone confirmed), else at most limit."""
+    return n == expect if expect is not None else n <= limit
+
+
 def clean_tmp():
     if not eal.does_directory_exist(TMP):
         return
@@ -441,7 +452,7 @@ def main(args):
     root = os.path.dirname(args["manifest"])
     report = {"ok": False, "map": man["map"], "assets": {"imported": [], "skipped": []},
               "actors": {"created": [], "reset": [], "kept_transform": []}, "cameras": {"created": []},
-              "warnings": [], "environment": [], "materials_kept": []}
+              "warnings": [], "environment": [], "materials_kept": [], "orphans": [], "pruned": []}
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     # the level is loaded first, so replacing a mesh updates every reference to it
@@ -469,16 +480,21 @@ def main(args):
     cams = place_cameras(man, eas, by_tag, args, report)
     sequence(man, cams, report)
     known = {s["id"] for s in man["slots"]} | {s["id"] for s in man["shots"]}
+    orphans = []
     for a in eas.get_all_level_actors():
         tg = tagged(a)
         sid = tg.get("ap:id") or tg.get("ap:shot")
         if tg.get("ap:source") == "pipeline" and sid and sid not in known:
-            if args.get("prune"):
-                name = a.get_actor_label()     # before the actor is gone
+            orphans.append((a, tg))
+    report["orphans"] = [{"label": a.get_actor_label(), "type": tg.get("ap:type") or ("shot" if "ap:shot" in tg else "?")}
+                         for a, tg in orphans]
+    if args.get("prune") and orphans:
+        if prune_allowed(len(orphans), args.get("prune_expect"), args.get("prune_max", PRUNE_MAX)):
+            for a, _ in orphans:
+                report["pruned"].append(a.get_actor_label())     # before the actor is gone
                 eas.destroy_actor(a)
-                report["warnings"].append(f"pruned {name}")
-            else:
-                report["warnings"].append(f"{a.get_actor_label()} is not in the manifest (prune to delete)")
+        else:
+            report["prune_refused"] = len(orphans)
     eal.save_directory("/Game/AP", only_if_is_dirty=False, recursive=True)
     les.save_current_level()
     report["checks"] = checks(man, meshes, eas)

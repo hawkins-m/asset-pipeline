@@ -781,8 +781,27 @@ def _print_ue_report(rep) -> None:
     for k in ("nanite_off", "missing_mi", "instance_mismatch"):
         for x in c[k]:
             print(f"problem: {k}: {x}")
-    for x in rep["sample_errors"] + rep["warnings"] + rep.get("log_errors", []):
+    from .ue import orphan_breakdown
+    orphans, pruned = rep.get("orphans", []), rep.get("pruned", [])
+    breakdown = ", ".join(f"{t} {n}" for t, n in orphan_breakdown(orphans).items())
+    if pruned:
+        print(f"pruned {len(pruned)} pipeline actors not in the manifest ({breakdown})")
+    elif orphans:
+        print(f"{len(orphans)} pipeline actors not in the manifest ({breakdown}); "
+              + (f"NOT pruned: needs --expect {rep['prune_refused']} (or confirmation)"
+                 if rep.get("prune_refused") is not None else "--prune --expect N deletes them"))
+    warnings = rep["sample_errors"] + rep["warnings"] + rep.get("log_errors", [])
+    for x in warnings:
         print(f"warning: {x}")
+    if warnings:
+        print(f"{len(warnings)} warning(s)")
+
+
+def _confirm_prune(n: int, breakdown: dict[str, int]) -> bool:
+    """Ask before a prune past the automatic limit: the user types the count."""
+    print(f"prune would delete {n} pipeline actors not in the manifest: "
+          + ", ".join(f"{t} {k}" for t, k in breakdown.items()))
+    return input(f"type {n} to delete them (anything else keeps them): ").strip() == str(n)
 
 
 def cmd_ue(a) -> None:
@@ -791,7 +810,8 @@ def cmd_ue(a) -> None:
     if a.action == "init":
         print(ue.init(store))
     elif a.action == "import":
-        _print_ue_report(ue.import_(store, reset_layout=a.reset_layout, prune=a.prune))
+        _print_ue_report(ue.import_(store, reset_layout=a.reset_layout, prune=a.prune, expect=a.expect,
+                                    confirm=_confirm_prune if sys.stdin.isatty() else None))
     elif a.action == "render":
         rep = ue.render_shots(store, a.shots or None)
         for s in rep["shots"]:
@@ -1279,7 +1299,11 @@ def main(argv: list[str] | None = None) -> None:
                                             "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")
     p.add_argument("--reset-layout", action="store_true",
                    help="import: move every actor back to the manifest (discards layout edits made in UE)")
-    p.add_argument("--prune", action="store_true", help="import: delete pipeline actors not in the manifest")
+    p.add_argument("--prune", action="store_true",
+                   help="import: delete pipeline actors not in the manifest (more than 10 needs --expect "
+                        "or confirmation at a terminal; headless runs never go past that check)")
+    p.add_argument("--expect", type=int, metavar="N",
+                   help="import --prune: delete only if exactly N actors are missing from the manifest")
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)

@@ -159,8 +159,33 @@ def verify_samples(gb: dict, index: dict, samples: list[dict]) -> tuple[list[str
     return bad, sorted(moved)
 
 
-def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False) -> dict:
-    """Import export/manifest.json into the project's UE level."""
+PRUNE_MAX = 10   # mirrors unreal/ap_import.py: without --expect, prune deletes at most this many
+
+
+def orphan_breakdown(orphans: list[dict]) -> dict[str, int]:
+    """Pipeline actors not in the manifest, counted by slot type (largest first)."""
+    counts: dict[str, int] = {}
+    for o in orphans:
+        counts[o["type"]] = counts.get(o["type"], 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False, expect: int | None = None,
+            confirm=None) -> dict:
+    """Import export/manifest.json into the project's UE level.
+
+    prune deletes the pipeline actors missing from the manifest, but the editor script only
+    does it when their count equals `expect`, or (no expect) is at most PRUNE_MAX. Otherwise
+    nothing is deleted, and confirm(count, breakdown) decides: True reruns the import pruning
+    exactly that count. confirm=None (headless) never deletes past the check."""
+    rep = _import(store, reset_layout, prune, expect)
+    n = rep.get("prune_refused")
+    if prune and n is not None and confirm is not None and confirm(n, orphan_breakdown(rep["orphans"])):
+        rep = _import(store, reset_layout, True, n)
+    return rep
+
+
+def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | None) -> dict:
     man_path = s7_export.export_dir(store) / "manifest.json"
     if not man_path.is_file():
         raise FileNotFoundError("no export/manifest.json (run `ap export` first)")
@@ -172,7 +197,8 @@ def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False
         shutil.rmtree(tmp)
     t = time.time()
     rep = run_script(store, "ap_import.py", {"manifest": str(man_path), "reset_layout": reset_layout,
-                                             "prune": prune}, "UE import")
+                                             "prune": prune, "prune_expect": expect, "prune_max": PRUNE_MAX},
+                     "UE import")
     if "error" in rep:
         raise RuntimeError(f"UE import failed: {rep['error']}\n{rep.get('traceback', '')}")
     gb = sw_site.load_greybox(store)
@@ -183,7 +209,7 @@ def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False
     write_json(work_dir(store) / "ap_import_report.json", rep)
     store.log_run({"stage": "ue.import", "ok": rep["ok"], "imported": len(rep["assets"]["imported"]),
                    "created": len(rep["actors"]["created"]), "instances": rep["checks"]["instances_total"],
-                   "seconds": rep["seconds"]})
+                   "pruned": len(rep.get("pruned", [])), "seconds": rep["seconds"]})
     return rep
 
 
