@@ -1,26 +1,22 @@
-"""A heightfield (.npz: x0, y0, cell, h rows south -> north, NaN = none) as a GLB mesh in world
+"""A heightfield (.npz: x0, y0, cell, h rows south -> north, NaN = none; optional skirt_m) as a GLB mesh in world
 metres (terrain_build.outer_glb: the outer ring for Unreal, a Nanite mesh there).
 
     blender -b --factory-startup --python scripts/blender_npz_glb.py -- IN.npz OUT.glb
 """
+import os
 import sys
 
 import bpy
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import heightgrid  # noqa: E402
+
 src, dst = sys.argv[sys.argv.index("--") + 1:][:2]
 bpy.ops.wm.read_factory_settings(use_empty=True)
 z = np.load(src)
-x0, y0, cell, h = float(z["x0"]), float(z["y0"]), float(z["cell"]), z["h"].astype(np.float64)
-n, m = h.shape
-X, Y = np.meshgrid(x0 + np.arange(m) * cell, y0 + np.arange(n) * cell)
-ok = np.isfinite(h)
-vid = np.full(h.shape, -1, np.int64)
-vid[ok] = np.arange(int(ok.sum()))
-verts = np.stack([X[ok], Y[ok], h[ok]], 1)
-a, b, c, d = vid[:-1, :-1], vid[:-1, 1:], vid[1:, 1:], vid[1:, :-1]
-good = (a >= 0) & (b >= 0) & (c >= 0) & (d >= 0)
-quads = np.stack([a[good], b[good], c[good], d[good]], 1)
+skirt = float(z["skirt_m"]) if "skirt_m" in z.files else 0.0
+verts, quads = heightgrid.grid_mesh(z["h"], float(z["x0"]), float(z["y0"]), float(z["cell"]), skirt=skirt)
 me = bpy.data.meshes.new("outer_ring")
 me.vertices.add(len(verts))
 me.vertices.foreach_set("co", verts.astype(np.float32).ravel())

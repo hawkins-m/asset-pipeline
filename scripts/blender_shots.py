@@ -140,6 +140,45 @@ def data_settings():
         sc.collection.objects.unlink(sun)
 
 
+HAZE_M = 25000.0    # preview only: 1/e distance of the haze (city clear, far land and sea fade)
+SKY = ((0.55, 0.68, 0.85, 1), 0.8)
+
+
+def add_haze(mat):
+    """Mix the preview material toward the sky colour with distance, 1 - exp(-d / HAZE_M): the
+    outer land and the sea fade into haze instead of ending at the horizon. Preview only: the
+    data passes render with a material override."""
+    if not mat or not mat.use_nodes or mat.get("ap_haze"):
+        return
+    nt = mat.node_tree
+    out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"), None)
+    if out is None or not out.inputs["Surface"].links:
+        return
+    src = out.inputs["Surface"].links[0].from_socket
+    cam = nt.nodes.new("ShaderNodeCameraData")
+    k = nt.nodes.new("ShaderNodeMath")
+    k.operation, k.inputs[1].default_value = "MULTIPLY", -1.0 / HAZE_M
+    e = nt.nodes.new("ShaderNodeMath")
+    e.operation = "EXPONENT"
+    fac = nt.nodes.new("ShaderNodeMath")
+    fac.operation, fac.inputs[0].default_value = "SUBTRACT", 1.0
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.inputs["Color"].default_value, em.inputs["Strength"].default_value = SKY
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(cam.outputs["View Distance"], k.inputs[0])
+    nt.links.new(k.outputs[0], e.inputs[0])
+    nt.links.new(e.outputs[0], fac.inputs[1])
+    nt.links.new(fac.outputs[0], mix.inputs["Fac"])
+    nt.links.new(src, mix.inputs[1])
+    nt.links.new(em.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs["Surface"])
+    mat["ap_haze"] = True
+
+
+for _m in {s.material for o in meshes for s in o.material_slots if s.material}:
+    add_haze(_m)
+
+
 def preview_settings():
     vl.material_override = None
     for o in meshes:
@@ -150,8 +189,7 @@ def preview_settings():
     sc.cycles.filter_width = 1.5
     sc.cycles.max_bounces = 4
     sc.view_settings.view_transform = "AgX"
-    bg.inputs["Color"].default_value = (0.55, 0.68, 0.85, 1)
-    bg.inputs["Strength"].default_value = 0.8
+    bg.inputs["Color"].default_value, bg.inputs["Strength"].default_value = SKY
     if sun.name not in sc.collection.objects:
         sc.collection.objects.link(sun)
 

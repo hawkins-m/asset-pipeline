@@ -874,6 +874,9 @@ def cmd_terrain(a) -> None:
         for x in r["ranges"]:
             print(f"{x['name']}: height factor {x['height_factor']}, width {x['width_factor']}, foothills {x['foothill_factor']}")
         print(f"cells in a locked frame's sky after erosion: {r['cells_over_sky_after_erosion']}; max z {r['max_z']} m")
+    elif a.action == "outer":
+        print(tb.rebuild_outer(store))
+        print(tb.outer_glb(store))
     elif a.action == "apply":
         print(tb.apply(store))
     elif a.action == "landscape":
@@ -1335,10 +1338,11 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_ue)
 
     p = sub.add_parser("terrain", help="world mode: terrain beyond the city, fitted to the locked shots")
-    p.add_argument("action", choices=["analyse", "build", "apply", "landscape", "ue"],
+    p.add_argument("action", choices=["analyse", "build", "outer", "apply", "landscape", "ue"],
                    help="analyse: locked shots' skylines; build: ranges from site/terrain_plan/proposal.json, sky fit, "
-                        "erosion; apply: point the layout at it; landscape: Unreal tiles + outer ring GLB; ue: auto "
-                        "material + outer ring in the Unreal project")
+                        "erosion; outer: only the outer ring (+ its GLB) from the far build; apply: point the layout "
+                        "at it; landscape: Unreal tiles + outer ring GLB; ue: auto material + outer ring in the Unreal "
+                        "project")
     p.add_argument("project")
     p.set_defaults(fn=cmd_terrain)
 

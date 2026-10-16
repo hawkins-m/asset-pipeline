@@ -1067,6 +1067,20 @@ def piers(L: SiteLayout, f: Fields, nd: CivicNode) -> list[Box]:
 
 # --- the plan --------------------------------------------------------------------------------
 
+def majority_district(c: CitySpec, ds: list[str], x: float, y: float) -> str | None:
+    """The most common district of a slot's members; a tie goes to the district at the slot's
+    centre (nearest_node), else the first by name. (max over a set picked a tie's winner by
+    string hash order, which changes per process: the same plan gave different districts.)"""
+    if not ds:
+        return None
+    n = {d: ds.count(d) for d in ds}
+    best = sorted(d for d, k in n.items() if k == max(n.values()))
+    if len(best) == 1:
+        return best[0]
+    here = nearest_node(c, x, y)
+    return here if here in best else best[0]
+
+
 def nearest_node(c: CitySpec, x, y) -> str | None:
     """The district at a point: a town's within 1.4 x its radius, else the nearest node's."""
     for tw in c.towns:
@@ -1371,10 +1385,9 @@ def add_slots(P: CityPlan, new, hs) -> None:
         typed.setdefault((b.typology, tile(b.x, b.y), b.material), []).append(b)
     fam = {t.id: t.family for t in c.typologies}
     for (typ, key, mat), bs in sorted(typed.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "")):
-        ds = [b.district for b in bs if b.district]
-        district = max(set(ds), key=ds.count) if ds else None
         cx = float(np.mean([b.x for b in bs]))
         cy = float(np.mean([b.y for b in bs]))
+        district = majority_district(c, [b.district for b in bs if b.district], cx, cy)
         sid = f"{typ}-{key}" + (f"-{mat}" if mat and sum(1 for k in typed if k[:2] == (typ, key)) > 1 else "")
         sb = new(sid, typ, (cx, cy, float(hs(cx, cy))), district=district,
                  category="structure" if fam.get(typ) == "public_realm" else "building", material=mat, typology=typ)
@@ -1389,10 +1402,9 @@ def add_slots(P: CityPlan, new, hs) -> None:
         group("park", t[0], t[1], t, nearest_node(c, t[0], t[1]))
 
     for (kind, key), items in sorted(groups.items()):
-        ds = [d for _, d in items if d]
-        district = max(set(ds), key=ds.count) if ds else None
         cx = float(np.mean([_xy(it)[0] for it, _ in items]))
         cy = float(np.mean([_xy(it)[1] for it, _ in items]))
+        district = majority_district(c, [d for _, d in items if d], cx, cy)
         sb = new(f"{kind}-{key}", kind, (cx, cy, float(hs(cx, cy))), district=district)
         for it, _ in items:
             if isinstance(it, Box):

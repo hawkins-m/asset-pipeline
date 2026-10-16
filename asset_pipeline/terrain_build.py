@@ -276,8 +276,66 @@ def erode(h: np.ndarray, mask: np.ndarray, cell: float, iters: int = 40, k_sp: f
 
 # --- the build -------------------------------------------------------------------------------
 
+OUTER_SKIRT_M = 60.0                  # curtain under the outer ring's inner edge (see scripts/heightgrid.py)
+OUTER_TAPER_M = (22000.0, 30000.0)    # radius over which the outer ring sinks under the sea
+OUTER_SINK_M = 30.0
+
+
+def outer_ring(H, x0: float, cell: float, ground, sea: float, outer_extent: float = 64000.0,
+               outer_cell: float = 400.0, seed: int = 11) -> tuple[float, np.ndarray]:
+    """The outer ring around the square far field H (x0 = y0, cell): (its x0 = y0, heights;
+    NaN inside the far field). ground(X, Y) gives the plain and coast. The far field's edge
+    carries on outwards and fades into the plain with low rolling hills inland over 6 km.
+
+    Its grid lines up with the far field's border, which both meshes share (a grid that didn't
+    left a 160 m gap there, open to the sea plane below). From OUTER_TAPER_M[0] to [1] (radius) it
+    sinks OUTER_SINK_M under the sea, so it ends under water: the horizon is the sea and the
+    haze, not a mesh edge."""
+    n = H.shape[0]
+    extent = cell * (n - 1)
+    gap = (outer_extent - extent) / 2
+    if abs(gap / outer_cell - round(gap / outer_cell)) > 1e-9:
+        raise ValueError(f"outer cell {outer_cell} m doesn't divide the {gap} m between the far field and the outer edge")
+    m_ = int(round(outer_extent / outer_cell)) + 1
+    ox = -outer_extent / 2
+    OX, OY = np.meshgrid(ox + np.arange(m_) * outer_cell, ox + np.arange(m_) * outer_cell)
+    ob = np.maximum(ground(OX, OY), sea)
+    roll = (_fbm(m_, seed + 1, ((4, 0.6), (12, 0.4))) * 160.0 + 20.0) * np.clip((ob - sea - 1.0) / 10.0, 0, 1)
+    fx = np.clip((OX - x0) / cell, 0, n - 1)
+    fy = np.clip((OY - x0) / cell, 0, n - 1)
+    far_edge = map_coordinates(H, [fy, fx], order=1)
+    outside = np.maximum(np.abs(OX), np.abs(OY)) - extent / 2
+    fade = np.clip(outside / 6000.0, 0, 1)
+    O = np.maximum(far_edge * (1 - fade) + (ob + roll) * fade, sea)
+    t = np.clip((np.hypot(OX, OY) - OUTER_TAPER_M[0]) / (OUTER_TAPER_M[1] - OUTER_TAPER_M[0]), 0, 1)
+    t = t * t * (3 - 2 * t)
+    O = O * (1 - t) + (sea - OUTER_SINK_M) * t
+    inside = (np.abs(OX) < extent / 2 - 1e-6) & (np.abs(OY) < extent / 2 - 1e-6)
+    return ox, np.where(inside, np.nan, O)
+
+
+def rebuild_outer(store: ProjectStore, outer_extent: float = 64000.0, outer_cell: float = 400.0, seed: int = 11) -> dict:
+    """Only the outer ring, from the built far field (far.npz is left as it is)."""
+    from .greybox import Heights
+    from .stages import sw_site
+    layout = sw_site.load_layout(store)
+    hs = Heights(sw_site.plan_terrain(store, layout), layout.terrain.extent_m)
+    d = store.root / FAR_DIR
+    z = np.load(d / "far.npz")
+    H, x0, cell = z["h"].astype(np.float64), float(z["x0"]), float(z["cell"])
+    ox, O = outer_ring(H, x0, cell, lambda X, Y: np.asarray(hs.many(X, Y), float), layout.sea_level,
+                       outer_extent, outer_cell, seed)
+    np.savez_compressed(d / "outer.npz", x0=ox, y0=ox, cell=outer_cell, h=O.astype(np.float32), skirt_m=OUTER_SKIRT_M)
+    rec = read_json(d / "build.json", default={}) or {}
+    rec.update(outer_extent_m=outer_extent, outer_cell_m=outer_cell, outer_rebuilt=time.strftime("%Y-%m-%d %H:%M:%S"))
+    write_json(d / "build.json", rec)
+    land = O[np.isfinite(O)] > layout.sea_level
+    return {"outer_cell_m": outer_cell, "cells": int(np.isfinite(O).sum()), "above_sea": int(land.sum()),
+            "max_z": round(float(np.nanmax(O)), 1)}
+
+
 def build(store: ProjectStore, extent: float = 24000.0, cell: float = 40.0, outer_extent: float = 64000.0,
-          outer_cell: float = 320.0, seed: int = 11, log=print) -> dict:
+          outer_cell: float = 400.0, seed: int = 11, log=print) -> dict:
     """The far terrain from site/terrain_plan/proposal.json's ranges (see the module doc)."""
     from .greybox import Heights
     from .stages import sw_site
@@ -311,21 +369,8 @@ def build(store: ProjectStore, extent: float = 24000.0, cell: float = 40.0, oute
     d = store.root / FAR_DIR
     d.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(d / "far.npz", x0=x0, y0=y0, cell=cell, h=H.astype(np.float32), base=base.astype(np.float32))
-    # the outer ring: the plain and coast carried out to the horizon, with low rolling hills inland
-    m_ = int(round(outer_extent / outer_cell)) + 1
-    ox = -outer_extent / 2
-    OX, OY = np.meshgrid(ox + np.arange(m_) * outer_cell, ox + np.arange(m_) * outer_cell)
-    ob = np.maximum(np.asarray(hs.many(OX, OY), float), sea)
-    roll = (_fbm(m_, seed + 1, ((4, 0.6), (12, 0.4))) * 160.0 + 20.0) * np.clip((ob - sea - 1.0) / 10.0, 0, 1)
-    # the far field's edge carries on outwards (no seam at the far domain's border)
-    fx = np.clip((OX - x0) / cell, 0, n - 1)
-    fy = np.clip((OY - y0) / cell, 0, n - 1)
-    far_edge = map_coordinates(H, [fy, fx], order=1)
-    outside = np.maximum(np.abs(OX), np.abs(OY)) - extent / 2
-    fade = np.clip(outside / 6000.0, 0, 1)
-    O = np.maximum(far_edge * (1 - fade) + (ob + roll) * fade, sea)
-    O = np.where((np.abs(OX) < extent / 2 - cell) & (np.abs(OY) < extent / 2 - cell), np.nan, O)
-    np.savez_compressed(d / "outer.npz", x0=ox, y0=ox, cell=outer_cell, h=O.astype(np.float32))
+    ox, O = outer_ring(H, x0, cell, lambda X, Y: np.asarray(hs.many(X, Y), float), sea, outer_extent, outer_cell, seed)
+    np.savez_compressed(d / "outer.npz", x0=ox, y0=ox, cell=outer_cell, h=O.astype(np.float32), skirt_m=OUTER_SKIRT_M)
     rec = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "extent_m": extent, "cell_m": cell, "outer_extent_m": outer_extent,
            "outer_cell_m": outer_cell, "ranges": [{"name": r["name"], "shot": r["shot"], "dist_m": r["dist_m"],
                                                     "width_m": r["width_m"], "crest_z": r["crest_z"],
@@ -337,6 +382,21 @@ def build(store: ProjectStore, extent: float = 24000.0, cell: float = 40.0, oute
            "max_z": round(float(H.max()), 1), "seconds": round(time.time() - t0, 1)}
     write_json(d / "build.json", rec)
     return rec
+
+
+def match_edge(core: np.ndarray, far: np.ndarray, sea: float, cell: float, band_m: float = 400.0) -> np.ndarray:
+    """Blend the core tile into the far field over the last band_m metres inside its border,
+    where the far field is land (> sea + 1 m). The core adds the far relief to its own ground,
+    the far field to max(ground, sea): where a far hill rises out of the water at the tile's
+    border, the core's version stood up to the water's depth lower (40 m), an open step along
+    the seam. Open water (both under or at the sea) and the tile's interior are left as they are."""
+    n = core.shape[0]
+    i = np.arange(n)
+    d = np.minimum(i, n - 1 - i) * cell                     # distance to the border, per row / column
+    edge = np.minimum.outer(d, d)
+    w = np.clip(1.0 - edge / band_m, 0.0, 1.0)
+    w = w * w * (3 - 2 * w) * (far > sea + 1.0)
+    return core + (far - core) * w
 
 
 def core_heightmap(store: ProjectStore, z_range=(-60.0, 1200.0)) -> Path:
@@ -352,7 +412,8 @@ def core_heightmap(store: ProjectStore, z_range=(-60.0, 1200.0)) -> Path:
     x, y = greybox.grid_coords(t)
     fx, fy = (x - x0) / cell, (y - float(z["y0"])) / cell
     rel = map_coordinates(H - B, [fy, fx], order=1)
-    core = raw + np.maximum(rel, 0.0)
+    core = match_edge(raw + np.maximum(rel, 0.0), map_coordinates(H, [fy, fx], order=1), layout.sea_level,
+                      t.extent_m / (raw.shape[0] - 1))
     p = store.root / FAR_DIR / "core.png"
     Image.fromarray(greybox.to_png16(np.clip(core, *z_range), z_range)).save(p)     # apply() refuses a clipped one
     return p

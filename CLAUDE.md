@@ -811,3 +811,22 @@ Until the deadline, all work follows these rules:
   - Locked frames disagree. Smooth crests (≥ 1 km falloff) filled 35 / 80 / 16% of three
     frames' painted mountains. The flat-topped grid clip filled 79 / 100 / 51%: the
     difference is the notches.
+- **Terrain seams (2026-10-16).** The dark horizon line in wide-hills was three things:
+  - A 160 m gap between the far field (24 km, 40 m cells) and the outer ring (320 m cells
+    didn't line up with the far border). The outer ring now uses 400 m cells on the border
+    line (`terrain_build.outer_ring` refuses a cell that doesn't divide the gap).
+  - The core tile and the far field disagreed by up to 40 m at the tile border: the core adds the
+    relief to its seabed, the far field to max(ground, sea). `match_edge` blends the core into the
+    far field over 400 m inside the border, only where the far field is land (no slot is that close).
+    Doing it with the relief everywhere instead made 9 km² of the bay dry land.
+  - Different vertex spacings leave cracks along a shared border: `scripts/heightgrid.py` hangs a
+    skirt under mesh edges, with its own vertices (shared ones tilt the smooth normals into a dark
+    band). The far ring now starts exactly on the core border.
+  - The outer ring sinks 30 m under the sea from 22 to 30 km out; the preview render mixes into the
+    sky colour with distance (`blender_shots.HAZE_M`, data passes untouched). Cycles drew the sea
+    plane black at 35-50 km.
+  - The far field's water is not at sea level: its relief noise lifts it 0-2 m (and more near the
+    ranges), a skin over the sea plane. Left as built (a re-fit would be needed).
+- **District ties were random.** `max(set(ds), key=ds.count)` picks a tie's winner by string hash
+  order, which differs per process: one slot flipped between two districts across rebuilds of the
+  same plan. `city.majority_district` breaks ties by the district at the slot's centre.

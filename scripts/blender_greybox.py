@@ -23,6 +23,7 @@
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 
@@ -30,6 +31,7 @@ import bmesh
 import bpy
 import numpy as np
 from mathutils import Vector
+
 
 args = sys.argv[sys.argv.index("--") + 1:]
 
@@ -266,21 +268,26 @@ def terrain_mesh(heights, extent):
     return me
 
 
-def npz_mesh(path, name, core_half):
-    """A heightfield (.npz: x0, y0, cell, h rows south -> north, NaN = none) as a mesh, leaving out
-    the cells inside the core tile (core_half: half its extent), which overlap it by one cell."""
+FAR_SKIRT_M = 60.0   # under the far ring's edges: its inner edge meets the core tile at another spacing
+
+
+def npz_mesh(path, name, core_half, skirt=None):
+    """A heightfield (.npz: x0, y0, cell, h rows south -> north, NaN = none; optional skirt_m) as
+    a mesh, leaving out the cells inside the core tile (core_half: half its extent): the two
+    share the tile's border line (terrain_build.match_edge makes the core meet the far field
+    there; an overlap strip showed through it). skirt (else the npz's skirt_m): a curtain under
+    the mesh's edges (scripts/heightgrid.py), so a neighbour whose edge runs lower can't open a
+    crack."""
     z = np.load(path)
     x0, y0, cell, h = float(z["x0"]), float(z["y0"]), float(z["cell"]), z["h"].astype(np.float64)
     n, m = h.shape
     X, Y = np.meshgrid(x0 + np.arange(m) * cell, y0 + np.arange(n) * cell)
-    inner = (np.abs(X) < core_half - cell) & (np.abs(Y) < core_half - cell)
-    ok = np.isfinite(h) & ~inner
-    vid = np.full(h.shape, -1, np.int64)
-    vid[ok] = np.arange(int(ok.sum()))
-    verts = np.stack([X[ok], Y[ok], h[ok]], 1)
-    a, b, c, d = vid[:-1, :-1], vid[:-1, 1:], vid[1:, 1:], vid[1:, :-1]
-    good = (a >= 0) & (b >= 0) & (c >= 0) & (d >= 0)
-    quads = np.stack([a[good], b[good], c[good], d[good]], 1)          # rows run south -> north: normals up
+    inner = (np.abs(X) < core_half - 1e-6) & (np.abs(Y) < core_half - 1e-6)
+    if skirt is None:
+        skirt = float(z["skirt_m"]) if "skirt_m" in z.files else 0.0
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import heightgrid  # numpy only, shared with blender_npz_glb.py
+    verts, quads = heightgrid.grid_mesh(h, x0, y0, cell, keep=~inner, skirt=skirt)
     me = bpy.data.meshes.new(name)
     me.vertices.add(len(verts))
     me.vertices.foreach_set("co", verts.astype(np.float32).ravel())
@@ -330,7 +337,7 @@ def build(spec_path, out):
     terrain.color = (*COLORS["terrain"], 1)
     for k, path in enumerate(spec["terrain"].get("far") or []):    # beyond the tile: far ring, outer ring
         nm = "terrain_far" if k == 0 else "terrain_outer"
-        fm = npz_mesh(path, nm, spec["terrain"]["extent_m"] / 2)
+        fm = npz_mesh(path, nm, spec["terrain"]["extent_m"] / 2, skirt=FAR_SKIRT_M if k == 0 else None)
         fm.materials.append(mat)
         fo = bpy.data.objects.new(nm, fm)
         site.objects.link(fo)
