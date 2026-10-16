@@ -6,7 +6,10 @@
 # GPU: TRELLIS_GPU (default 0; both ComfyUI instances run on GPU 1).
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-source "$REPO/scripts/rocm_build_env.sh"
+source "$REPO/scripts/build_env_common.sh"
+vendor="$(ap_gpu_vendor)"
+# ROCm toolchain/arch exports only on AMD; on NVIDIA only the common ones (untested).
+[ "$vendor" = nvidia ] || source "$REPO/scripts/rocm_build_env.sh"
 # Machine-local settings (e.g. AP_DINOV3_REPO), outside the repo.
 [ -f "$AP_ROOT/local.env" ] && source "$AP_ROOT/local.env"
 
@@ -36,5 +39,7 @@ if [ "$gpu" = 1 ] && ss -ltn 2>/dev/null | grep -q -E ':(8188|8189) '; then
   echo "trellis: note: ComfyUI is running on GPU 1 too." >&2
 fi
 
-HIP_VISIBLE_DEVICES="$gpu" PYTHONPATH="$AP_ROOT/src/TRELLIS.2" \
+# Pin the GPU: CUDA_VISIBLE_DEVICES on NVIDIA (untested), HIP_VISIBLE_DEVICES otherwise.
+if [ "$vendor" = nvidia ]; then pin=CUDA_VISIBLE_DEVICES; else pin=HIP_VISIBLE_DEVICES; fi
+env "$pin=$gpu" PYTHONPATH="$AP_ROOT/src/TRELLIS.2" \
   "$AP_ROOT/envs/trellis2/bin/python" "$REPO/scripts/trellis2_image_to_glb.py" "$(readlink -f "$img")" "$@"

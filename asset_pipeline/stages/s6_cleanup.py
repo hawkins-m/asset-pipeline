@@ -18,7 +18,7 @@ from ..project import ProjectStore
 from . import s1_plan, s5_3d
 
 OUT = "cleanup"
-BLENDER = blender.BLENDER
+BLENDER = None   # None: blender.blender_bin() (tests patch this with a fake)
 SCRIPT = config.REPO_ROOT / "scripts" / "blender_cleanup.py"
 # Game triangle budgets by plan category (the bake carries the detail). Measured
 # 2026-10-05 in Cycles: a market stall (thin posts, awning) warped at 15k and was close to

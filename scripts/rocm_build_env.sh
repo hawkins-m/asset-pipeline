@@ -9,7 +9,8 @@
 #   24.04 libxml2 + ICU 74 are unpacked into a private compat dir.
 # Both live under $AP_ROOT/tools and are created by scripts/setup_rocm_toolchain.sh.
 
-export AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+# AP_ROOT, MAX_JOBS and the Triton/HF cache dirs: scripts/build_env_common.sh.
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/build_env_common.sh"
 
 export ROCM_HOME="$AP_ROOT/tools/rocm-shim"
 export ROCM_PATH=/opt/rocm
@@ -22,8 +23,3 @@ export LD_LIBRARY_PATH="$AP_ROOT/tools/compat-lib${LD_LIBRARY_PATH:+:$LD_LIBRARY
 
 export PYTORCH_ROCM_ARCH=gfx1201
 export GPU_ARCHS=gfx1201
-export MAX_JOBS="${MAX_JOBS:-16}"
-
-# Keep caches off the shared ~/.triton, ~/.cache (ComfyUI uses them).
-export TRITON_CACHE_DIR="$AP_ROOT/cache/triton"
-export HF_HOME="$AP_ROOT/hf"

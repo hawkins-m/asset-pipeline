@@ -10,7 +10,7 @@
 # Install once: git config core.hooksPath scripts/git-hooks
 # Bypass for a deliberate exception: git commit --no-verify
 set -euo pipefail
-AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../ap_root.sh"
 fail=0
 
 files=$(git diff --cached --name-only --diff-filter=ACMR)

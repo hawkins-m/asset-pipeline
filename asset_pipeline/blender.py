@@ -11,9 +11,16 @@ import threading
 import time
 from pathlib import Path
 
+from . import config
 from .jobs import Canceled, current_job
 
-BLENDER = Path("/snap/bin/blender")
+
+def blender_bin() -> str:
+    """The Blender executable: env AP_BLENDER > [tools] blender in the config > "blender" (PATH)."""
+    return os.environ.get("AP_BLENDER") or config.backends().get("tools", {}).get("blender") or "blender"
+
+
+BLENDER = Path(blender_bin())   # at import; run() resolves blender_bin() again unless given exe
 
 
 def run(script: Path, args: list[str], log_path: Path, what: str, blend: Path | None = None,
@@ -21,7 +28,7 @@ def run(script: Path, args: list[str], log_path: Path, what: str, blend: Path | 
     """Run `blender -b [blend] --factory-startup --python script -- args`, appending its
     output to log_path. Raises Canceled if the job is stopped, RuntimeError (with the
     log's tail) on a non-zero exit."""
-    cmd = [str(exe or BLENDER), "-b"] + ([str(blend)] if blend else []) + \
+    cmd = [str(exe or blender_bin()), "-b"] + ([str(blend)] if blend else []) + \
           ["--factory-startup", "--python", str(script), "--", *map(str, args)]
     run_logged(cmd, log_path, what)
 

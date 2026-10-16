@@ -5,7 +5,7 @@
 #   COMFYUI_URL (default http://127.0.0.1:8188), PROXY_PORT (default 8190: 8188 is ComfyUI,
 #   8189 is a second ComfyUI here and the proxy's own default).
 set -euo pipefail
-AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
 ENV="$AP_ROOT/envs/comfy-api-proxy"
 VERSION="${PROXY_VERSION:-0.1.6}"
 COMFYUI_URL="${COMFYUI_URL:-http://127.0.0.1:8188}"
