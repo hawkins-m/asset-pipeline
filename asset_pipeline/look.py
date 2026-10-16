@@ -441,8 +441,11 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
                         greybox_rgb=p.get("greybox"), held=held, held_slots=[h["slot"] for h in held if h.get("slot")])
     sil = {}
     if pls and shot.get("locked"):
-        from . import silhouette
-        sil = silhouette.check(store, shot, pls, log=log)
+        if comfy_running():
+            from . import silhouette
+            sil = silhouette.check(store, shot, pls, log=log)
+        else:   # the frame masks need SAM 3.1; the render doesn't
+            log(f"{name}: silhouette check skipped: ComfyUI is down (ap library silhouette later)")
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     render = out / f"look_{name}.png"
     keep = out / f"look_{name}_{time.strftime('%Y%m%d_%H%M%S')}.png"

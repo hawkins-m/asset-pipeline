@@ -164,6 +164,12 @@ def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False
     man_path = s7_export.export_dir(store) / "manifest.json"
     if not man_path.is_file():
         raise FileNotFoundError("no export/manifest.json (run `ap export` first)")
+    # The importer's temp folder is emptied at the end of every run, but in the commandlet
+    # its redirectors are only deleted in memory: their .uasset files stay, and the next
+    # import of a changed GLB there fails ("already an asset of class ObjectRedirector").
+    tmp = project_dir(store) / "Content" / "AP" / "_import"
+    if tmp.is_dir() and not editor_running(uproject(store)):
+        shutil.rmtree(tmp)
     t = time.time()
     rep = run_script(store, "ap_import.py", {"manifest": str(man_path), "reset_layout": reset_layout,
                                              "prune": prune}, "UE import")
