@@ -12,14 +12,16 @@ dependencies = [
     "numpy",
     "shapely>=2",
     "python-multipart",
-    "google-genai",
-    "anthropic",
     "pyyaml",
     "scipy",
+    "comfy-sdk==0.5.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Paid backends (Gemini, Claude): off unless AP_ALLOW_PAID_APIS=1 for a run. Not needed for
+# the local, open-weights pipeline.
+paid = ["google-genai", "anthropic"]
 
 [project.scripts]
 ap = "asset_pipeline.cli:main"

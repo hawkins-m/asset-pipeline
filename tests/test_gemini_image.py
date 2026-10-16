@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+pytest.importorskip("google.genai", reason="paid extra not installed (pip install .[paid])")
+
 from asset_pipeline.imagegen.base import GenRequest
 from asset_pipeline.imagegen.gemini import STYLE_REF, GeminiImageBackend, nearest_aspect
 from asset_pipeline.paid import PaidAPIBlocked

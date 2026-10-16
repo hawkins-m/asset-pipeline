@@ -1,4 +1,5 @@
 """Vision-LLM adapters with mocked SDKs / server. No network, no paid calls."""
+import importlib.util
 import json
 from types import SimpleNamespace
 
@@ -14,6 +15,10 @@ from asset_pipeline.llm.gemini import GeminiVision
 from asset_pipeline.llm.local import LocalVision
 from asset_pipeline.llm.registry import make_llm
 from asset_pipeline.paid import PaidAPIBlocked
+
+needs_genai = pytest.mark.skipif(importlib.util.find_spec("google") is None
+                                 or importlib.util.find_spec("google.genai") is None,
+                                 reason="paid extra not installed (pip install .[paid])")
 
 
 class Scene(BaseModel):
@@ -123,6 +128,7 @@ class FakeGenai:
         return SimpleNamespace(text=self.texts.pop(0), prompt_feedback=None)
 
 
+@needs_genai
 def test_gemini_json_mode_with_schema_and_retry(img, paid_on):
     fake = FakeGenai(['{"objects": []}', json.dumps({"objects": ["well"], "count": 1})])
     out = structured(GeminiVision(client=fake), "list", [img], Scene, system="sys")
@@ -136,6 +142,7 @@ def test_gemini_json_mode_with_schema_and_retry(img, paid_on):
     assert len(fake.calls) == 2  # one retry
 
 
+@needs_genai
 def test_gemini_empty_response_is_an_error(img, paid_on):
     with pytest.raises(LLMError, match="no text"):
         GeminiVision(client=FakeGenai([""])).json_text("", "x", [img], {})
