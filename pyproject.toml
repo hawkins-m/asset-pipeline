@@ -2,6 +2,8 @@
 name = "asset-pipeline"
 version = "0.1.0"
 description = "Local-first concept image -> reviewed references -> 3D asset pipeline (see PLAN.md)"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
