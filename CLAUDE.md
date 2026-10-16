@@ -28,6 +28,21 @@ reflects what was actually verified.
   image/3D services. Ask before each new use, even when a key is configured, and that
   includes tests. Local models are fine.
 
+## Contest constraints (until 2026-10-30, 9am PT)
+The repo is entered in Comfy's "Open Source Higgsfield" challenge, Open Weights Only category.
+Until the deadline, all work follows these rules:
+- **ComfyUI calls go through the ComfyClient interface** (`comfy.client.connect()`), never raw
+  HTTP, and must work on both backends (`AP_COMFY_BACKEND=httpx` and `sdk`). A new workflow
+  gets a case in the live parity test (`tests/test_integration_comfy.py`, `pytest -m comfy`).
+- **Open weights, core nodes only** in the default config and the docs: nothing from
+  `comfy_api_nodes`, no paid APIs (Gemini, Claude, hosted image/3D services). Experimental
+  paths stay out of the defaults and are marked experimental.
+- **Every new model gets a row in the README's models and licenses table** (and in
+  `scripts/fetch_models.sh` if ComfyUI loads it).
+- **New hardware calls get both a ROCm and a CUDA branch** (`asset_pipeline/gpu.py`; shell:
+  `scripts/build_env_common.sh`). Mark CUDA branches untested until they've run.
+- **No project content in the public repo** (see Repo rules; the pre-commit hook enforces it).
+
 ## Machine (verified 2026-10-04)
 - Ubuntu 26.04, Ryzen 9 9950X3D (32 threads), 64 GB RAM.
 - 2× AMD Radeon AI PRO R9700, 32 GB each, RDNA4 **gfx1201**.
