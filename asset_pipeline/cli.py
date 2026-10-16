@@ -35,6 +35,18 @@ def cmd_comfy_check(a) -> None:
               f"{d.get('vram_total', 0) / 2**30:.1f} GB free")
 
 
+def cmd_preflight(a) -> None:
+    from . import preflight
+    checks = preflight.run(ue=a.ue)
+    for c in checks:
+        mark = "ok  " if c.ok else ("FAIL" if c.required else "warn")
+        print(f"[{mark}] {c.name}: {c.detail}")
+    failed = [c.name for c in checks if c.required and not c.ok]
+    if failed:
+        raise SystemExit(f"preflight failed: {', '.join(failed)}")
+    print("preflight ok")
+
+
 def cmd_gen(a) -> None:
     project = store = None
     if a.project:
@@ -529,7 +541,8 @@ def cmd_frames_generate(a) -> None:
             print(f"skipping locked: {', '.join(sorted(locked))}")
     for shot in shots:
         out = s0_frames.generate(store, shot, n=a.n, seed=a.seed, fs=fs, refs=a.ref, ref_strength=a.ref_strength,
-                                material_refs=not a.no_material_refs, force=a.force)
+                                material_refs=not a.no_material_refs, force=a.force,
+                                out=a.out / shot if a.out else None)
         meta = json.loads((out / "meta.json").read_text())
         print(f"{out}: {len(meta['frames'])} frame(s), edge match "
               + ", ".join(f"{f['edge_match']:.2f}" for f in meta["frames"]))
@@ -880,6 +893,9 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("comfy-check", help="check the ComfyUI server is reachable")
     p.set_defaults(fn=cmd_comfy_check)
+    p = sub.add_parser("preflight", help="check ComfyUI (+ its models), local models, Blender and Unreal for the demo path")
+    p.add_argument("--ue", action="store_true", help="Unreal is required (the last demo steps)")
+    p.set_defaults(fn=cmd_preflight)
 
     p = sub.add_parser("gen", help="generate images through the image adapter")
     p.add_argument("prompt")
@@ -1125,6 +1141,8 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--no-material-refs", action="store_true",
                            help="materials by wording only (skip their masked reference images)")
             p.add_argument("--force", action="store_true", help="also generate locked shots named explicitly")
+            p.add_argument("--out", type=Path, help="write each shot's batch to OUT/<shot> instead of the "
+                                                    "project's frames/ (e.g. a demo run on a locked shot)")
         p.add_argument("--model", choices=["union", "depth_lora"])
         p.add_argument("--depth", type=float, help="depth control strength")
         p.add_argument("--depth-end", type=float, help="depth control stops at this fraction of the steps")
