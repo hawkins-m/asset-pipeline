@@ -391,6 +391,9 @@ Until the deadline, all work follows these rules:
 - The commandlet deletes the importer's redirectors in memory only; their files stayed in
   `Content/AP/_import` and the next import of a changed GLB there failed ("already an asset of
   class ObjectRedirector"). `ue.import_` removes that folder first (editor closed).
+- Stale slots (left where an earlier greybox put them) vs hand moves: `ap ue stale`, and
+  `ap ue import --reset-layout --only-stale` resets only the stale ones (2026-10-16: 175 stale,
+  0 hand-moved, all 489 back in place). It compares against every committed greybox.blend.
 - A wholesale relayout needs `ap ue import --reset-layout --prune` (after `ap ue backup`):
   otherwise actors whose ids the new layout reuses keep their old UE transform (UE is the
   layout source of truth) and the old layout's actors stay.
