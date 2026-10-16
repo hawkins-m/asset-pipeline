@@ -3,7 +3,8 @@
 Run headless by `ap ue import` (UnrealEditor-Cmd ... -run=pythonscript), or inside the
 editor: `py /path/to/ap_import.py /path/to/args.json`. args.json:
     {"manifest": ".../export/manifest.json", "report": ".../import_report.json",
-     "reset_layout": false, "prune": false, "prune_expect": null, "prune_max": 10}
+     "reset_layout": false, "prune": false, "prune_expect": null, "prune_max": 10,
+     "reset_only": null}
 
 What it builds (all under /Game/AP):
     Materials/M_AP_PBR                       master material: BaseColorTex x Tint;
@@ -21,7 +22,8 @@ What it builds (all under /Game/AP):
 
 Ownership (the UE level is the layout's source of truth once imported):
   - actors are found again by their tags (ap:id=<slot>, ap:shot=<shot>);
-  - an actor's transform is only set when it's created, or with reset_layout;
+  - an actor's transform is only set when it's created, or with reset_layout (all slots, or
+    only the ids in reset_only);
   - the pipeline owns, and rewrites on every import: meshes, the instances inside a slot,
     camera lens and the sequence's camera cuts;
   - material instances: every one exposes Tint, Roughness, RoughnessMultiplier, Metallic
@@ -324,6 +326,13 @@ def environment(eas, existing_env):
     return made
 
 
+def resets(slot_id: str, args) -> bool:
+    """Does reset_layout move this existing slot actor back to the manifest? All of them, or
+    only those listed in reset_only (e.g. the stale ones, `ap ue import --only-stale`)."""
+    only = args.get("reset_only")
+    return bool(args.get("reset_layout")) and (only is None or slot_id in only)
+
+
 def place_slots(man, meshes, eas, by_tag, args, report, mats=None):
     for s in man["slots"]:
         actor = by_tag.get(("ap:id", s["id"]))
@@ -331,7 +340,7 @@ def place_slots(man, meshes, eas, by_tag, args, report, mats=None):
             actor = eas.spawn_actor_from_class(unreal.Actor, unreal.Vector(0, 0, 0))
             actor.set_actor_transform(tr(s["transform"]), False, False)
             report["actors"]["created"].append(s["id"])
-        elif args.get("reset_layout"):
+        elif resets(s["id"], args):
             actor.set_actor_transform(tr(s["transform"]), False, False)
             report["actors"]["reset"].append(s["id"])
         else:

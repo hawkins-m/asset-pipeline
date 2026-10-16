@@ -171,21 +171,23 @@ def orphan_breakdown(orphans: list[dict]) -> dict[str, int]:
 
 
 def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False, expect: int | None = None,
-            confirm=None) -> dict:
+            confirm=None, reset_only: list[str] | None = None) -> dict:
     """Import export/manifest.json into the project's UE level.
 
     prune deletes the pipeline actors missing from the manifest, but the editor script only
     does it when their count equals `expect`, or (no expect) is at most PRUNE_MAX. Otherwise
     nothing is deleted, and confirm(count, breakdown) decides: True reruns the import pruning
-    exactly that count. confirm=None (headless) never deletes past the check."""
-    rep = _import(store, reset_layout, prune, expect)
+    exactly that count. confirm=None (headless) never deletes past the check.
+    reset_only: with reset_layout, move back only these slot ids (e.g. the stale ones)."""
+    rep = _import(store, reset_layout, prune, expect, reset_only)
     n = rep.get("prune_refused")
     if prune and n is not None and confirm is not None and confirm(n, orphan_breakdown(rep["orphans"])):
-        rep = _import(store, reset_layout, True, n)
+        rep = _import(store, reset_layout, True, n, reset_only)
     return rep
 
 
-def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | None) -> dict:
+def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | None,
+            reset_only: list[str] | None = None) -> dict:
     man_path = s7_export.export_dir(store) / "manifest.json"
     if not man_path.is_file():
         raise FileNotFoundError("no export/manifest.json (run `ap export` first)")
@@ -197,7 +199,8 @@ def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | 
         shutil.rmtree(tmp)
     t = time.time()
     rep = run_script(store, "ap_import.py", {"manifest": str(man_path), "reset_layout": reset_layout,
-                                             "prune": prune, "prune_expect": expect, "prune_max": PRUNE_MAX},
+                                             "prune": prune, "prune_expect": expect, "prune_max": PRUNE_MAX,
+                                             "reset_only": reset_only},
                      "UE import")
     if "error" in rep:
         raise RuntimeError(f"UE import failed: {rep['error']}\n{rep.get('traceback', '')}")

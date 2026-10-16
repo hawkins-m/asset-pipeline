@@ -797,6 +797,20 @@ def _print_ue_report(rep) -> None:
         print(f"{len(warnings)} warning(s)")
 
 
+def _stale(store) -> dict:
+    from . import layout_history
+    return layout_history.check(store)
+
+
+def _print_stale(cls: dict) -> None:
+    """Slots away from the current greybox: stale (an earlier greybox put them there) or
+    moved by hand (no committed greybox did)."""
+    print(f"{len(cls['current'])} slots where the current greybox puts them; {len(cls['stale'])} stale "
+          f"(at an earlier committed greybox's place); {len(cls['hand'])} moved by hand")
+    for sid in cls["hand"]:
+        print(f"moved by hand (kept): {sid}")
+
+
 def _confirm_prune(n: int, breakdown: dict[str, int]) -> bool:
     """Ask before a prune past the automatic limit: the user types the count."""
     print(f"prune would delete {n} pipeline actors not in the manifest: "
@@ -809,9 +823,18 @@ def cmd_ue(a) -> None:
     store = ProjectStore.open(a.project)
     if a.action == "init":
         print(ue.init(store))
+    elif a.action == "stale":
+        _print_stale(_stale(store))
     elif a.action == "import":
+        if a.only_stale and not a.reset_layout:
+            raise SystemExit("--only-stale goes with --reset-layout")
+        only = None
+        if a.only_stale:
+            cls = _stale(store)
+            _print_stale(cls)
+            only = sorted(cls["stale"])
         _print_ue_report(ue.import_(store, reset_layout=a.reset_layout, prune=a.prune, expect=a.expect,
-                                    confirm=_confirm_prune if sys.stdin.isatty() else None))
+                                    confirm=_confirm_prune if sys.stdin.isatty() else None, reset_only=only))
     elif a.action == "render":
         rep = ue.render_shots(store, a.shots or None)
         for s in rep["shots"]:
@@ -1293,7 +1316,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
-    p.add_argument("action", choices=["init", "import", "render", "look", "pull-layout", "backup"])
+    p.add_argument("action", choices=["init", "import", "stale", "render", "look", "pull-layout", "backup"])
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="render: only these shots; look: the look preset's name "
                                             "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")
@@ -1302,6 +1325,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--prune", action="store_true",
                    help="import: delete pipeline actors not in the manifest (more than 10 needs --expect "
                         "or confirmation at a terminal; headless runs never go past that check)")
+    p.add_argument("--only-stale", action="store_true",
+                   help="import --reset-layout: move back only stale slots (placed by an earlier committed "
+                        "greybox); slots moved by hand in Unreal are listed and kept")
     p.add_argument("--expect", type=int, metavar="N",
                    help="import --prune: delete only if exactly N actors are missing from the manifest")
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config, 10)")
