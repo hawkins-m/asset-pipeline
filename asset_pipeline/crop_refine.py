@@ -25,6 +25,7 @@ from PIL import Image
 from scipy import ndimage
 
 from . import config, segment, vlm
+from . import gpu as gpu_mod
 
 # ADE20K classes that are a building or part of one
 KEEP = {"building", "house", "skyscraper", "wall", "column", "tower", "hovel", "door", "windowpane", "railing",
@@ -69,7 +70,7 @@ def dump(root: Path, frames: list[str], seg_dir: Path, log=None) -> None:
     if log:
         log(f"labels + depth for {len(todo)} frame(s) on GPU {gpu}")
     r = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
-                       env=dict(os.environ, HIP_VISIBLE_DEVICES=str(gpu), AP_ROOT=str(config.ap_root())))
+                       env=dict(os.environ, **gpu_mod.visible_devices_env(gpu), AP_ROOT=str(config.ap_root())))
     if r.returncode != 0:
         raise RuntimeError("seg_depth_dump failed:\n" + "\n".join((r.stdout + r.stderr).splitlines()[-15:]))
 

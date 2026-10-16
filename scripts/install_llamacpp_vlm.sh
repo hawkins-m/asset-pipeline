@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # llama.cpp (prebuilt Vulkan build, runs on RADV; no ROCm/rocBLAS involved) plus quantized
 # Qwen3-VL GGUFs, for vision LLMs too big for one 32 GB R9700 at bf16.
+# The Vulkan build is vendor-neutral: it should run on NVIDIA GPUs too (untested). Nothing to change.
 # Usage: scripts/install_llamacpp_vlm.sh [llamacpp] [8b] [32b] [30b-a3b]
 set -euo pipefail
-AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
 LLAMA_TAG="${LLAMA_TAG:-b11433}"
 LLAMA_DIR="$AP_ROOT/envs/llamacpp"
 GGUF="$AP_ROOT/models/gguf"

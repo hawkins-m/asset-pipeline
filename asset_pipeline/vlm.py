@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 
 from . import config
+from . import gpu as gpu_mod
 from .llm.base import LLMError
 
 
@@ -144,7 +145,7 @@ def _start(model: str, gpu: int, idle: float) -> dict:
         raise VLMError(f"{m['url']} is already taken by a server this tool didn't start")
     cmd = _command(model, m, gpu, idle)
     log = (_logs() / f"vlm-{model}.log").open("a")
-    env = dict(os.environ, HIP_VISIBLE_DEVICES=str(gpu), AP_ROOT=str(config.ap_root()))
+    env = dict(os.environ, **gpu_mod.visible_devices_env(gpu), AP_ROOT=str(config.ap_root()))
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
                             start_new_session=True)
     deadline = time.time() + 600  # the 32B loads 24 GB of weights before /health is 200

@@ -10,7 +10,14 @@
 # Every stage can be re-run on its own.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-source "$REPO/scripts/rocm_build_env.sh"
+# AP_TORCH=rocm7.2 (default, the tested AMD path) or a CUDA tag such as cu128 (NVIDIA, UNTESTED:
+# no HIP patches, upstream nvdiffrast; needs the CUDA toolkit (nvcc, CUDA_HOME) for the extensions).
+source "$REPO/scripts/torch_index.sh"
+if [ "$TORCH_KIND" = rocm ]; then
+  source "$REPO/scripts/rocm_build_env.sh"
+else
+  source "$REPO/scripts/build_env_common.sh"   # untested
+fi
 
 ENV="$AP_ROOT/envs/trellis2"
 SRC="$AP_ROOT/src"
@@ -18,7 +25,6 @@ TRELLIS="$SRC/TRELLIS.2"
 PATCHES="$SRC/trellis2-rocm-gfx1201"
 PY="$ENV/bin/python"
 PIP="$PY -m pip"
-TORCH_INDEX=https://download.pytorch.org/whl/rocm7.2
 
 clone() {  # clone <url> <dir> [git args...]
   local url=$1 dir=$2; shift 2
@@ -41,13 +47,19 @@ stage_deps() {
 
 stage_trellis() {
   clone https://github.com/microsoft/TRELLIS.2.git "$TRELLIS" --recursive
-  clone https://github.com/bioritmovideo/trellis2-rocm-gfx1201 "$PATCHES"
   cd "$TRELLIS"
-  if git diff --quiet; then git apply "$PATCHES/patches/trellis2_gfx1201.diff"; fi
+  if [ "$TORCH_KIND" = rocm ]; then
+    clone https://github.com/bioritmovideo/trellis2-rocm-gfx1201 "$PATCHES"
+    if git diff --quiet; then git apply "$PATCHES/patches/trellis2_gfx1201.diff"; fi
+  fi   # CUDA (untested): upstream TRELLIS.2 unpatched
   git submodule update --init --recursive
 }
 
 stage_nvdiffrast() {
+  if [ "$TORCH_KIND" = cuda ]; then   # untested: upstream nvdiffrast, no ROCm fork
+    PATH="$ENV/bin:$PATH" $PIP install "git+https://github.com/NVlabs/nvdiffrast.git@v0.4.0" --no-build-isolation
+    return
+  fi
   local d="$SRC/amd-nvdiffrast-rocm72-gfx1201"
   local nv="$SRC/nvdiffrast-build/nvdiffrast"
   clone https://github.com/Painter3000/amd-nvdiffrast-rocm72-gfx1201 "$d"
@@ -168,7 +180,8 @@ stage_nvdiffrec() {
   clone https://github.com/JeffreyXiang/nvdiffrec.git "$d" -b renderutils
   cd "$d"
   local c=nvdiffrec_render/renderutils/c_src
-  if git diff --quiet; then
+  # The edits below are HIP-only; on CUDA (untested) it builds as it is.
+  if [ "$TORCH_KIND" = rocm ] && git diff --quiet; then
     sed -i "s/'-lcuda', '-lnvrtc'//g" setup.py
     sed -i 's/0xFFFFFFFF/(unsigned long long)0xFFFFFFFF/g' "$c/loss.cu"
     for f in common torch_bindings; do
@@ -188,5 +201,19 @@ stage_verify() {
     "$PY" -c "import nvdiffrast.torch, cumesh, flex_gemm, o_voxel, nvdiffrec_render, trellis2; print('all imports OK')"
 }
 
+# CuMesh's HIP patches (stage_cumesh) are ROCm-only: on CUDA the stage is the plain build below.
+stage_cumesh_cuda() {   # untested
+  local d="$SRC/CuMesh"
+  clone https://github.com/visualbruno/CuMesh.git "$d" --recursive
+  cd "$d"
+  local eigen=third_party/cubvh/third_party/eigen
+  [ -f "$eigen/Eigen/Dense" ] || { rm -rf "$eigen"; git clone --depth 1 https://gitlab.com/libeigen/eigen.git "$eigen"; }
+  PATH="$ENV/bin:$PATH" $PIP install . --no-build-isolation --no-deps -v
+}
+
+run_stage() {
+  if [ "$TORCH_KIND" = cuda ] && [ "$1" = cumesh ]; then stage_cumesh_cuda; else "stage_$1"; fi
+}
+
 [ $# -gt 0 ] || { sed -n 2,10p "$0"; exit 1; }
-for s in "$@"; do echo "=== stage: $s"; ( "stage_$s" ); done
+for s in "$@"; do echo "=== stage: $s"; ( run_stage "$s" ); done

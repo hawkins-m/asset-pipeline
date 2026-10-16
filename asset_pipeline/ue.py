@@ -22,6 +22,7 @@ import numpy as np
 from PIL import Image
 
 from . import blender, config, ue_coords
+from . import gpu as gpu_mod
 from .project import ProjectStore, read_json, write_json
 from .stages import s7_export, sw_site
 
@@ -204,12 +205,9 @@ VRAM_LIMIT_GB = 4.0       # more than this held on a GPU by others (Blender, Com
 
 
 def gpu_vram() -> dict[int, float]:
-    """VRAM in use per GPU (GB), from rocm-smi: card N = GPU N = Vulkan adapter N."""
-    import subprocess
-    r = subprocess.run(["/opt/rocm/bin/rocm-smi", "--showmeminfo", "vram", "--json"], capture_output=True, text=True,
-                       timeout=30)
-    d = json.loads(r.stdout)
-    return {int(k[4:]): int(v["VRAM Total Used Memory (B)"]) / 1e9 for k, v in d.items() if k.startswith("card")}
+    """VRAM in use per GPU (GB), via gpu.vram_used_gb. On AMD, card N = GPU N = Vulkan adapter N.
+    On NVIDIA the Vulkan adapter index usually, but not always, matches the CUDA index (untested)."""
+    return gpu_mod.vram_used_gb()
 
 
 def pick_gpu(preferred: int, limit_gb: float = VRAM_LIMIT_GB, wait_s: float = 1800.0, log=print) -> int:

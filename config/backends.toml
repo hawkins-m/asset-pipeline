@@ -1,6 +1,16 @@
 # Backend configuration. No secrets here: API keys come from the environment
 # (GEMINI_API_KEY, ANTHROPIC_API_KEY).
 
+[paths]
+# Storage root (venvs, models, projects, outputs). The env var AP_ROOT wins over this.
+# Set your own here; it cannot go in backends.local.toml, which lives inside it.
+ap_root = "/mnt/storage/asset-pipeline"
+
+[tools]
+# Blender executable: env AP_BLENDER > this > "blender" on PATH. A machine-local path
+# (e.g. the snap's /snap/bin/blender) belongs in $AP_ROOT/backends.local.toml.
+blender = "blender"
+
 [comfyui]
 # Main ComfyUI instance (run_comfy.sh). Both ComfyUI instances run on GPU 1.
 url = "http://127.0.0.1:8188"

@@ -2,7 +2,7 @@
 # One-time, no-sudo setup of the HIP build toolchain under $AP_ROOT/tools.
 # See scripts/rocm_build_env.sh for why.
 set -euo pipefail
-AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
 
 # 1) Shim ROCM_HOME: everything from /opt/rocm, plus bin/hipcc -> Ubuntu hipcc driver.
 S="$AP_ROOT/tools/rocm-shim"

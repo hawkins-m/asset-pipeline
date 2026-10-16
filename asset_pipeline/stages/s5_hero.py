@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .. import config, review
+from .. import blender, config, review
 from ..comfy import workflow
 from ..comfy.client import ComfyClient, connect
 from ..project import ProjectStore, read_json, write_json
@@ -315,7 +315,7 @@ def render_turntable(glb: Path, out: Path, step: int = 5, elevations: str = "0,1
                      size: int = 192) -> Path:
     """Blender headless (CPU-light Workbench): the asset's mesh at known azimuths."""
     import subprocess
-    cmd = ["/snap/bin/blender", "-b", "--factory-startup", "--python",
+    cmd = [blender.blender_bin(), "-b", "--factory-startup", "--python",
            str(config.REPO_ROOT / "scripts" / "blender_turntable.py"), "--", str(glb), str(out),
            "--step", str(step), "--elevations", elevations, "--size", str(size)]
     r = subprocess.run(cmd, capture_output=True, text=True)

@@ -8,7 +8,9 @@
 #   scripts/diag/crop_refine_ab.py.
 # Usage: scripts/install_segdepth.sh [venv] [models] [mask2former]
 set -euo pipefail
-AP_ROOT="${AP_ROOT:-/mnt/storage/asset-pipeline}"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/torch_index.sh"
+# AP_TORCH=rocm7.2 (default) or a CUDA tag such as cu128 (untested): see scripts/torch_index.sh.
 ENV="$AP_ROOT/envs/segdepth"
 MODELS="$AP_ROOT/models"
 PY="$ENV/bin/python"
@@ -17,7 +19,7 @@ stage_venv() {
   [ -x "$PY" ] || python3.12 -m venv "$ENV"
   "$PY" -m pip install -U pip setuptools wheel
   # Same torch as TRELLIS.2 and the VLM (validated on gfx1201).
-  "$PY" -m pip install torch==2.13.0 torchvision --index-url https://download.pytorch.org/whl/rocm7.2
+  "$PY" -m pip install torch==2.13.0 torchvision --index-url "$TORCH_INDEX"
   "$PY" -m pip install "transformers>=4.57" accelerate pillow huggingface_hub scipy
 }
 
