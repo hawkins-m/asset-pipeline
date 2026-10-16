@@ -1,3 +1,5 @@
+> Setup, models and the demo path: see [README.md](README.md).
+
 # Running an image through TRELLIS.2
 
 ## Quick start
