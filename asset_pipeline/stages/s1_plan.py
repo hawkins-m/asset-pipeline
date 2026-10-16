@@ -21,8 +21,8 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from .. import config, review, segment
-from ..comfy.client import ComfyClient
+from .. import review, segment
+from ..comfy.client import ComfyClient, connect
 from ..llm.base import VisionLLM, structured
 from ..llm.registry import llm_for
 from ..project import ProjectStore, read_json, write_json
@@ -259,7 +259,7 @@ def refine_boxes(store: ProjectStore, name: str, client: ComfyClient | None = No
     plan = load(store, name)
     if not plan:
         raise FileNotFoundError(f"no plan {name}")
-    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    c = client or connect()
     scene = store.root / plan.scene
     w, h = Image.open(scene).size
     mdir = store.root / PLAN / "masks" / name

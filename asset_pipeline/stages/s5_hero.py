@@ -25,7 +25,7 @@ from PIL import Image, ImageDraw
 
 from .. import config, review
 from ..comfy import workflow
-from ..comfy.client import ComfyClient
+from ..comfy.client import ComfyClient, connect
 from ..project import ProjectStore, read_json, write_json
 
 HERO = "hero"
@@ -48,7 +48,7 @@ def orbit(store: ProjectStore, plan: str, asset_id: str, seed: int | None = None
     seed = random.randrange(2**31) if seed is None else seed
     out = store.root / HERO / plan / asset_id / f"orbit_s{seed}"
     out.mkdir(parents=True, exist_ok=True)
-    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    c = client or connect()
     graph, manifest = workflow.load_template("wan22_i2v_orbit")
     prompt = PROMPT.format(name=asset.name, description=asset.description)
     graph = workflow.fill(graph, manifest, {
@@ -288,7 +288,7 @@ def multiview_mesh(views: dict[str, Path], out: Path, seed: int = 0, steps: int 
     Hunyuan3D-2mv turbo in ComfyUI (GPU 1). "left" is the asset's own left side."""
     if "front" not in views:
         raise ValueError("a front view is required")
-    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    c = client or connect()
     graph, manifest = workflow.load_template("hunyuan3d_mv")
     values = {"seed": seed, "steps": steps}
     for side, (load, enc) in _SIDE_NODES.items():

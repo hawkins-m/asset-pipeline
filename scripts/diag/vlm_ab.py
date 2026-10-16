@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from asset_pipeline import config, segment  # noqa: E402
-from asset_pipeline.comfy.client import ComfyClient  # noqa: E402
+from asset_pipeline import segment  # noqa: E402
+from asset_pipeline.comfy.client import connect  # noqa: E402
 from asset_pipeline.llm.base import LLMError, structured  # noqa: E402
 from asset_pipeline.llm.llamacpp import LlamaCppVision  # noqa: E402
 from asset_pipeline.llm.local import LocalVision  # noqa: E402
@@ -54,7 +54,7 @@ def main():
     store = ProjectStore.open(a.project)
     sampling = QWEN_SAMPLING if a.sampling == "qwen" else None
     llm = LocalVision(a.url) if a.backend == "local" else LlamaCppVision(a.url, sampling=sampling)
-    comfy = None if a.no_sam else ComfyClient(config.backends()["comfyui"]["url"])
+    comfy = None if a.no_sam else connect()
     brief = store.load().brief.strip()
     prompt = s1_plan.PROMPT.format(brief=f"\nThe artist's brief for this scene: {brief}" if brief else "",
                                    max_assets=s1_plan.MAX_ASSETS)

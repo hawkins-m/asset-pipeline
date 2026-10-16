@@ -1,4 +1,5 @@
 """Thin HTTP client for a ComfyUI server (queue a graph, wait, fetch images)."""
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -6,7 +7,7 @@ from pathlib import Path
 
 import httpx
 
-from .. import jobs
+from .. import config, jobs
 
 
 class ComfyError(RuntimeError):
@@ -134,3 +135,22 @@ class ComfyClient:
 
     def run(self, graph: dict, output_nodes: list[str]) -> list[OutputImage]:
         return self.fetch_images(self.wait(self.queue(graph)), output_nodes)
+
+
+def backend_name() -> str:
+    """httpx (ComfyUI's own HTTP API) or sdk (Comfy SDK / API v2): AP_COMFY_BACKEND, else
+    [comfyui] backend in the config."""
+    name = os.environ.get("AP_COMFY_BACKEND") or config.backends()["comfyui"].get("backend", "sdk")
+    if name not in ("httpx", "sdk"):
+        raise ValueError(f"AP_COMFY_BACKEND={name!r}: expected httpx or sdk")
+    return name
+
+
+def connect(timeout_s: float | None = None) -> ComfyClient:
+    """The configured ComfyUI client (see backend_name)."""
+    c = config.backends()["comfyui"]
+    t = timeout_s if timeout_s is not None else c.get("timeout_s", 900)
+    if backend_name() == "httpx":
+        return ComfyClient(c["url"], t)
+    from .sdk_client import SdkComfyClient
+    return SdkComfyClient(c["url"], os.environ.get("AP_COMFY_SDK_URL") or c.get("sdk_url"), t)

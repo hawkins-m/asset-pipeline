@@ -96,8 +96,8 @@ def frame_mask(store: ProjectStore, frame: Path, box, cache: Path) -> np.ndarray
     if cache.exists() and (read_json(meta, default={}) or {}).get("box") == list(box):
         return np.asarray(Image.open(cache).convert("L")) > 127
     from . import segment
-    from .comfy.client import ComfyClient
-    dets = segment.detect_box(ComfyClient(config.backends()["comfyui"]["url"]), frame, NOUN, box)
+    from .comfy.client import connect
+    dets = segment.detect_box(connect(), frame, NOUN, box)
     if not dets:
         return None
     m = dets[0].mask.copy()

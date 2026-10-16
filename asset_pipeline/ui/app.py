@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .. import config, review, silhouette, ue, vlm
-from ..comfy.client import ComfyClient, ComfyError
+from ..comfy.client import ComfyError, connect
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
@@ -223,7 +223,7 @@ def _comfy_up() -> bool:
     """Is ComfyUI reachable (cached 10 s; the status is polled every 2 s while jobs run)."""
     if time.time() - _comfy_cache["t"] > 10:
         try:
-            ComfyClient(config.backends()["comfyui"]["url"], timeout_s=1).health()
+            connect(timeout_s=1).health()
             _comfy_cache["up"] = True
         except ComfyError:
             _comfy_cache["up"] = False
@@ -348,7 +348,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         """Read-only: is ComfyUI reachable (for the status bar)."""
         url = config.backends()["comfyui"]["url"]
         try:
-            stats = ComfyClient(url, timeout_s=2).health()
+            stats = connect(timeout_s=2).health()
         except ComfyError as e:
             return {"up": False, "url": url, "error": str(e)}
         dev = (stats.get("devices") or [{}])[0]

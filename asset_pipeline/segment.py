@@ -108,9 +108,10 @@ def detect_box(client: ComfyClient, image: Path, noun: str, box: tuple[int, int,
 
 def _no_detections(e: ComfyError) -> bool:
     """SAM 3 finding nothing makes the graph fail: the empty mask batch crashes the image
-    output node ("index 0 is out of bounds for dimension 0 with size 0")."""
+    output node ("index 0 is out of bounds for dimension 0 with size 0"). The SDK backend
+    gets no exception type (None), only the message."""
     err = e.execution_error()
-    return (err.get("exception_type") == "IndexError"
+    return (err.get("exception_type") in ("IndexError", None)
             and "with size 0" in err.get("exception_message", ""))
 
 

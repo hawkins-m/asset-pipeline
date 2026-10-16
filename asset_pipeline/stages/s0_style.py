@@ -26,8 +26,8 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from .. import config, review, segment
-from ..comfy.client import ComfyClient
+from .. import review, segment
+from ..comfy.client import ComfyClient, connect
 from ..imagegen.base import GenRequest
 from ..imagegen.registry import backend_for
 from ..project import ProjectStore, read_json, write_json
@@ -125,7 +125,7 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
     scene_path = store.root / key
     project = store.load()
     style_text = style_text or (project.anchor.style_text if project.anchor else "")
-    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    c = client or connect()
     out = derive_dir(store, key)
     out.mkdir(parents=True, exist_ok=True)
     backend = backend_for("style", project) if regenerate else None

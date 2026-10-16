@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .. import config, review, segment
-from ..comfy.client import ComfyClient
+from .. import review, segment
+from ..comfy.client import ComfyClient, connect
 from ..jobs import check_canceled
 from ..project import ProjectStore, read_json, write_json
 from . import s2_refs
@@ -89,7 +89,7 @@ def cut(store: ProjectStore, sheet: str, client: ComfyClient | None = None) -> l
     unit = _unit_for_sheet(store, key)
     if unit.kind == "material":
         return []
-    c = client or ComfyClient(config.backends()["comfyui"]["url"])
+    c = client or connect()
     path = store.root / key
     expected = len(unit.assets) if unit.kind == "kit" else len(ASKED)
     nouns = list(dict.fromkeys((a.noun or a.name) for a in unit.assets))

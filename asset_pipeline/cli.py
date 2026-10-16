@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config
-from .comfy.client import ComfyClient, ComfyError
+from .comfy.client import ComfyError, connect
 from .imagegen.base import GenRequest
 from .imagegen.registry import backend_for, make_backend
 from .llm.base import LLMError
@@ -27,7 +27,7 @@ def cmd_new(a) -> None:
 
 def cmd_comfy_check(a) -> None:
     c = config.backends()["comfyui"]
-    stats = ComfyClient(c["url"]).health()
+    stats = connect().health()
     sysinfo = stats.get("system", {})
     print(f"ComfyUI {sysinfo.get('comfyui_version', '?')} at {c['url']}")
     for d in stats.get("devices", []):

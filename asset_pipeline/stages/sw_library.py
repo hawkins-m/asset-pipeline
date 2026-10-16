@@ -566,10 +566,9 @@ def refine_sources(store: ProjectStore, client, data: dict, log=None) -> int:
 def check(store: ProjectStore, client=None, min_share: float = MIN_SHARE, progress=None) -> dict:
     """Segment trees, sky, buildings and the props' nouns with SAM 3.1 on every source frame
     (ComfyUI, GPU 1; cached per frame and noun), then re-plan with the flags."""
-    from .. import config
-    from ..comfy.client import ComfyClient
+    from ..comfy.client import connect
     from ..segment import detect
-    client = client or ComfyClient(config.backends()["comfyui"]["url"])
+    client = client or connect()
     frames = [k for ks in sources(store).values() for k in ks]
     todo = [(k, n) for k in frames for n in CHECK_NOUNS if not _sam_path(store, k, n).is_file()]
     for i, (k, noun) in enumerate(todo):

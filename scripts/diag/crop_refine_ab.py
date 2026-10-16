@@ -31,8 +31,8 @@ from PIL import Image, ImageDraw, ImageEnhance
 from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from asset_pipeline import config, segment  # noqa: E402
-from asset_pipeline.comfy.client import ComfyClient  # noqa: E402
+from asset_pipeline import segment  # noqa: E402
+from asset_pipeline.comfy.client import connect  # noqa: E402
 from asset_pipeline.project import ProjectStore, read_json  # noqa: E402
 from asset_pipeline.stages import sw_library, sw_shots  # noqa: E402
 
@@ -124,7 +124,7 @@ def main():
     keep_ids = [k for k, v in names.items() if v.split(",")[0].strip() in KEEP or v in KEEP]
     data = sw_library.load(store)
     by = {e["id"]: e for e in data["entries"]}
-    client = ComfyClient(config.backends()["comfyui"]["url"])
+    client = connect()
     out = store.root / "frames/_ab_crops"
     out.mkdir(parents=True, exist_ok=True)
     results, rows = {}, []

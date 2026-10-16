@@ -1,6 +1,6 @@
 """Pick the image backend for a stage from the project's settings."""
 from .. import config
-from ..comfy.client import ComfyClient
+from ..comfy.client import connect
 from ..schema import Project
 from .base import ImageGenBackend
 
@@ -10,7 +10,7 @@ def make_backend(name: str) -> ImageGenBackend:
     if name == "comfyui":
         from .comfyui import ComfyUIBackend
         c = cfg["comfyui"]
-        return ComfyUIBackend(ComfyClient(c["url"], c.get("timeout_s", 900)), c["workflows"])
+        return ComfyUIBackend(connect(), c["workflows"])
     if name == "gemini":
         from .gemini import GeminiImageBackend
         return GeminiImageBackend(cfg.get("gemini", {}).get("image_model", ""))

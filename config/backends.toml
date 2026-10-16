@@ -5,6 +5,13 @@
 # Main ComfyUI instance (run_comfy.sh). Both ComfyUI instances run on GPU 1.
 url = "http://127.0.0.1:8188"
 timeout_s = 900
+# How the pipeline talks to ComfyUI (AP_COMFY_BACKEND overrides):
+#   sdk    the Comfy SDK (Comfy API v2) through comfy-api-proxy at sdk_url
+#          (scripts/comfy_api_proxy.sh; AP_COMFY_SDK_URL overrides sdk_url)
+#   httpx  ComfyUI's own HTTP API at url, no proxy
+# Machine-specific settings go in $AP_ROOT/backends.local.toml, merged over this file.
+backend = "sdk"
+sdk_url = "http://127.0.0.1:8190"
 
 [comfyui.workflows]
 # Logical name -> workflows/<file>.json (+ <file>.bindings.json)
