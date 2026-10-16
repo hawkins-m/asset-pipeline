@@ -71,6 +71,19 @@ reflects what was actually verified.
 | `outputs/` | Generated images, meshes and GLBs. |
 | `logs/` | Install and run logs. |
 
+## Comfy SDK backend (verified 2026-10-15)
+- `AP_COMFY_BACKEND=httpx|sdk` (else `[comfyui] backend`; repo default `sdk`). This machine keeps
+  `httpx` in `$AP_ROOT/backends.local.toml`, which is merged over `config/backends.toml`.
+- `sdk` = comfy-sdk 0.5.0 through comfy-api-proxy 0.1.6 (`scripts/comfy_api_proxy.sh`, own venv
+  `$AP_ROOT/envs/comfy-api-proxy`, port 8190: its default 8189 is the H3 instance here).
+- The proxy forwards `Job.cancel()` to `POST /api/jobs/{id}/cancel`, which ComfyUI 0.24 lacks:
+  the job keeps running. `SdkComfyClient.cancel_prompt` then does the /queue delete or
+  /interrupt itself (verified live: interrupted, job canceled 3 s later).
+- The v2 job error has the node class and message but no exception type; SAM's "found nothing"
+  arrives as `PreviewImage` + "index 0 is out of bounds ... size 0" (verified live).
+- PreviewImage (temp) outputs come back through the proxy; "3d" outputs (SaveGLB) don't, so
+  Hunyuan3D needs httpx.
+
 ## Building HIP / torch extensions
 - First run `scripts/setup_rocm_toolchain.sh` (one time, no sudo).
 - Then `source scripts/rocm_build_env.sh` in every shell that builds extensions, and

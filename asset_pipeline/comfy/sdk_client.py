@@ -115,11 +115,12 @@ class SdkComfyClient(ComfyClient):
                           "node_type": getattr(err, "class_type", None),
                           "exception_type": None,   # the v2 error doesn't carry it
                           "exception_message": getattr(err, "message", "") or ""}
-                messages = [["execution_error", detail]] if job.status == "failed" else \
-                    [["execution_interrupted", {}]]
-                raise ComfyError(f"ComfyUI execution failed: {job.status}: "
-                                 f"{detail['node_type']}: {detail['exception_message']}",
-                                 messages=messages)
+                if job.status != "failed":
+                    raise ComfyError(f"ComfyUI execution failed: prompt {prompt_id} {job.status}",
+                                     messages=[["execution_interrupted", {}]])
+                raise ComfyError(f"ComfyUI execution failed: {detail['node_type']}: "
+                                 f"{detail['exception_message'].strip()}",
+                                 messages=[["execution_error", detail]])
             time.sleep(poll_s)
         raise ComfyError(f"timed out after {self.timeout_s}s waiting for prompt {prompt_id}")
 
