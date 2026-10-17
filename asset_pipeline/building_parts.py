@@ -178,7 +178,16 @@ def balustrade(x0, x1, y, z, kind="glass", h=1.05) -> list[dict]:
     if kind == "rail":
         return [box(x0, x1, y, y + 0.06, z + h - 0.06, z + h, "frame")] + \
                [box(x, x + 0.04, y, y + 0.04, z, z + h, "frame") for x in _steps(x0, x1, 0.12)]
-    return [box(x0, x1, y + 0.02, y + 0.05, z, z + h, "rail_glass"), box(x0, x1, y, y + 0.07, z + h - 0.05, z + h, "frame")]
+    # glass: clear panels about 1.5 m wide between slim posts, on a base shoe, under a handrail
+    n = max(1, round((x1 - x0) / 1.5))
+    pw = (x1 - x0) / n
+    out = [box(x0, x1, y, y + 0.08, z, z + 0.1, "frame"),                               # base shoe
+           box(x0, x1, y - 0.01, y + 0.08, z + h - 0.05, z + h, "frame")]                # handrail
+    out += [box(x0 + i * pw + 0.015, x0 + (i + 1) * pw - 0.015, y + 0.03, y + 0.05, z + 0.1, z + h - 0.05, "rail_glass")
+            for i in range(n)]
+    out += [box(max(x0, x - 0.02), min(x1, x + 0.02), y + 0.015, y + 0.065, z + 0.1, z + h - 0.05, "frame")
+            for x in (x0 + i * pw for i in range(n + 1))]                                 # posts at the joints
+    return out
 
 
 def _steps(a, b, step):
@@ -215,16 +224,16 @@ def archivolt(o: dict, width: float, y0: float, proj: float, mat="trim", seg=12)
     return out
 
 
-def frame(o: dict, y: float, t: float = 0.07, mullions: int = 0) -> list[dict]:
-    """A window frame (and mullions) inside a rect opening, at depth y."""
+def frame(o: dict, y: float, t: float = 0.07, mullions: int = 0, mat: str = "frame") -> list[dict]:
+    """A window frame (and mullions) inside a rect opening, at depth y (mat "wood": timber)."""
     if o["kind"] != "rect":
         return []
     a, b, z0, z1 = o["cx"] - o["w"] / 2, o["cx"] + o["w"] / 2, o["z0"], o["z0"] + o["h"]
-    out = [box(a, b, y, y + 0.06, z0, z0 + t, "frame"), box(a, b, y, y + 0.06, z1 - t, z1, "frame"),
-           box(a, a + t, y, y + 0.06, z0, z1, "frame"), box(b - t, b, y, y + 0.06, z0, z1, "frame")]
+    out = [box(a, b, y, y + 0.06, z0, z0 + t, mat), box(a, b, y, y + 0.06, z1 - t, z1, mat),
+           box(a, a + t, y, y + 0.06, z0 + t, z1 - t, mat), box(b - t, b, y, y + 0.06, z0 + t, z1 - t, mat)]
     for k in range(1, mullions + 1):
         x = a + (b - a) * k / (mullions + 1)
-        out.append(box(x - t / 2, x + t / 2, y, y + 0.06, z0, z1, "frame"))
+        out.append(box(x - t / 2, x + t / 2, y, y + 0.06, z0 + t, z1 - t, mat))
     return out
 
 
@@ -234,9 +243,10 @@ FACADE = {
     "storeys": 4, "storey_h": 3.4, "ground_h": None, "bay_m": 4.5, "thickness": 0.5,
     "pattern": ["window"],              # bay kinds, cycled across each segment: window | slot | loggia | blind | solid
     "window": {"kind": "rect", "w": 0.45, "h": 0.55, "sill": 0.28, "reveal": 0.25, "frame": True, "mullions": 0,
-               "rise": None, "archivolt": 0.0},
+               "rise": None, "archivolt": 0.0},          # + "frame_mat" ("wood": timber, also on plain ground windows), "frame_t" (m)
     "slot": {"w": 0.16, "h": 0.72, "sill": 0.12},
-    "loggia": {"w": 0.72, "h": 0.78, "sill": 0.0, "depth": 1.8, "balustrade": "glass"},   # + "jamb" (m), "doors": "sliding"
+    "loggia": {"w": 0.72, "h": 0.78, "sill": 0.0, "depth": 1.8, "balustrade": "glass"},   # + "jamb" (m), "doors": "sliding",
+                                        # "frame" (back window framed like the windows), "lining" (jambs' material, e.g. "wood")
     "blind": {"kind": "rect", "w": 0.6, "h": 0.72, "sill": 0.14, "depth": 0.14},
     "ground": {"kind": "plain"},        # plain | shop | sparse | arcade | pilotis | recessed | blind_arcade
                                         # (pilotis / recessed: "recess" m, "door_w" / "door_h" of the back wall's doors)
@@ -367,6 +377,8 @@ def facade(L: float, F: dict) -> list[dict]:
     gh = lv[0][1]
     parts = []
     segs = _segments(L, F)
+    win = F["window"]
+    fmat, ft = win.get("frame_mat", "frame"), win.get("frame_t", 0.07)
     for si, sg in enumerate(segs):
         x0, x1, dy = sg["x0"], sg["x1"], sg["depth"]
         nb = max(1, round((x1 - x0) / F["bay_m"]))
@@ -398,6 +410,8 @@ def facade(L: float, F: dict) -> list[dict]:
             parts += pierced(x0, x1, 0.0, gh, dy, dy + t, ops, F["mat"]["ground"],
                              inset=0.3 if gk == "shop" else (0.8 * t if gk == "sparse" else None))
             for o in ops:
+                if gk == "plain" and win.get("frame_mat") and o["z0"] > 0:     # timber frames: ground windows too
+                    parts += frame(o, dy + t / 2 - 0.03, t=ft, mullions=win.get("mullions", 0), mat=fmat)
                 if o.get("blind"):
                     parts.append(prism(outline(o), dy + 0.25, dy + t, F["mat"]["ground"]))
                 elif gk == "arcade":                   # the arcade's walk and the shopfront behind it
@@ -415,23 +429,24 @@ def facade(L: float, F: dict) -> list[dict]:
             for cx, bwi, kind in bays(x0, x1, F, pat):
                 o, _ = _bay_openings(kind, cx, bwi, z, sh, F)
                 ops += o
-            win = F["window"]
             parts += pierced(x0, x1, z, z + sh, dy, dy + t, ops, F["mat"]["upper"], inset=win["reveal"])
             for o in ops:
                 if o.get("loggia"):
                     lg = F["loggia"]
                     a, b_, zb, zt = o["cx"] - o["w"] / 2, o["cx"] + o["w"] / 2, o["z0"], o["z0"] + o["h"]
                     dep, jt = lg["depth"], lg.get("jamb", 0.15)
-                    parts += [box(a, a + jt, dy + t, dy + dep, zb, zt, F["mat"]["upper"]),
-                              box(b_ - jt, b_, dy + t, dy + dep, zb, zt, F["mat"]["upper"])]
+                    lm = lg.get("lining") or F["mat"]["upper"]
+                    parts += [box(a, a + jt, dy + t, dy + dep, zb, zt, lm),
+                              box(b_ - jt, b_, dy + t, dy + dep, zb, zt, lm)]
                     if lg.get("doors") == "sliding":    # full-width glass sliding doors at the back
                         door = {"kind": "rect", "cx": o["cx"], "w": o["w"] - 2 * jt - 0.1, "z0": zb, "h": 0.94 * (zt - zb)}
                         parts += pierced(a + jt, b_ - jt, zb, zt, dy + dep, dy + dep + 0.2, [door], F["mat"]["upper"], inset=0.05)
-                        parts += frame(door, dy + dep - 0.03, mullions=lg.get("mullions", 2))
+                        parts += frame(door, dy + dep - 0.03, mullions=lg.get("mullions", 2), mat=fmat)
                     else:
-                        parts += pierced(a, b_, zb, zt, dy + dep, dy + dep + 0.2,
-                                         [{"kind": "rect", "cx": o["cx"], "w": 0.8 * o["w"], "z0": zb, "h": 0.9 * (zt - zb)}],
-                                         F["mat"]["upper"], inset=0.05)
+                        back = {"kind": "rect", "cx": o["cx"], "w": 0.8 * o["w"], "z0": zb, "h": 0.9 * (zt - zb)}
+                        parts += pierced(a, b_, zb, zt, dy + dep, dy + dep + 0.2, [back], F["mat"]["upper"], inset=0.05)
+                        if lg.get("frame"):
+                            parts += frame(back, dy + dep + 0.02, t=ft, mullions=lg.get("mullions", 1), mat=fmat)
                     parts += balustrade(a, b_, dy + 0.02, zb, lg["balustrade"])
                     if lg.get("planters"):                  # planted loggias (hanging gardens)
                         parts += planter(a + 0.2, b_ - 0.2, dy + 0.25, dy + 0.85, zb, h=0.5, seed=int(s * 3 + o["cx"]))
@@ -439,7 +454,7 @@ def facade(L: float, F: dict) -> list[dict]:
                     parts.append(prism(outline(o), dy + F["blind"]["depth"], dy + t, F["mat"]["upper"]))
                 else:
                     if win.get("frame") and o["kind"] == "rect":
-                        parts += frame(o, dy + win["reveal"] - 0.03, mullions=win.get("mullions", 0))
+                        parts += frame(o, dy + win["reveal"] - 0.03, t=ft, mullions=win.get("mullions", 0), mat=fmat)
                     if win.get("archivolt") and o["kind"] in ("arch", "seg"):
                         parts += archivolt(o, win["archivolt"], dy, 0.06)
                     parts.append(box(o["cx"] - o["w"] / 2 - 0.08, o["cx"] + o["w"] / 2 + 0.08, dy - 0.06, dy + 0.1,
@@ -465,6 +480,13 @@ def facade(L: float, F: dict) -> list[dict]:
         if dy > 0.01:
             for xe in (x0, x1):
                 parts.append(box(xe - t / 2, xe + t / 2, 0.0, dy + t, 0.0, H, F["mat"]["upper"]))
+        # projecting segment: returns from its wall back to the facade line and a cap over the gap
+        # (open until 2026-10-16: a dark slot down each side of every projecting bay)
+        elif dy + t < -0.01:
+            zr = gh if gk in ("pilotis", "recessed") else 0.0        # the soffit closes the ground storey
+            parts += [box(x0, x0 + t, dy + t, 0.0, zr, H, F["mat"]["upper"]),
+                      box(x1 - t, x1, dy + t, 0.0, zr, H, F["mat"]["upper"]),
+                      box(x0 + t, x1 - t, dy + t, 0.0, H - 0.45, H, "roof")]
     # pilasters, courses, cornice, parapet
     pil = F["pilasters"]
     if pil:                                              # on the bay boundaries: every `every` bays

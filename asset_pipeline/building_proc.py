@@ -352,7 +352,8 @@ def _plain_materials(brief: dict) -> dict:
     dark = sorted(meas["palette"], key=lambda c: c["lum"])[0]["rgb"]
     out = {}
     out["glass"] = _plain(col.get("glass") or [int(0.6 * c + 0.4 * g) for c, g in zip(dark, (70, 80, 88))], 0.06)
-    out["rail_glass"] = _plain(col.get("rail_glass") or [168, 180, 186], 0.05)       # balustrade glass reads light
+    # balustrade glass: clear (alpha), so the slab edge, planters and the wall show through
+    out["rail_glass"] = {**_plain(col.get("rail_glass") or [196, 206, 208], 0.05), "alpha": 0.25}
     out["frame"] = _plain(col.get("frame") or [58, 52, 46], 0.4, 0.6)
     out["planting"] = _plain(col.get("planting") or [78, 98, 58], 0.9)
     out["wood"] = _plain(col.get("wood") or [150, 106, 70], 0.7)

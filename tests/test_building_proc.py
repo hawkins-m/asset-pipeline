@@ -217,6 +217,43 @@ FEATURED = [
 ]
 
 
+def test_projecting_segment_is_closed_by_returns_and_a_cap():
+    # a projecting bay (negative recess depth) had no return walls: a dark slot down each side
+    for ground in ({"kind": "plain"}, {"kind": "pilotis", "recess": 1.6}):
+        F = bparts.merged(bparts.FACADE, {"storeys": 5, "ground": ground,
+                                        "recess": [{"x0": 0.4, "x1": 0.6, "depth": -1.4}]})
+        ps = bparts.facade(30.0, F)
+        H, t, x0, x1 = bparts.height(F), F["thickness"], -3.0, 3.0
+        ret = [p for p in ps if p["kind"] == "box" and p["y0"] <= -1.4 + t + 1e-6 and p["y1"] >= -1e-6
+               and p["z1"] >= H - 1e-6 and p["x1"] - p["x0"] <= t + 1e-6]
+        assert sorted(round(p["x0"], 3) for p in ret) == [x0, round(x1 - t, 3)]
+        assert any(p["mat"] == "roof" and p["x0"] <= x0 + t + 1e-6 and p["x1"] >= x1 - t - 1e-6
+                   and p["z1"] >= H - 1e-6 for p in ps)
+        bparts.resolve_coincident(ps)
+        assert bparts.coincident_area(ps) == []
+
+
+def test_glass_balustrade_is_framed_clear_panels():
+    ps = bparts.balustrade(0.0, 6.0, 0.0, 3.0, "glass")
+    glass = [p for p in ps if p["mat"] == "rail_glass"]
+    assert len(glass) == 4 and all(p["x1"] - p["x0"] < 1.6 for p in glass)        # panels, not one slab
+    top = max(p["z1"] for p in ps)
+    assert any(p["mat"] == "frame" and p["z1"] == top and p["x1"] - p["x0"] == 6.0 for p in ps)   # handrail
+    assert bp._plain_materials({"measured": {"palette": [{"rgb": [50, 50, 50], "lum": 50}]}})["rail_glass"]["alpha"] < 1
+
+
+def test_timber_frames_and_loggia_lining_are_opt_in():
+    base = {"storeys": 3, "pattern": ["loggia", "window"], "loggia": {"balustrade": "rail"}}
+    assert "wood" not in {p["mat"] for p in bparts.facade(20.0, bparts.merged(bparts.FACADE, base))}
+    F = bparts.merged(bparts.FACADE, {**base, "window": {"frame_mat": "wood"},
+                                      "loggia": {"balustrade": "rail", "frame": True, "lining": "wood"}})
+    ps = bparts.facade(20.0, F)
+    wood = [p for p in ps if p["mat"] == "wood"]
+    assert wood and not [p for p in ps if p["mat"] == "frame" and p["z1"] - p["z0"] > 1.2]   # no metal frames left
+    bparts.resolve_coincident(ps)
+    assert bparts.coincident_area(ps) == []
+
+
 @pytest.mark.parametrize("form,dims,feats", FEATURED)
 def test_featured_variants_have_no_coplanar_twins(form, dims, feats):
     ps = bg.GENERATORS[form](dims, {}, bg.features(form, feats))

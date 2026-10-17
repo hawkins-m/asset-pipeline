@@ -1333,7 +1333,7 @@ def main(argv: list[str] | None = None) -> None:
                         "greybox); slots moved by hand in Unreal are listed and kept")
     p.add_argument("--expect", type=int, metavar="N",
                    help="import --prune: delete only if exactly N actors are missing from the manifest")
-    p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config, 10)")
+    p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)
 

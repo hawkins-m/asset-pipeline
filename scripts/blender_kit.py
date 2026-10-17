@@ -21,7 +21,7 @@ SPEC: {"out": "piece.glb", "repeat": 1, "parts": [...], "materials": {name: {...
       fall back to the "tile" material named in "fallback"
     {"base": ..., "uv": "tile", "tile_m": 3.0}     box mapping at tile_m metres per repeat
                                                    (tile_v_m: its height, when not square)
-    {"uv": "plain", "color": [r, g, b], "rough": 0.1, "metal": 0.0}   no texture (glass, trim)
+    {"uv": "plain", "color": [r, g, b], "rough": 0.1, "metal": 0.0, "alpha": 0.25}   no texture (glass, trim)
   repeat: n copies along X at the piece's width (a preview of a tiled run)
 """
 import json
@@ -176,6 +176,9 @@ def material(name, m):
         nt.links.new(img(m["normal"], True).outputs["Color"], nm.inputs["Color"])
         nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
     bsdf.inputs["Metallic"].default_value = m.get("metal", 0.0)
+    if m.get("alpha") is not None:           # see-through (balustrade glass): glTF alphaMode BLEND
+        bsdf.inputs["Alpha"].default_value = m["alpha"]
+        mat.surface_render_method = "BLENDED"
     return mat
 
 
