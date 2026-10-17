@@ -227,7 +227,7 @@ this has been run. TRELLIS.2 on CUDA additionally needs the CUDA toolkit for its
 ## Models and licenses
 
 All open weights, all run locally. **Commercial use requires a commercial license from each model's owner wherever that model's license calls for one; check every row below before using any output commercially.** Several are non-commercial, so the pipeline as configured
-is for non-commercial use unless you swap those models.**
+is for non-commercial use unless you swap those models.
 
 | Model | Used for | License |
 |---|---|---|
