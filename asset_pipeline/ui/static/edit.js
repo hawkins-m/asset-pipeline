@@ -93,6 +93,16 @@ const TIPS = {
     min_walkable: "Hill towns (organic nodes): the least share (0 to 1) of buildings within 1.6x the node's radius that stand within 20 m of a street, lane or stair. The report also shows the city-wide share, for information (ordinary blocks have inner courts and second rows).",
     district_diversity_min: "Least typology diversity per district: the Shannon index of footprint shares, in nats. e^value is about the number of equally used types (1.6 = about 5). Checked per district with 20+ buildings.",
   },
+  street_trees: {
+    streets: "Tree slots along local streets (site/vegetation.json, for the Unreal PCG pass). Avenue and park trees stay in the plan. Changing these never moves the city plan.",
+    plazas: "A ring of tree slots inside each civic node's plaza, clear of basins, plinths and markets.",
+    spacing_m: "Distance between trees along a street or around a plaza, metres.",
+    min_street_w: "Streets narrower than this (metres) get no trees.",
+    both_sides_w: "From this street width (metres) a row on each side; narrower streets get one row, alternating sides.",
+    plaza_inset_m: "How far inside the plaza's edge the ring of trees stands, metres.",
+    clear_m: "Clearance from buildings, other ways and existing trees, metres.",
+    seed: "The street trees' own random stream (crown sizes, the ring's start angle). Run ap site vegetation after a change.",
+  },
   variation: {
     storeys_jitter: "City-wide: random storeys added or removed per building (plus or minus this many).",
     avenue_bonus: "City-wide: storeys added to perimeter and row buildings whose frontage is on an avenue.",

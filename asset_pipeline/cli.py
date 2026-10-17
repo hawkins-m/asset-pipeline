@@ -418,6 +418,16 @@ def _print_site(store, pieces: bool = False) -> None:
               f"{', '.join(s['untagged'][:8])}{' ...' if len(s['untagged']) > 8 else ''}")
 
 
+def cmd_site_vegetation(a) -> None:
+    from . import vegetation
+    store = ProjectStore.open(a.project)
+    rec = vegetation.street_tree_slots(store)
+    print(f"{vegetation.path(store)}: {rec['counts']['street']} street-tree slots, {rec['counts']['plaza']} plaza (settings: "
+          f"layout city.street_trees; the city plan is unchanged)")
+    for p in vegetation.preview(store, a.preview) if a.preview else []:
+        print(p)
+
+
 def cmd_site_preview(a) -> None:
     from .stages import sw_shots
     for p in sw_shots.preview_site(ProjectStore.open(a.project)):
@@ -834,7 +844,8 @@ def cmd_ue(a) -> None:
             _print_stale(cls)
             only = sorted(cls["stale"])
         _print_ue_report(ue.import_(store, reset_layout=a.reset_layout, prune=a.prune, expect=a.expect,
-                                    confirm=_confirm_prune if sys.stdin.isatty() else None, reset_only=only))
+                                    confirm=_confirm_prune if sys.stdin.isatty() else None, reset_only=only,
+                                    vegetation=a.vegetation))
     elif a.action == "render":
         rep = ue.render_shots(store, a.shots or None)
         for s in rep["shots"]:
@@ -1129,6 +1140,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--pieces", action="store_true", help="also list kit pieces / massing with counts")
     p.set_defaults(fn=cmd_site_show)
+    p = sisub.add_parser("vegetation", help="street-tree slots on streets and plazas (data for Unreal PCG; "
+                                            "site/vegetation.json), with proxy-tree previews from shot cameras")
+    p.add_argument("project")
+    p.add_argument("--preview", nargs="+", metavar="SHOT", help="render these shots' greybox previews with proxy trees "
+                                                                "(site/vegetation/<shot>/preview.png)")
+    p.set_defaults(fn=cmd_site_vegetation)
     p = sisub.add_parser("preview", help="four aerial preview renders of the greybox")
     p.add_argument("project")
     p.set_defaults(fn=cmd_site_preview)
@@ -1333,6 +1350,9 @@ def main(argv: list[str] | None = None) -> None:
                         "greybox); slots moved by hand in Unreal are listed and kept")
     p.add_argument("--expect", type=int, metavar="N",
                    help="import --prune: delete only if exactly N actors are missing from the manifest")
+    p.add_argument("--vegetation", action="store_true",
+                   help="import: also place the vegetation points (export/vegetation.json) as tagged TargetPoints for a "
+                        "PCG graph (untested in Unreal as of 2026-10-16)")
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)

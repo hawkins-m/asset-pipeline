@@ -223,12 +223,19 @@ def build(store: ProjectStore, asset: str, repeat: int = 1, out: Path | None = N
                        extra={"kind": spec["kind"]}, log=log)
 
 
+def zones_path(glb: Path) -> Path:
+    """A build's vegetation zones: <name>.zones.json next to its GLB."""
+    return glb.with_name(glb.stem + ".zones.json")
+
+
 def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: dict, glb: Path, maps: Path,
                 repeat: int = 1, width: float | None = None, extra: dict | None = None, log=print) -> dict:
     """Build parts with materials in Blender (scripts/blender_kit.py) into glb; the report
     goes to <asset dir>/procedural.json for the asset's own GLB."""
     maps.mkdir(parents=True, exist_ok=True)
-    from .building_parts import resolve_coincident
+    from .building_parts import resolve_coincident, zone_records
+    zones = [p for p in parts if p["kind"] == "zone"]          # vegetation zones: data, no geometry
+    parts = [p for p in parts if p["kind"] != "zone"]
     resolve_coincident(parts)          # coplanar twins render black (Cycles) and z-fight (Unreal)
     job = {"name": asset, "out": str(glb), "repeat": repeat, "width": width, "parts": parts, "materials": materials}
     jp = maps / ("job.json" if repeat == 1 else f"job_x{repeat}.json")
@@ -239,8 +246,12 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
     lines = [ln for ln in log_path.read_text().splitlines() if ln.startswith('{"out"')]
     if not lines:
         raise RuntimeError("blender_kit wrote no report:\n" + "\n".join(log_path.read_text().splitlines()[-20:]))
-    res = json.loads(lines[-1]) | (extra or {}) | {"parts": len(parts), "repeat": repeat}
+    zrec = zone_records(zones)
+    write_json(zones_path(glb), {"asset": asset, "frame": "building: metres, z up, front facing -Y", "zones": zrec})
+    res = json.loads(lines[-1]) | (extra or {}) | {"parts": len(parts), "repeat": repeat, "zones": len(zrec)}
     if repeat == 1 and glb == out_dir(store, asset) / "procedural.glb":
+        from .areas import brief_sha                 # batch builds skip a build whose brief hasn't changed
+        res["brief_sha"] = brief_sha(store, asset)
         write_json(out_dir(store, asset) / "procedural.json", res)
     log(json.dumps(res))
     return res

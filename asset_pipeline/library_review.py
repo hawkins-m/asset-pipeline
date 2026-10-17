@@ -33,8 +33,10 @@ STEPS = ("brief saved", "Blender build", "quick preview", "Cycles: sheet angle",
 # brief values that are shares (0..1] of a bay, a storey, a face or a span
 FRACTIONS = {"niche": ("w", "h", "rise", "mezzanine", "door_w"), "loggia": ("w", "h", "sill"),
              "window": ("w", "h", "sill"), "slot": ("w", "h", "sill"), "blind": ("w", "h", "sill"),
-             "top": ("span",), "accent": ("w",), "end_screen": ("mezzanine", "passage_w")}
+             "top": ("span",), "accent": ("w",), "end_screen": ("mezzanine", "passage_w"), "curtain": ("w", "transom"),
+             "street_garden": ("length",)}
 TOP_FRACTIONS = ("nave", "aisle_h", "gallery_h", "atrium")
+ZERO_OK = ("sill", "transom")          # shares that may be 0 (a loggia from the floor, no transom)
 
 
 def _now() -> str:
@@ -130,8 +132,12 @@ def render(store: ProjectStore, asset: str, glb: Path, out: Path, mode: str, for
     views = [{"name": ("preview_" if mode == "quick" else "") + "sheet", "az": SHEET_AZ.get(form, -4), "el": 0.12},
              {"name": ("preview_" if mode == "quick" else "") + "threeq", "az": -35, "el": 0.35}] + (extra_views or [])
     out.mkdir(parents=True, exist_ok=True)
+    zones = kit_proc.zones_path(glb)
+    if not zones.is_file():                      # a copy of the GLB (a review round): the asset's own zones
+        zones = kit_proc.zones_path(kit_proc.out_dir(store, asset) / "procedural.glb")
     job = {"glb": str(glb), "out_dir": str(out), "mode": mode, "views": views, "figure": figure,
-           "size": [900, 640] if mode == "cycles" else [720, 512], "samples": 64}
+           "size": [900, 640] if mode == "cycles" else [720, 512], "samples": 64,
+           "zones": str(zones) if zones.is_file() else None}
     jp = out / f"render_{mode}.json"
     write_json(jp, job)
     log = out / f"render_{mode}.log"
@@ -221,8 +227,9 @@ def _walk_fractions(feats: dict, path: str = "") -> list[str]:
         if isinstance(v, dict):
             for fk in FRACTIONS.get(k, ()):
                 x = v.get(fk)
-                if isinstance(x, (int, float)) and not 0 < x <= 1:
-                    errs.append(f"{p}.{fk} = {x}: a share, must be in (0, 1]")
+                lo_ok = fk in ZERO_OK
+                if isinstance(x, (int, float)) and not ((0 <= x if lo_ok else 0 < x) and x <= 1):
+                    errs.append(f"{p}.{fk} = {x}: a share, must be in {'[0' if lo_ok else '(0'}, 1]")
             errs += _walk_fractions(v, p + ".")
         elif k in TOP_FRACTIONS and isinstance(v, (int, float)) and not 0 < v <= 1:
             errs.append(f"{p} = {v}: a share, must be in (0, 1]")
@@ -230,8 +237,10 @@ def _walk_fractions(feats: dict, path: str = "") -> list[str]:
 
 
 def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
-    """Errors (block the rebuild) and warnings for a brief: positive sizes, shares in (0, 1],
-    footprint and storeys inside the catalog's ranges, parts that fit each other."""
+    """Errors (block the rebuild) and warnings for a brief. Errors: positive sizes, shares in
+    (0, 1], choices from building_gen.ENUMS, parts that fit each other. Warnings: footprint and
+    storeys outside the catalog's ranges (a sheet may show another size; the catalog itself is
+    edited in the City tab, and changing it reshuffles the city plan)."""
     errs, warns = [], []
     dims = brief.get("dims") or []
     if len(dims) != 3 or any(not isinstance(x, (int, float)) or x <= 0 for x in dims):
@@ -242,6 +251,7 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         return {"errors": errs, "warnings": warns}
     f = building_gen.features(brief["form"], brief.get("features"))
     errs += _walk_fractions(f)
+    errs += _walk_enums(f)
     e = entry_of(store, asset)
     layout = sw_site.load_layout(store)
     typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
@@ -254,23 +264,23 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         if form == "row":
             hw = w / f["houses"]
             if not lo_w <= hw <= hi_w:
-                errs.append(f"house width {hw:.1f} m outside the catalog's {lo_w:g}–{hi_w:g} m")
+                warns.append(f"house width {hw:.1f} m outside the catalog's {lo_w:g}–{hi_w:g} m")
             if not lo_d <= d <= hi_d + 0.01:
-                errs.append(f"depth {d:g} m outside the catalog's {lo_d:g}–{hi_d:g} m")
+                warns.append(f"depth {d:g} m outside the catalog's {lo_d:g}–{hi_d:g} m")
         elif form == "podium_tower":
             tw = f.get("tower_w") or min(22.0, 0.78 * d)
             if not lo_w <= tw <= hi_w:
-                errs.append(f"tower width {tw:.1f} m outside the catalog's {lo_w:g}–{hi_w:g} m")
+                warns.append(f"tower width {tw:.1f} m outside the catalog's {lo_w:g}–{hi_w:g} m")
         else:
             a, b = max(w, d), min(w, d)
             if not (lo_w <= a <= max(hi_w, hi_d) + 0.01 and min(lo_w, lo_d) - 0.01 <= b <= max(hi_w, hi_d) + 0.01):
-                errs.append(f"footprint {w:g} × {d:g} m outside the catalog's {lo_w:g}–{hi_w:g} × {lo_d:g}–{hi_d:g} m")
+                warns.append(f"footprint {w:g} × {d:g} m outside the catalog's {lo_w:g}–{hi_w:g} × {lo_d:g}–{hi_d:g} m")
         st = p.get("storey_h") or f.get("storey_h") or typ.storey_m or (layout.city.storey_m if layout.city else 3.4)
         gh = f.get("ground_h") or st
         n = round((h - gh) / st) + 1 if form == "perimeter" else round(h / st)
         lo_s, hi_s = typ.storeys
         if not lo_s <= n <= hi_s:
-            errs.append(f"{n} storeys at {st:g} m ({h:g} m) outside the catalog's {lo_s}–{hi_s}")
+            warns.append(f"{n} storeys at {st:g} m ({h:g} m) outside the catalog's {lo_s}–{hi_s}")
     else:
         warns.append("no catalog typology for this asset: sizes not checked against ranges")
     if brief["form"] == "cube":
@@ -284,9 +294,31 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     return {"errors": errs, "warnings": warns}
 
 
+def _walk_enums(f, path: str = "", parent: str = "") -> list[str]:
+    """Values outside the choices a brief form offers (building_gen.ENUMS, bay kinds in patterns)."""
+    errs = []
+    if isinstance(f, dict):
+        for k, v in f.items():
+            p = f"{path}{k}"
+            opts = building_gen.ENUMS.get(f"{parent}.{k}") or building_gen.ENUMS.get(k)
+            if opts and isinstance(v, str) and v not in opts:
+                errs.append(f"{p} = {v!r}: must be one of {', '.join(opts)}")
+            elif k == "pattern" and isinstance(v, list):
+                bad = [x for x in v if x not in building_gen.BAY_KINDS]
+                if bad:
+                    errs.append(f"{p}: {', '.join(map(str, bad))} not a bay kind ({', '.join(building_gen.BAY_KINDS)})")
+            else:
+                errs += _walk_enums(v, p + ".", k)
+    elif isinstance(f, list):
+        for i, v in enumerate(f):
+            errs += _walk_enums(v, f"{path}{i}.", parent)
+    return errs
+
+
 def diff_features(form: str, feats: dict) -> dict:
-    """The brief's features as the difference from the form's defaults (what the user set)."""
-    base = building_gen.TYPE_FEATURES[form]
+    """The brief's features as the difference from the form's defaults as the brief form shows
+    them (building_gen.form_features: what the user set)."""
+    base = building_gen.form_features(form)
 
     def d(a, b):
         out = {}
@@ -319,11 +351,34 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
     v = validate(store, asset, b)
     if v["errors"]:
         raise ValueError("; ".join(v["errors"]))
-    b["features"] = diff_features(b["form"], merged(building_gen.TYPE_FEATURES[b["form"]], b.get("features")))
+    b["features"] = diff_features(b["form"], building_gen.deep_merged(building_gen.form_features(b["form"]), b.get("features")))
     if b != old:
         write_json(sp, b)
         brief_edited(store, asset)
     return {"brief": b, "warnings": v["warnings"]}
+
+
+def save_kit(store: ProjectStore, asset: str, params: dict) -> dict:
+    """Save a kit piece's edited params (an arch gate, a colonnade bay: no catalog form): numbers
+    stay numbers, sizes positive; an Approved asset goes back to Needs review."""
+    sp = kit_proc.spec_path(store, asset)
+    old = read_json(sp, default=None)
+    if old is None:
+        raise ValueError(f"no brief for {asset}: make one first (ap library brief)")
+    errs = []
+    for k, v in (params or {}).items():
+        was = (old.get("params") or {}).get(k)
+        if isinstance(was, (int, float)) and not isinstance(was, bool) and not isinstance(v, (int, float)):
+            errs.append(f"{k} must be a number")
+        elif isinstance(v, (int, float)) and k in ("w", "d", "h", "span") and v <= 0:
+            errs.append(f"{k} must be positive")
+    if errs:
+        raise ValueError("; ".join(errs))
+    new = old | {"params": (old.get("params") or {}) | (params or {})}
+    if new != old:
+        write_json(sp, new)
+        brief_edited(store, asset)
+    return {"brief": new, "warnings": []}
 
 
 # --- the task list for a round -----------------------------------------------------------------

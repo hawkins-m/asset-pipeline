@@ -456,6 +456,28 @@ def checks(man, meshes, eas):
 
 # --- main ------------------------------------------------------------------------------------
 
+def place_vegetation(root, eas, report):
+    """Vegetation points (export/vegetation.json) as TargetPoint actors a PCG graph reads by tag
+    (Get Actor Data, by tag ap:veg=<type>; ap:size=<w>x<d> metres): street-tree slots and the
+    planter / bed / strip zones of the placed library builds. Replaced wholesale on every run.
+    Written 2026-10-16 and NOT yet run in Unreal (`ap ue import --vegetation`)."""
+    path = os.path.join(root, "vegetation.json")
+    if not os.path.isfile(path):
+        report["warnings"].append("no vegetation.json in the export: run ap site vegetation, then ap export")
+        return
+    for a in eas.get_all_level_actors():
+        if "ap:veg" in tagged(a):
+            eas.destroy_actor(a)
+    n = 0
+    for p in json.load(open(path))["points"]:
+        u = p["ue"]
+        a = eas.spawn_actor_from_class(unreal.TargetPoint, unreal.Vector(*u["loc"]), unreal.Rotator(*u["rot"]))
+        set_tags(a, [f"ap:veg={p['type']}", f"ap:size={p['w']}x{p['d']}", f"ap:from={p['source']}", "ap:source=pipeline"])
+        a.set_folder_path(f"AP/Vegetation/{p['type']}")
+        n += 1
+    report["vegetation"] = n
+
+
 def main(args):
     man = json.load(open(args["manifest"]))
     root = os.path.dirname(args["manifest"])
@@ -488,6 +510,8 @@ def main(args):
     place_slots(man, meshes, eas, by_tag, args, report, mats)
     cams = place_cameras(man, eas, by_tag, args, report)
     sequence(man, cams, report)
+    if args.get("vegetation"):
+        place_vegetation(root, eas, report)
     known = {s["id"] for s in man["slots"]} | {s["id"] for s in man["shots"]}
     orphans = []
     for a in eas.get_all_level_actors():

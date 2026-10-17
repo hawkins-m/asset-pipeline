@@ -458,6 +458,19 @@ class CivicSite(BaseModel):
     buildings: list[SiteBuilding] = Field(default_factory=list)
 
 
+class StreetTrees(BaseModel):
+    """Street-tree slots for local streets and plazas (data for the vegetation pass: Unreal PCG
+    places the trees; review renders show proxies). Avenue and park trees stay in the plan."""
+    streets: bool = True
+    plazas: bool = True
+    spacing_m: float = Field(default=12.0, gt=2.0)
+    min_street_w: float = 8.0             # narrower streets get none
+    both_sides_w: float = 12.0            # from this width: a row on each side, else one alternating
+    plaza_inset_m: float = 6.0            # the plaza row's distance inside the plaza's edge
+    clear_m: float = 4.0                  # kept from buildings, other ways and existing trees
+    seed: int = 11                        # its own random stream: the city plan never moves
+
+
 class CitySpec(BaseModel):
     """City-scale layout mode: civic nodes, terrain-following avenues, organic blocks and
     parcels between them, and a density field from dense mid-rise cores to low-rise
@@ -482,6 +495,7 @@ class CitySpec(BaseModel):
     park_share: float = 0.06              # extra blocks left green, mostly at the outskirts
     markets: int = Field(default=4, ge=0) # market squares at avenue crossings
     trees: bool = True                    # street and park trees (stand-ins for the scatter)
+    street_trees: StreetTrees = Field(default_factory=StreetTrees)   # tree slots on streets and plazas (data)
     tile_m: float = 400.0                 # housing and streets grouped into slots per tile
     # typology catalog (empty: the legacy three housing types)
     typologies: list[Typology] = Field(default_factory=list)

@@ -201,7 +201,7 @@ def post(store: ProjectStore, shot: dict, colors: dict[str, list[int]]) -> dict:
 # --- render ------------------------------------------------------------------------------
 
 def _run(store: ProjectStore, out: Path, colors: dict, passes, shots: list[str] | None = None,
-         virtual: list[dict] | None = None, what: str = "shot passes") -> None:
+         virtual: list[dict] | None = None, what: str = "shot passes", extra: list | None = None) -> None:
     work = sw_site.site_dir(store) / "build"
     write_json(work / "colors.json", colors)
     args = ["--out-dir", out, "--colors", work / "colors.json", "--passes", ",".join(passes),
@@ -211,7 +211,7 @@ def _run(store: ProjectStore, out: Path, colors: dict, passes, shots: list[str] 
     if virtual:
         write_json(work / "virtual.json", virtual)
         args += ["--virtual", work / "virtual.json"]
-    blender.run(SCRIPT, args, out / "blender.log", what, blend=sw_site.blend_path(store))
+    blender.run(SCRIPT, args + list(extra or []), out / "blender.log", what, blend=sw_site.blend_path(store))
 
 
 def render(store: ProjectStore, shots: list[str] | None = None) -> dict[str, dict]:

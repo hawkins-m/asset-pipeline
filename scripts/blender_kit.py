@@ -14,6 +14,7 @@ SPEC: {"out": "piece.glb", "repeat": 1, "parts": [...], "materials": {name: {...
     lathe    x y z profile [[r, dz], ...] seg        a round turned piece (column shafts, bases)
     prism    xz [[x, z], ...] y0 y1                   a convex XZ polygon extruded along Y
     shell    x y z rows [[ro, zo, ri, zi], ...] a0 a1 seg   a thick surface of revolution (apse, dome)
+    hull     pts [[x, y, z], ...]                      the convex hull of the points (hip roofs)
   any part: "rz" (degrees about Z) and "at" [x, y, z] place it after building
   each part has "mat"; a material is
     {"base": png, "normal": png, "rough": png, "uv": "facade", "rect": [x0, x1, z0, z1]}
@@ -135,7 +136,20 @@ def shell(bm, p):
     return faces
 
 
-BUILD = {"box": box, "archwall": archwall, "archband": archband, "lathe": lathe, "prism": prism, "shell": shell}
+def hull(bm, p):
+    """The convex hull of a point set ("pts": [[x, y, z], ...]): hip roofs and other convex solids."""
+    vs = [bm.verts.new(tuple(q)) for q in p["pts"]]
+    res = bmesh.ops.convex_hull(bm, input=vs, use_existing_faces=False)
+    faces = [g for g in res["geom"] if isinstance(g, bmesh.types.BMFace)]
+    unused = list(dict.fromkeys(v for v in res["geom_interior"] + res["geom_unused"] if isinstance(v, bmesh.types.BMVert)))
+    if unused:
+        bmesh.ops.delete(bm, geom=unused, context="VERTS")
+    bmesh.ops.recalc_face_normals(bm, faces=faces)
+    return faces
+
+
+BUILD = {"box": box, "archwall": archwall, "archband": archband, "lathe": lathe, "prism": prism, "shell": shell,
+         "hull": hull}
 
 
 def place(faces, part):
@@ -188,6 +202,8 @@ bm = bmesh.new()
 uv = bm.loops.layers.uv.new("UVMap")
 assign = []
 for part in spec["parts"]:
+    if part["kind"] == "zone":                 # vegetation zones are data (kit_proc writes them out)
+        continue
     fs = BUILD[part["kind"]](bm, part)
     place(fs, part)
     assign += [(f, part["mat"]) for f in fs]

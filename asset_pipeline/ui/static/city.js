@@ -48,7 +48,8 @@ const citySel = {};      // section -> selected row index
 function sectionRows(name) {
   const c = catalogData;
   if (name === "overlays") return Object.entries(c.overlays || {}).map(([z, o]) => ({id: z, ...o}));
-  if (name === "rules") return [{id: "Repetition checks", _key: "checks", ...c.checks}, {id: "Variation", _key: "variation", ...c.variation}];
+  if (name === "rules") return [{id: "Repetition checks", _key: "checks", ...c.checks}, {id: "Variation", _key: "variation", ...c.variation},
+    ...(c.street_trees ? [{id: "Street trees", _key: "street_trees", ...c.street_trees}] : [])];
   if (name === "report") return [];
   return structuredClone(c[name] || []);
 }
@@ -146,6 +147,7 @@ function fieldControl(name, row, i, [key, label, kind, opts], mine) {
   const err = (cityDrafts[name].errors || {})[`${i}:${key}`];
   const attrs = `id="${id}" data-k="${key}" data-kind="${kind}"${err ? ` aria-invalid="true" title="${esc(err)}"` : ""}`;
   if (kind === "area") return `<textarea rows="2" ${attrs}>${esc(v ?? "")}</textarea>`;
+  if (kind === "bool") return `<label class="check"><input type="checkbox" ${attrs} ${v ? "checked" : ""}>yes</label>`;
   if (kind === "select") return `<select ${attrs}>${opts.map(o => `<option${o === v ? " selected" : ""}>${o}</option>`).join("")}</select>`;
   if (kind === "material") return `<select ${attrs}><option value="">(district palette)</option>${(catalogData.materials || [])
     .map(m => `<option${m.id === v ? " selected" : ""}>${esc(m.id)}</option>`).join("")}</select>`;
@@ -169,10 +171,11 @@ function renderCityDetail() {
   if (i == null) { box.innerHTML = `<p class="hint">Nothing selected.</p>`; return; }
   const row = d.rows[i];
   const mine = new Set(row.user_fields || []);
-  const tips = TIPS[S.tips || (row._key === "checks" ? "checks" : "variation")] || {};
+  const tips = TIPS[S.tips || (row._key === "checks" ? "checks" : row._key === "street_trees" ? "street_trees" : "variation")] || {};
   let groups = S.groups;
   if (citySection === "rules") {      // one group of numbers per rules object
-    groups = [[row.id, true, Object.keys(row).filter(k => !["id", "_key"].includes(k)).map(k => [k, k.replaceAll("_", " "), "num"])]];
+    groups = [[row.id, true, Object.keys(row).filter(k => !["id", "_key"].includes(k))
+      .map(k => [k, k.replaceAll("_", " "), typeof row[k] === "boolean" ? "bool" : "num"])]];
   }
   const sectionMine = (catalogData.section_edits || []).includes(citySection === "rules" ? row._key : citySection);
   box.innerHTML = `<div class="detail-head"><b>${esc(row.id || "(new)")}</b>
@@ -207,7 +210,7 @@ function onCityInput(el, i) {
   const s = el.value;
   let v;
   try {
-    v = kind === "list" ? fromList(s) : kind === "map" ? fromMap(s) : kind === "pair" ? fromPair(s.replace(/[–-]/g, ","))
+    v = kind === "bool" ? el.checked : kind === "list" ? fromList(s) : kind === "map" ? fromMap(s) : kind === "pair" ? fromPair(s.replace(/[–-]/g, ","))
       : kind === "num" ? (s.trim() === "" || isNaN(+s) ? (() => { throw new Error("expected a number"); })() : +s)
       : kind === "optnum" ? optNum(s) : kind === "opttext" || kind === "material" || kind === "ref" ? optText(s)
       : kind === "share" ? (el.disabled ? null : +s / 100) : s;

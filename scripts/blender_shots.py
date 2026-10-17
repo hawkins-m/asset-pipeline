@@ -213,6 +213,35 @@ for v in json.load(open(opt("--virtual"))) if opt("--virtual") else []:
     cam["ap_shot"] = v["id"]
     cam["ap_res_x"], cam["ap_res_y"] = v.get("resolution", [1344, 768])
     cams.append(cam)
+if opt("--proxies"):                       # vegetation proxies (preview only: data passes never see them)
+    if set(passes) != {"preview"}:
+        raise SystemExit("--proxies goes with --passes preview only")
+    import bmesh
+    trunk_me, crown_me = bpy.data.meshes.new("AP_proxy_trunk"), bpy.data.meshes.new("AP_proxy_crown")
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=8, radius1=0.5, radius2=0.5, depth=1.0)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=(0, 0, 0.5))
+    bm.to_mesh(trunk_me)
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=2, radius=0.5)
+    bm.to_mesh(crown_me)
+    for me, rgb in ((trunk_me, (0.18, 0.12, 0.08)), (crown_me, (0.08, 0.2, 0.06))):
+        m = bpy.data.materials.new(me.name)
+        m.use_nodes = True
+        m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (*rgb, 1.0)
+        me.materials.append(m)
+    coll = bpy.data.collections.new("AP_vegetation_proxies")
+    sc.collection.children.link(coll)
+    for t in json.load(open(opt("--proxies"))):
+        w, h = t["w"], t["h"]
+        trunk_h = max(1.5, h - 0.8 * w)
+        a = bpy.data.objects.new("AP_proxy_trunk", trunk_me)
+        a.location, a.scale = (t["x"], t["y"], t["z"]), (0.5, 0.5, trunk_h)
+        b = bpy.data.objects.new("AP_proxy_crown", crown_me)
+        b.location, b.scale = (t["x"], t["y"], t["z"] + trunk_h + 0.35 * w), (w, w, 0.8 * w)
+        coll.objects.link(a)
+        coll.objects.link(b)
+    log(f"{len(coll.objects) // 2} proxy trees")
 if want:
     cams = [c for c in cams if c["ap_shot"] in want]
     missing = want - {c["ap_shot"] for c in cams}

@@ -191,7 +191,7 @@ for o in bpy.context.scene.objects:
 print("NOMAT", json.dumps(out))
 """)
     for form, dims in FORM_DIMS:
-        ps = bg.GENERATORS[form](dims, {}, bg.features(form, None))
+        ps = [p for p in bg.GENERATORS[form](dims, {}, bg.features(form, None)) if p["kind"] != "zone"]
         used = {p["mat"] for p in ps}
         assert used <= names, f"{form}: parts use materials the build never makes: {used - names}"
         mats = {m: {"uv": "plain", "color": [0.5, 0.5, 0.5], "rough": 0.5} for m in used}

@@ -6,9 +6,13 @@
 // A approve, C needs changes.
 const lr = {asset: null, data: null, list: null, draft: null, dirty: false, orbit: false, prev: "threeq",
             pick: null, poll: null, briefs: new Set()};
-const LR_ENUMS = {balustrade: ["glass", "solid", "rail"], column: ["round", "square"],
-  kind: ["rect", "arch", "seg", "plain", "shop", "sparse", "arcade", "pilotis", "recessed", "blind_arcade", "slab", "band"],
-  on: ["window", "loggia", "all"], arch: ["arch", "seg"]};
+// choices per key ("parent.key" first: kind means different things in a window and a ground storey);
+// the server's list (building_gen.ENUMS) comes with each asset
+let LR_ENUMS = {};
+const lrEnum = path => {
+  const keys = path.split(".").filter(k => isNaN(+k));
+  return LR_ENUMS[keys.slice(-2).join(".")] || LR_ENUMS[keys.at(-1)];
+};
 const LR_STATUS_CLASS = {approved: "m-ok", needs_changes: "m-chg", needs_feature: "m-new", ready: "m-rdy", needs_review: "m-rdy"};
 const lrClone = o => o == null ? o : JSON.parse(JSON.stringify(o));
 
@@ -46,7 +50,7 @@ async function lrLoad(resetDraft) {
   const asset = lr.asset;
   const [list, d] = await Promise.all([api(`/api/projects/${slug}/library/reviews`), api(`/api/projects/${slug}/library/asset/${asset}`)]);
   if (lr.asset !== asset) return;
-  lr.list = list; lr.data = d;
+  lr.list = list; lr.data = d; LR_ENUMS = d.enums || {};
   if (resetDraft || !lr.draft) {
     const b = d.brief;
     lr.draft = {dims: lrClone(b.dims), params: lrClone(b.params || {}), features: lrClone(d.features), colors: lrClone(b.colors || {}),
@@ -199,7 +203,7 @@ function lrField(path, v, label) {
     const simple = v.every(x => typeof x === "string" || typeof x === "number");
     input = `<input id="${id}" data-path="${path}" data-t="${simple ? "list" : "json"}" value="${esc(simple ? v.join(", ") : JSON.stringify(v))}" style="width:12em">`;
   } else {
-    const opts = LR_ENUMS[last];
+    const opts = lrEnum(path);
     input = opts ? `<select id="${id}" data-path="${path}" data-t="str">${[...new Set([v, ...opts])].map(o => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
       : `<input id="${id}" data-path="${path}" data-t="str" value="${esc(v ?? "")}" style="width:8em">`;
   }
@@ -217,12 +221,33 @@ function lrPart(path, v, dflt, depth) {
   const plain = [], subs = [];
   for (const [k, x] of Object.entries(v)) {
     const p = `${path}.${k}`;
-    if (x && typeof x === "object" && !Array.isArray(x)) subs.push(lrPart(p, x, dflt && dflt[k], depth + 1));
+    if (lrIsList(k, x)) subs.push(lrList(p, x));
+    else if (x && typeof x === "object" && !Array.isArray(x)) subs.push(lrPart(p, x, dflt && dflt[k], depth + 1));
     else if (x === null && ((lr.data.templates || {})[k] || (dflt && dflt[k]))) subs.push(lrPart(p, x, dflt && dflt[k], depth + 1));
     else if (x !== null) plain.push(lrField(p, x, k.replace(/_/g, " ")));
   }
   return depth >= 1 ? `<details class="lr-part" ${user ? "open" : ""}><summary>${head}</summary><div class="lr-fields">${plain.join("")}</div>${subs.join("")}</details>`
     : `<details class="lr-part" ${user ? "open" : ""}><summary>${head}</summary><div class="lr-fields">${plain.join("")}</div>${subs.join("")}</details>`;
+}
+
+// a list of parts (annexes, recesses, house types): one group per item, Add / Remove
+const lrIsList = (k, x) => Array.isArray(x) && (x.some(i => i && typeof i === "object")
+  || Array.isArray((lr.data.templates || {})[k]));
+function lrList(path, arr) {
+  const name = path.split(".").at(-1), label = name.replace(/_/g, " ");
+  const items = arr.map((x, i) => {
+    const plain = [], subs = [];
+    for (const [k, y] of Object.entries(x || {})) {
+      const p = `${path}.${i}.${k}`;
+      if (y && typeof y === "object" && !Array.isArray(y)) subs.push(lrPart(p, y, null, 1));
+      else if (y !== null) plain.push(lrField(p, y, k.replace(/_/g, " ")));
+    }
+    return `<details class="lr-part" open><summary><span>${esc(label)} ${i + 1}</span>
+      <button type="button" class="small" data-del="${path}" data-i="${i}">Remove</button></summary>
+      <div class="lr-fields">${plain.join("") || `<span class="hint">no fields: Remove, then Add for the template</span>`}</div>${subs.join("")}</details>`;
+  }).join("");
+  return `<div class="lr-part lr-list"><div class="row"><b>${esc(label)}</b> <span class="hint" style="margin:0">${arr.length} item(s)</span>
+    <button type="button" class="small" data-add="${path}">Add</button></div>${items}</div>`;
 }
 
 function lrRenderBrief() {
@@ -231,8 +256,8 @@ function lrRenderBrief() {
   const views = (d.sheets || []).flatMap(s => [0, 1, 2, "all"].map(p => [s, p]));
   const pos = p => p === "all" ? "whole sheet" : ["left", "middle", "right"][p];
   // the storey height is the brief's parameter (above); the type default would only repeat it
-  const top = d.building ? Object.entries(b.features).filter(([k, v]) => k !== "storey_h" && !(v && typeof v === "object" && !Array.isArray(v)) && v !== null) : [];
-  const parts = d.building ? Object.entries(b.features).filter(([k, v]) => (v && typeof v === "object" && !Array.isArray(v)) || (v === null && (d.templates[k] || (d.defaults || {})[k]))) : [];
+  const top = d.building ? Object.entries(b.features).filter(([k, v]) => k !== "storey_h" && !lrIsList(k, v) && !(v && typeof v === "object" && !Array.isArray(v)) && v !== null) : [];
+  const parts = d.building ? Object.entries(b.features).filter(([k, v]) => lrIsList(k, v) || (v && typeof v === "object" && !Array.isArray(v)) || (v === null && (d.templates[k] || (d.defaults || {})[k]))) : [];
   const pal = (meas.palette || []).map(c => `<span class="sw" style="background:rgb(${c.rgb.join(",")})" title="${Math.round(100 * c.share)}%"></span>`).join("");
   const band = name => {
     const bx = b.patches[name] || (meas.patches || {})[name] || meas.patch_px;
@@ -254,19 +279,31 @@ function lrRenderBrief() {
       <span>Bay rhythm</span><span class="inl"><input type="number" step="any" data-path="params.bay_m" data-t="num" value="${b.params.bay_m ?? ""}" placeholder="auto"> m
         <span class="hint">sheet: ${meas.bay_m ? meas.bay_m + " m" : "not measured"}</span></span>
       ${top.map(([k, v]) => `<span>${esc(k.replace(/_/g, " "))}</span><span>${lrField("features." + k, v, "").replace('<span></span>', "")}</span>`).join("")}
-    </div>` : `<p class="hint">A kit piece (${esc(d.brief.kind)}): edit its JSON for now; Rebuild still runs.</p>`}
+    </div>` : `<p class="hint" style="margin:0 0 4px">A kit piece (${esc(d.brief.kind)}): its measurements in metres.</p>
+      <div class="lr-fields">${Object.entries(b.params || {}).map(([k, v]) => lrField("params." + k, v, k.replace(/_/g, " "))).join("")}</div>`}
     </fieldset>
-    ${d.building ? `<fieldset><legend>Parts</legend>${parts.map(([k, v]) => lrPart("features." + k, v, (d.defaults || {})[k], 0)).join("")}</fieldset>
+    ${d.building ? `<fieldset><legend>Parts</legend>${parts.map(([k, v]) => lrIsList(k, v) ? lrList("features." + k, v) : lrPart("features." + k, v, (d.defaults || {})[k], 0)).join("")}</fieldset>
     <fieldset><legend>Materials per storey band</legend><div class="lr-mats"><b>Band</b><b>Patch</b><b>Colour</b><b></b>
       ${band("top")}${band("wall")}${band("base")}</div><p class="hint" style="margin:4px 0 0">Sheet palette ${pal}</p></fieldset>` : ""}
     <div class="row end"><span id="lr-dirty" class="hint" style="margin:0;flex:1" ${lr.dirty ? "" : "hidden"}>${(d.review || {}).status === "approved" ? "Unsaved edits · saving sets this Approved asset back to Needs review" : "Unsaved edits"}</span>
-      <span id="lr-errors" class="err"></span><button type="button" id="lr-revert">Revert</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
+      <span id="lr-errors" class="err"></span><span id="lr-warnings" class="hint" style="margin:0"></span><button type="button" id="lr-revert">Revert</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
   box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("change", lrFieldChange));
   box.querySelectorAll("[data-toggle]").forEach(el => el.addEventListener("change", ev => {
     const p = ev.target.dataset.toggle, name = p.split(".").at(-1);
     const dflt = p.split(".").slice(1).reduce((o, k) => o == null ? undefined : o[k], d.defaults);
     lrSet(p, ev.target.checked ? lrClone(dflt || d.templates[name] || {}) : null);
     lrRenderBrief();
+  }));
+  box.querySelectorAll("[data-add]").forEach(el => el.addEventListener("click", ev => {
+    ev.preventDefault();
+    const p = el.dataset.add, name = p.split(".").at(-1);
+    const tmpl = ((d.templates || {})[name] || [{}])[0] || {};
+    lrSet(p, [...(lrGet(p) || []), lrClone(tmpl)]); lrRenderBrief();
+  }));
+  box.querySelectorAll("[data-del]").forEach(el => el.addEventListener("click", ev => {
+    ev.preventDefault();
+    const p = el.dataset.del, arr = (lrGet(p) || []).slice(); arr.splice(+el.dataset.i, 1);
+    lrSet(p, arr); lrRenderBrief();
   }));
   box.querySelectorAll("[data-auto]").forEach(el => el.addEventListener("change", ev => {
     const n = ev.target.dataset.auto;
@@ -314,7 +351,7 @@ function lrFieldChange(ev) {
   else if (t === "list") v = el.value.split(",").map(s => s.trim()).filter(Boolean).map(s => isNaN(+s) ? s : +s);
   else if (t === "json") { try { v = JSON.parse(el.value); el.classList.remove("bad"); } catch (_) { el.classList.add("bad"); return; } }
   else v = el.value;
-  if (p.startsWith("params.") && v === null) { delete lr.draft.params[p.slice(7)]; lrSet("params", lr.draft.params); return; }
+  if (p.startsWith("params.") && v === null && lr.data.building) { delete lr.draft.params[p.slice(7)]; lrSet("params", lr.draft.params); return; }
   lrSet(p, v);
 }
 
@@ -323,7 +360,8 @@ function lrValidateSoon() { clearTimeout(lrValTimer); lrValTimer = setTimeout(lr
 async function lrValidate() {
   if (!lr.asset || !lr.data.building) return null;
   const v = await api(`/api/projects/${slug}/library/asset/${lr.asset}/check`, {brief: lrBriefBody()}).catch(err => ({errors: [err.message], warnings: [], impact: []}));
-  const e = $("#lr-errors"); if (e) { e.textContent = v.errors.length ? v.errors.join(" · ") : ""; e.title = v.warnings.join("\n"); }
+  const e = $("#lr-errors"); if (e) e.textContent = v.errors.length ? v.errors.join(" · ") : "";
+  const w = $("#lr-warnings"); if (w) w.textContent = v.warnings.length ? "Note: " + v.warnings.join(" · ") : "";
   const btn = $("#lr-rebuild"); if (btn) { btn.disabled = !!v.errors.length; btn.title = v.errors.length ? "Fix the highlighted values first" : ""; }
   return v;
 }
@@ -335,7 +373,7 @@ async function lrRebuild() {
   const v = lr.data.building ? await lrValidate() : {errors: [], impact: []};
   if (v && v.errors.length) return;
   const go = async confirm => {
-    try { await api(`/api/projects/${slug}/library/asset/${lr.asset}/rebuild`, {brief: lr.data.building ? lrBriefBody() : {}, confirm}); }
+    try { await api(`/api/projects/${slug}/library/asset/${lr.asset}/rebuild`, {brief: lr.data.building ? lrBriefBody() : {params: lr.draft.params}, confirm}); }
     catch (err) { alert(err.message); return; }
     lr.dirty = false;
     await lrLoad(true);

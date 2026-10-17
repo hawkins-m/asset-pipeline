@@ -172,6 +172,9 @@ def export(store: ProjectStore, standins: bool = True) -> dict:
     index = json.loads((out / "mesh_index.json").read_text())
     layout = sw_site.load_layout(store)
     m = manifest(gb, index, layout, store.load().slug)
+    from .. import vegetation                      # street-tree slots and the builds' zones, for Unreal PCG
+    veg = vegetation.export_points(store, out / "vegetation.json")
+    m["vegetation"] = {"file": "vegetation.json", "counts": veg["counts"]}
     hm = sw_site.site_dir(store) / "terrain.png"
     if hm.is_file():
         (out / "terrain").mkdir(exist_ok=True)

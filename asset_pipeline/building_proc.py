@@ -357,6 +357,7 @@ def _plain_materials(brief: dict) -> dict:
     out["frame"] = _plain(col.get("frame") or [58, 52, 46], 0.4, 0.6)
     out["planting"] = _plain(col.get("planting") or [78, 98, 58], 0.9)
     out["wood"] = _plain(col.get("wood") or [150, 106, 70], 0.7)
+    out["joint"] = _plain(col.get("joint") or [92, 90, 86], 0.9)              # panel joints, shadow lines
     return out
 
 
@@ -383,9 +384,19 @@ def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, d
     meas = brief["measured"]
     sheet = {k: meas[k] for k in ("bay_m", "storey_h") if meas.get(k)}       # the sheet's rhythm, unless the brief sets it
     f = features(brief["form"], brief.get("features"))
-    parts = GENERATORS[brief["form"]](dims or brief["dims"], sheet | brief.get("params", {}), f)
+    parts = generate(brief["form"], dims or brief["dims"], sheet | brief.get("params", {}), f)
     return kit_proc.run_blender(store, asset, parts, mats, out or d / "procedural.glb", maps, log=log,
                                 extra={"form": brief["form"]})
+
+
+def generate(form: str, dims, params: dict, f: dict) -> list[dict]:
+    """A form's parts plus what every form takes (COMMON: annexes), with the brief's planter style."""
+    from . import building_gen, building_parts
+    building_parts.PLANTER["style"] = f.get("planter") or "box"
+    try:
+        return GENERATORS[form](dims, params, f) + building_gen.annexes(dims, f)
+    finally:
+        building_parts.PLANTER["style"] = "box"
 
 
 # catalog form -> generator (the forms with one so far)

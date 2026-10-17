@@ -10,14 +10,19 @@ import math
 
 import numpy as np
 
-from .building_parts import (FACADE, archivolt, balustrade, box, cornice, facade, height, lifted, merged, outline,
-                             pierced, placed, planter, prism, ring, walls_around)
+from .building_parts import (FACADE, FACADE_KW, archivolt, balustrade, box, cornice, facade, height, hip_roof, lifted,
+                             merged, outline, pierced, placed, planter, prism, ring, walls_around)
 
 FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row", "civic_block", "arcade_hall", "campanile")
 
+# what every form takes: the planter style for all its planters (building_parts.PLANTER_STYLES)
+# and annexes, low volumes against its sides ([{"side": front | back | left | right, "at": share
+# along that side from its centre, "w", "d", "h" m, "pattern", "canopy" m, "mat"}])
+COMMON = {"planter": "box", "annexes": []}
+
 TYPE_FEATURES = {
     "civic_block": {
-        "storey_h": 4.5, "ground_h": 6.8, "parapet": 1.2, "bays": 5, "colonnade": None,
+        "storey_h": 4.5, "ground_h": 6.8, "parapet": 1.2, "bays": 5, "colonnade": None, "hip_roof": None,
         "front": {"ground": {"kind": "pilotis", "recess": 2.0, "column": "square", "column_d": 0.9},
                   "pattern": ["solid"], "cornice": [[0.3, 0.2]],
                   "recess": [{"x0": 0.3, "x1": 0.7, "depth": 0.0, "pattern": ["loggia"], "balcony": None}],
@@ -27,7 +32,7 @@ TYPE_FEATURES = {
     },
     "arcade_hall": {
         "storey_h": 6.5, "bays": 5, "roof_steps": 4, "roof_step_m": 1.6, "roof_rise_m": 0.7,
-        "range": None, "masses": None,
+        "range": None, "masses": None, "hip_roof": None,
         "front": {"ground": {"kind": "arcade", "recess": 3.5, "archivolt": 0.35}, "pattern": ["window"],
                   "window": {"kind": "arch", "w": 0.38, "h": 0.6, "sill": 0.22, "reveal": 0.35, "frame": True},
                   "courses": {"every": 1, "h": 0.3, "proj": 0.12}, "cornice": [[0.4, 0.25], [0.3, 0.45]]},
@@ -35,7 +40,7 @@ TYPE_FEATURES = {
                  "window": {"kind": "arch", "w": 0.35, "h": 0.55, "sill": 0.25, "reveal": 0.35, "frame": True}},
     },
     "campanile": {
-        "storey_h": 6.5, "belfry_h": 7.0, "cap_h": 3.5, "cap_steps": 5, "belfry_arches": 2, "cap": "pyramid",
+        "storey_h": 6.5, "belfry_h": 7.0, "cap_h": 3.5, "cap_steps": 5, "belfry_arches": 2, "cap": "pyramid",   # pyramid | flat | hip
         "cap_over": 0.6,
         "shaft": {"ground": {"kind": "plain"}, "pattern": ["slot"], "slot": {"w": 0.1, "h": 0.4, "sill": 0.3},
                   "courses": {"every": 2, "h": 0.25, "proj": 0.1}},
@@ -98,8 +103,88 @@ TYPE_FEATURES = {
 }
 
 
+def deep_merged(base: dict, over: dict | None) -> dict:
+    """A deep copy of base with over on top, dicts merged at every depth (lists and None replace)."""
+    out = copy.deepcopy(base)
+    for k, v in (over or {}).items():
+        out[k] = deep_merged(out[k], v) if isinstance(out.get(k), dict) and isinstance(v, dict) else copy.deepcopy(v)
+    return out
+
+
 def features(form: str, brief_feats: dict | None) -> dict:
-    return merged(TYPE_FEATURES[form], brief_feats)
+    """The form's features with a brief's on top. Merged at every depth: a brief stores only what
+    differs from the defaults (library_review.diff_features), so `street.window.w` alone must keep
+    the type's other window values. (Until 2026-10-16 a nested brief dict replaced the type's
+    whole dict: the insula attics lost their type's parapet 0 and cornice.)"""
+    return deep_merged(merged(COMMON, TYPE_FEATURES[form]), brief_feats)
+
+
+# the feature keys of each form that are facade specs (the grammar: building_parts.FACADE)
+FACADE_SPECS = {
+    "perimeter": ("street", "street_side", "court", "top.facade", "accent.facade"),
+    "row": ("house",), "civic_block": ("front", "side"), "arcade_hall": ("front", "side", "mass_facade"),
+    "campanile": ("shaft", "belfry"), "podium_tower": ("podium", "tower"), "basilica": ("aisle", "gallery", "nave_wall"),
+    "hall_vault": (), "cube": (),
+}
+
+
+def _expand(spec: dict) -> dict:
+    """A facade spec with every grammar field a brief can set (the generator's own keys left out)."""
+    return merged({k: v for k, v in FACADE.items() if k not in FACADE_KW}, spec)
+
+
+def form_features(form: str, brief_feats: dict | None = None) -> dict:
+    """The features as a brief form shows them: features(), with every facade spec filled in with
+    the grammar's fields (window, loggia, ground layout, joints...), so each is editable."""
+    f = features(form, brief_feats)
+    for key in FACADE_SPECS.get(form, ()):
+        head, _, sub = key.partition(".")
+        if sub:
+            if isinstance(f.get(head), dict) and isinstance(f[head].get(sub), dict):
+                f[head][sub] = _expand(f[head][sub])
+        elif isinstance(f.get(head), dict):
+            f[head] = _expand(f[head])
+    return f
+
+
+# the choices a brief form offers for these keys (a select, and checked on save)
+# ("parent.key" for a key that means different things in different parts, e.g. kind)
+ENUMS = {
+    "window.kind": ["rect", "arch", "seg", "pointed"], "blind.kind": ["rect", "arch", "seg", "pointed"],
+    "ground.kind": ["plain", "shop", "sparse", "arcade", "pilotis", "recessed", "blind_arcade"],
+    "balcony.kind": ["slab", "band"], "portal.kind": ["open", "glazed", "door"],
+    "arch": ["arch", "seg", "pointed"], "balustrade": ["glass", "solid", "rail"], "column": ["round", "square"],
+    "on": ["window", "loggia", "all"], "profile": ["pier", "strip", "fin"], "frame_mat": ["frame", "wood"],
+    "door_leaf": ["wood", "glass"], "planter": ["box", "trough", "pots", "hedge", "bed", "none"],
+    "cap": ["pyramid", "flat", "hip"], "side": ["front", "back", "left", "right"], "lining": ["wall", "base", "trim", "wood"],
+    "mat": ["base", "wall", "top", "trim", "wood"],
+}
+# pattern entries (bay kinds)
+BAY_KINDS = ("window", "slot", "loggia", "blind", "curtain", "solid")
+
+
+def annexes(dims, f) -> list[dict]:
+    """Low volumes against the building's sides (COMMON["annexes"]): plain walls in the annex's
+    pattern, a flat roof, an optional canopy over its front."""
+    w, d, h = dims
+    out = []
+    for a in f.get("annexes") or []:
+        side = a.get("side", "left")
+        aw, ad, ah = a.get("w", 8.0), a.get("d", 6.0), a.get("h", 4.0)
+        F = _F({"pattern": a.get("pattern", ["solid"]), "window": a.get("window") or {}}, storeys=1, ground_h=ah,
+               storey_h=ah, bay_m=a.get("bay_m", 4.0), parapet=a.get("parapet", 0.4), cornice=None)
+        F["ground"] = merged(FACADE["ground"], a.get("ground") or {"kind": "plain"})
+        F["mat"] = {"ground": a.get("mat", "base"), "upper": a.get("mat", "base")}
+        vol = walls_around(aw, ad, {"front": F}) + [_roof_slab(aw, ad, F["thickness"], ah)]
+        if a.get("canopy"):
+            vol.append(box(-aw / 2, aw / 2, -ad / 2 - a["canopy"], -ad / 2, ah - 0.3, ah, "trim"))
+        at = a.get("at", 0.0)
+        pose = {"front": (0, (at * w, -d / 2 - ad / 2, 0)), "back": (180, (at * w, d / 2 + ad / 2, 0)),
+                "left": (-90, (-w / 2 - ad / 2, at * d, 0)), "right": (90, (w / 2 + ad / 2, at * d, 0))}.get(side)
+        if pose is None:
+            raise ValueError(f"annex side must be front, back, left or right, not {side!r}")
+        out += placed(vol, *pose)
+    return out
 
 
 def _F(over: dict | None, **kw) -> dict:
@@ -449,7 +534,7 @@ def podium_tower(dims, p, f) -> list[dict]:
         parts.append(box(-e - ro, e + ro, -e - ro, e + ro, th + cr["h"], th + cr["h"] + 0.35, "frame"))
         for rz, at in ((0, (0, -tw / 2, th)), (180, (0, tw / 2, th)), (-90, (-tw / 2, 0, th)), (90, (tw / 2, 0, th))):
             parts += placed(balustrade(-tw / 2 + 0.2, tw / 2 - 0.2, 0.1, 0.0, "glass")
-                            + planter(-tw / 2 + 0.8, tw / 2 - 0.8, 0.35, 0.95, 0.0, seed=rz % 5), rz, at)
+                            + planter(-tw / 2 + 0.8, tw / 2 - 0.8, 0.35, 0.95, 0.0, seed=rz % 5, veg="roof_edge"), rz, at)
     return parts
 
 
@@ -508,8 +593,8 @@ def perimeter(dims, p, f) -> list[dict]:
                                                   (-w / 2 + 2, -aw_ / 2 - 2, d / 2 - wing + 2, d / 2 - 2),
                                                   (aw_ / 2 + 2, w / 2 - 2, d / 2 - wing + 2, d / 2 - 2))):
                 if x1 - x0 > 2:                          # terrace beds with shrubs between paths
-                    parts.append(box(x0, x1, y0 + 1.5, y1 - 1.5, H, H + 0.35, "planting"))
-                    parts += planter(x0, x1, y0, y0 + 0.9, H, h=0.5, green=0.6, seed=i)
+                    parts += planter(x0, x1, y0 + 1.5, y1 - 1.5, H, h=0.35, style="bed", veg="terrace_bed")
+                    parts += planter(x0, x1, y0, y0 + 0.9, H, h=0.5, green=0.6, seed=i, style=top.get("planter"), veg="roof_edge")
         elif c:                                          # attic volumes at the corners only
             for sx in (-1, 1):
                 for sy in (-1, 1):
@@ -526,7 +611,8 @@ def perimeter(dims, p, f) -> list[dict]:
         for rz, length, at in ((0, w, (0, -d / 2, H)), (180, w, (0, d / 2, H)), (-90, d, (-w / 2, 0, H)), (90, d, (w / 2, 0, H))):
             edge = balustrade(-length / 2 + 0.3, length / 2 - 0.3, 0.05, 0.0, top.get("balustrade", "glass"))
             if top.get("planters"):
-                edge += planter(-length / 2 + 1.0, length / 2 - 1.0, 0.4, 1.2, 0.0, seed=int(rz) % 7)
+                edge += planter(-length / 2 + 1.0, length / 2 - 1.0, 0.4, 1.2, 0.0, seed=int(rz) % 7, style=top.get("planter"),
+                                veg="roof_edge")
             parts += placed(edge, rz, at)
     acc = f.get("accent")
     if acc:
@@ -548,16 +634,21 @@ def perimeter(dims, p, f) -> list[dict]:
     if sg:                                               # low planted garden walls in front of the street fronts
         for rz, length, at in ((0, w, (0, -d / 2, 0)), (180, w, (0, d / 2, 0))):
             g = []
-            for a_, b_ in ((-length / 2 + 2, -sg.get("gap", 6) / 2), (sg.get("gap", 6) / 2, length / 2 - 2)):
-                g.append(box(a_, b_, -sg["depth"] - 0.3, -sg["depth"], 0.0, sg["h"], "base"))
-                g += planter(a_ + 0.3, b_ - 0.3, -sg["depth"] + 0.1, -0.6, 0.0, h=0.4, green=0.5, seed=int(a_) % 5)
+            run = min(1.0, sg.get("length", 1.0)) * (length - 4) / 2     # the walls cover this share of the frontage
+            gap = sg.get("gap", 6) / 2
+            for a_, b_ in ((-gap - max(0.0, run - gap), -gap), (gap, gap + max(0.0, run - gap))):
+                if b_ - a_ < 0.5:
+                    continue
+                g.append(box(a_, b_, -sg["depth"] - 0.3, -sg["depth"], 0.0, sg["h"], sg.get("mat", "base")))
+                g += planter(a_ + 0.3, b_ - 0.3, -sg["depth"] + 0.1, -0.6, 0.0, h=0.4, green=0.5, seed=int(a_) % 5,
+                             style=sg.get("planter"), veg="garden_strip")
             parts += placed(g, rz, at)
     if f.get("court_garden"):
         parts.append(box(-cw / 2, cw / 2, -cd / 2, cd / 2, -0.2, 0.05, "base"))
         for i, (x0, x1, y0, y1) in enumerate(((-cw / 2 + 2, -2, -cd / 2 + 2, -2), (2, cw / 2 - 2, -cd / 2 + 2, -2),
                                               (-cw / 2 + 2, -2, 2, cd / 2 - 2), (2, cw / 2 - 2, 2, cd / 2 - 2))):
-            parts.append(box(x0, x1, y0, y1, 0.05, 0.25, "planting"))
-            parts += planter(x0, x1, y0, y0 + 0.8, 0.05, h=0.45, seed=i)
+            parts += planter(x0, x1, y0 + 0.8, y1, 0.05, h=0.2, style="bed", veg="court_bed")
+            parts += planter(x0, x1, y0, y0 + 0.8, 0.05, h=0.45, seed=i, veg="court_bed")
     return parts
 
 
@@ -594,14 +685,16 @@ def row(dims, p, f) -> list[dict]:
             gx = cx - fw / 4
             parts += [box(cx - hw / 2 + 0.1, gx - 0.7, -d / 2 - fg["depth"] - 0.25, -d / 2 - fg["depth"], 0, fg["h"], "base"),
                       box(gx + 0.7, cx + hw / 2 - 0.1, -d / 2 - fg["depth"] - 0.25, -d / 2 - fg["depth"], 0, fg["h"], "base")]
-            parts += planter(gx + 0.9, cx + hw / 2 - 0.4, -d / 2 - fg["depth"] + 0.05, -d / 2 - 0.4, 0.0, h=0.3, green=0.6, seed=i)
-        rb = f.get("roof_box")
+            parts += planter(gx + 0.9, cx + hw / 2 - 0.4, -d / 2 - fg["depth"] + 0.05, -d / 2 - 0.4, 0.0, h=0.3, green=0.6, seed=i,
+                             style=fg.get("planter"), veg="front_garden")
+        rf = merged(f["roof"], house.get("roof"))        # the row's roof, with this house's own on top
+        rb = f.get("roof_box") if rf.get("box", True) else None
         if rb:                                           # the stair box on the roof terrace
             bx = cx + (fw / 2 - rb["w"] / 2 - 0.3) * (1 if i % 2 else -1)
             parts += [box(bx - rb["w"] / 2, bx + rb["w"] / 2, d / 2 - 1.0 - rb["d"], d / 2 - 1.0, hh, hh + rb["h"], "wall")]
-        rf = f["roof"]
         if rf.get("planters"):
-            parts += planter(cx - hw / 2 + 0.5, cx + hw / 2 - 0.5, -d / 2 + 0.6, -d / 2 + 1.3, hh)
+            parts += planter(cx - hw / 2 + 0.5, cx + hw / 2 - 0.5, -d / 2 + 0.6, -d / 2 + 1.3, hh, style=rf.get("planter"),
+                             veg="roof_edge")
         if rf.get("pergola"):
             for x in (cx - hw / 2 + 0.6, cx + hw / 2 - 0.6):
                 for y in (-d / 2 + 2.0, -d / 2 + 6.0):
@@ -655,13 +748,19 @@ def civic_block(dims, p, f) -> list[dict]:
         Fs = _F(f.get("side"), storeys=2, ground_h=gh, storey_h=up, bay_m=f.get("side_bay_m", 6.0), parapet=par)
         parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
         parts.append(_roof_slab(w, d, Ff["thickness"], gh + up))
-        return parts + _projecting_colonnade(w, d, gh, c)
+        return parts + _projecting_colonnade(w, d, gh, c) + _hip(f, w, d, height(Ff))
     nb = f["bays"]
     Ff = _F(f.get("front"), storeys=2, ground_h=gh, storey_h=up, bay_m=w / nb, parapet=par)
     Fs = _F(f.get("side"), storeys=2, ground_h=gh, storey_h=up, bay_m=f.get("side_bay_m", 6.0), parapet=par)
     parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
     parts.append(_roof_slab(w, d, Ff["thickness"], gh + up))
-    return parts
+    return parts + _hip(f, w, d, height(Ff))
+
+
+def _hip(f, w, d, z) -> list[dict]:
+    """The form's `hip_roof` ({"rise", "over"} m), over the walls' top at z; [] when off."""
+    hr = f.get("hip_roof")
+    return hip_roof(w, d, z, hr.get("rise", 2.0), hr.get("over", 0.6), mat=hr.get("mat", "roof")) if hr else []
 
 
 def _arcade_range(dims, p, f) -> list[dict]:
@@ -715,6 +814,8 @@ def arcade_hall(dims, p, f) -> list[dict]:
     parts = walls_around(w, d, {"front": Ff, "back": Fs, "left": Fs, "right": Fs})
     H = height(Ff)
     parts.append(_roof_slab(w, d, Ff["thickness"], H))
+    if f.get("hip_roof"):
+        return parts + _hip(f, w, d, H)
     z, k = H, 0
     while k < f["roof_steps"]:                     # a low hipped roof: stepped slabs closing in
         inset = (k + 1) * f["roof_step_m"]
@@ -744,6 +845,8 @@ def campanile(dims, p, f) -> list[dict]:
         z = shaft + bh
         parts.append(box(-w / 2 - ov, w / 2 + ov, -d / 2 - ov, d / 2 + ov, z, z + min(cap, 1.2), "top"))
         return parts
+    if f.get("cap") == "hip":                      # a low hipped (pyramid) roof overhanging the walls
+        return parts + hip_roof(w, d, shaft + bh, cap, f.get("cap_over", 0.6))
     z, n = shaft + bh, f["cap_steps"]
     for k in range(n):
         inset = (k + 1) * (min(w, d) / 2 - 0.3) / n
@@ -770,10 +873,13 @@ TEMPLATES = {
     "front_garden": {"depth": 2.0, "h": 1.0},
     "roof_box": {"w": 2.6, "d": 3.0, "h": 2.6},
     "balcony": {"kind": "slab", "depth": 1.3, "balustrade": "glass", "every": 1, "on": "window"},
-    "pilasters": {"every": 2, "w": 0.6, "proj": 0.2},
+    "pilasters": {"every": 2, "w": 0.6, "proj": 0.2, "profile": "pier", "from_ground": False},
+    "panels": {"panel_w": 3.0, "panel_h": 0.0, "groove": 0.03},
     "courses": {"every": 2, "h": 0.2, "proj": 0.06},
     "tower_faces": {"front": {"pattern": ["loggia", "solid"]}},
-    "house_types": [{}],
+    # per house (cycled): its facade's own values, and "roof" ({"pergola", "planters", "box"}) over the row's
+    "house_types": [{"pattern": ["window", "loggia"], "roof": {"pergola": False}}],
+    "recess": [{"x0": 0.4, "x1": 0.6, "depth": 2.0, "pattern": ["window"]}],
     "end_screen": {"recess": 2.5, "mezzanine": 0.42, "fins": 1.6, "passage_w": 0.36, "pier": True},
     "stalls": {"rows": 2, "pitch": 3.2, "w": 2.6, "d": 1.4, "canopy": 2.5},
     "skylight": {"side": 1, "segs": [10, 12], "mullion_m": 2.2},
@@ -781,4 +887,6 @@ TEMPLATES = {
     "niche": {"faces": ["front"], "w": 0.5, "h": 0.75, "rise": 0.2, "depth": 4.5, "mezzanine": 0.46, "steps": 3,
               "door_w": 0.22, "screen": True},
     "joints": {"cols": 4, "rows": 3, "groove": 0.12},
+    "hip_roof": {"rise": 2.0, "over": 0.6},
+    "annexes": [{"side": "left", "at": 0.0, "w": 8.0, "d": 6.0, "h": 4.0, "pattern": ["solid"], "canopy": 0.0, "mat": "base"}],
 }

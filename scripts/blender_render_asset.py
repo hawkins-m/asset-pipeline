@@ -6,7 +6,8 @@ textures: seconds) or Cycles (its PBR materials under a sun and sky: the review 
 JOB: {"glb": ..., "out_dir": ..., "mode": "quick" | "cycles", "size": [w, h], "samples": 64,
       "views": [{"name": "sheet", "az": -4, "el": 0.12}, {"name": "threeq", "az": -35, "el": 0.35},
                 {"name": "close", "az": -8, "el": 0.05, "target": [x, y, z], "dist": 18, "lens": 35}],
-      "figure": [x, y, z] | null}      a 1.8 m figure standing there, for scale
+      "figure": [x, y, z] | null,     a 1.8 m figure standing there, for scale
+      "zones": "<glb>.zones.json" | null}   vegetation proxies on the build's zones (shrubs, small trees)
 az: degrees round from the front (-Y), el: the camera's rise per unit of distance. Writes
 <out_dir>/<name>.png per view and prints a REPORT json line.
 """
@@ -51,6 +52,55 @@ if job.get("figure"):                       # a 1.8 m figure: legs, body, head
         o.scale = scale
         o.data.materials.append(fm)
 
+def proxies(path):
+    """Simple stand-ins on the vegetation zones (the real plants come from Unreal PCG): shrubs
+    along planters and strips, small trees on beds of at least 3 x 3 m. Hanging and hedge zones
+    are geometry already."""
+    import bmesh
+    zones = json.load(open(path)).get("zones", [])
+    shrub = bpy.data.meshes.new("AP_proxy_shrub")
+    bm = bmesh.new()
+    bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.5)
+    bm.to_mesh(shrub)
+    trunk = bpy.data.meshes.new("AP_proxy_trunk")
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.5, radius2=0.5, depth=1.0)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=(0, 0, 0.5))
+    bm.to_mesh(trunk)
+    shrub.materials.append(material((0.10, 0.22, 0.07), 0.9))
+    trunk.materials.append(material((0.20, 0.14, 0.09), 0.9))
+    n = 0
+    for z in zones:
+        if z["type"] in ("hanging",) or z["size"][0] < 0.3:
+            continue
+        (cx, cy, top), (zw, zd, _), yaw = z["center"], z["size"], math.radians(z["yaw"])
+        c, s_ = math.cos(yaw), math.sin(yaw)
+
+        def put(mesh, u, v, dz, scale):
+            nonlocal n
+            o = bpy.data.objects.new(mesh.name, mesh)
+            o.location = (cx + u * c - v * s_, cy + u * s_ + v * c, top + dz)
+            o.scale = scale
+            sc.collection.objects.link(o)
+            n += 1
+        if zw >= 3 and zd >= 3 and z["type"] in ("terrace_bed", "court_bed", "front_garden", "garden_strip"):
+            nx, ny = max(1, int(zw / 4.5)), max(1, int(zd / 4.5))
+            for i in range(nx):
+                for j in range(ny):
+                    u, v = -zw / 2 + zw * (i + 0.5) / nx, -zd / 2 + zd * (j + 0.5) / ny
+                    put(trunk, u, v, 0.0, (0.25, 0.25, 1.6))
+                    put(shrub, u, v, 2.3, (2.6, 2.6, 2.0))
+            continue
+        r = max(0.35, min(0.8, 0.9 * min(zw, zd)))
+        k = max(1, int(zw / (1.2 * r)))
+        for i in range(k):
+            put(shrub, -zw / 2 + zw * (i + 0.5) / k, 0.0, 0.3 * r, (r, r, 0.85 * r))
+    return n
+
+
+if job.get("zones"):
+    PROXIES = proxies(job["zones"])
+
 cam = bpy.data.objects.new("cam", bpy.data.cameras.new("cam"))
 sc.collection.objects.link(cam)
 sc.camera = cam
@@ -88,9 +138,12 @@ for v in job["views"]:
     d = Vector((math.sin(az), -math.cos(az), v.get("el", 0.35))).normalized()
     tgt = Vector(v["target"]) if v.get("target") else ctr
     cam.data.lens = v.get("lens", 50)
-    cam.location = tgt + d * (v.get("dist") or size * 1.55)
+    # far enough for the whole width and height (a tall tower was cropped at size * 1.55)
+    fit = 1.15 * (hi.z - lo.z) / (2 * math.tan(cam.data.angle_y / 2)) if not v.get("target") else 0.0
+    cam.location = tgt + d * (v.get("dist") or max(size * 1.55, fit))
     cam.rotation_euler = (tgt - cam.location).to_track_quat("-Z", "Y").to_euler()
     sc.render.filepath = f"{job['out_dir']}/{v['name']}.png"
     bpy.ops.render.render(write_still=True)
     out[v["name"]] = sc.render.filepath
-print("REPORT " + json.dumps({"images": out, "mode": mode, "bbox": [round(hi[i] - lo[i], 2) for i in range(3)]}))
+print("REPORT " + json.dumps({"images": out, "mode": mode, "bbox": [round(hi[i] - lo[i], 2) for i in range(3)],
+                              "proxies": globals().get("PROXIES", 0)}))

@@ -19,7 +19,7 @@ from ..comfy.client import ComfyError, connect
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
-from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, Typology, Variation
+from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, StreetTrees, Typology, Variation
 from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_library, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
@@ -163,7 +163,8 @@ class RegenReq(BaseModel):
 # catalog sections editable in the UI: (validator, list of id'd rows?)
 CATALOG = {"districts": (TypeAdapter(list[District]), True), "materials": (TypeAdapter(list[Material]), True),
            "typologies": (TypeAdapter(list[Typology]), True), "overlays": (TypeAdapter(dict[str, Overlay]), False),
-           "checks": (TypeAdapter(RepetitionChecks), False), "variation": (TypeAdapter(Variation), False)}
+           "checks": (TypeAdapter(RepetitionChecks), False), "variation": (TypeAdapter(Variation), False),
+           "street_trees": (TypeAdapter(StreetTrees), False)}
 
 
 def _shot_edit(store: ProjectStore, shot: str) -> dict:
@@ -827,6 +828,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                 "overlays": {k: o.model_dump(mode="json") for k, o in L.city.overlays.items()} if L.city else {},
                 "checks": L.city.checks.model_dump(mode="json") if L.city else None,
                 "variation": L.city.variation.model_dump(mode="json") if L.city else None,
+                "street_trees": L.city.street_trees.model_dump(mode="json") if L.city else None,
                 "section_edits": L.city.user_fields if L.city else [],
                 "report": {"warnings": stats.get("warnings", []), "repetition": stats.get("repetition"),
                            "footprint_share": stats.get("footprint_share"), "buildings": stats.get("buildings")},
@@ -923,9 +925,9 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
             sheet_dir = (store.root / brief["sheet"]).parent
             views = sorted(p.relative_to(store.root).as_posix() for p in sheet_dir.glob("sheet_*.png"))
         return {"asset": asset, "brief": brief, "building": building,
-                "features": building_gen.features(form, brief.get("features")) if building else None,
-                "defaults": building_gen.TYPE_FEATURES.get(form) if building else None,
-                "templates": building_gen.TEMPLATES,
+                "features": building_gen.form_features(form, brief.get("features")) if building else None,
+                "defaults": building_gen.form_features(form) if building else None,
+                "templates": building_gen.TEMPLATES, "enums": building_gen.ENUMS,
                 "catalog": ({"width": typ.width, "depth": typ.depth, "storeys": typ.storeys,
                              "storey_m": typ.storey_m or (layout.city.storey_m if layout.city else 3.4)} if typ else None),
                 "entry": e and {k: e.get(k) for k in ("id", "tier", "typology", "district", "material", "size_m", "instances")},
@@ -974,11 +976,13 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         imp = lr.locked_impact(store, asset, old, b)
         if imp and not req.confirm:
             raise HTTPException(409, "locked frames show this asset: " + ", ".join(f"{r['shot']} ({100 * r['frac']:.2f}%)" for r in imp))
-        if old.get("kind") == "building":
-            try:
+        try:
+            if old.get("kind") == "building":
                 lr.save_brief(store, asset, req.brief)
-            except ValueError as e:
-                raise HTTPException(400, str(e))
+            elif req.brief.get("params") is not None:        # a kit piece: its params
+                lr.save_kit(store, asset, req.brief["params"])
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         return jobs.submit("library.rebuild", slug, lambda: lr.rebuild(store, asset), lane="cpu",
                            tag={"asset": asset, "round": lr.current_round(store)}).public()
 
