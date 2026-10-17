@@ -303,12 +303,14 @@ def materials(store: ProjectStore, brief: dict, maps: Path, surface: str | None 
     colours = _band_colours(a, _object_mask(a), brief)
     if surface == "patch":
         out = _patch_tiles(brief, maps, a, colours)
+        _scale_patch_tiles(out, band_scales(brief))
     else:
         from . import material_lib
         types = band_types(store, brief, log)
         meas = brief["measured"]
         out = {n: material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log,
-                                      contrast_std=band_contrast(a, (meas.get("patches") or {}).get(n) or meas.get("patch_px")))
+                                      contrast_std=band_contrast(a, (meas.get("patches") or {}).get(n) or meas.get("patch_px")),
+                                      scale=band_scales(brief)[n])
                for n in ("wall", "base", "top")}
         # slab edges, balcony fronts, parapets, copings: smooth render (concrete on a concrete
         # building) in the colour the sheet draws them, never the wall stone
@@ -318,6 +320,30 @@ def materials(store: ProjectStore, brief: dict, maps: Path, surface: str | None 
         out["vault"] = dict(out["wall"])
         out["roof"] = dict(out["wall"])
     return out | _plain_materials(brief)
+
+
+def band_scales(brief: dict) -> dict:
+    """The texture scale per storey band: the brief's `material_scale` (a multiplier on the
+    material's tile size, default 1), validated here as well as in the form."""
+    given = brief.get("material_scale") or {}
+    out = {}
+    for b in ("base", "wall", "top"):
+        x = given.get(b, 1.0)
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not x > 0:
+            raise ValueError(f"material_scale {b} = {x!r}: must be a positive number")
+        out[b] = float(x)
+    bad = set(given) - set(out)
+    if bad:
+        raise ValueError(f"material_scale: unknown band(s) {sorted(bad)}; bands are base / wall / top")
+    return out
+
+
+def _scale_patch_tiles(out: dict, scales: dict) -> None:
+    """Patch surfaces: scale each band's tile (vault and roof follow the wall's)."""
+    for name, s in (("base", scales["base"]), ("wall", scales["wall"]), ("top", scales["top"]),
+                    ("vault", scales["wall"]), ("roof", scales["wall"])):
+        if s != 1.0:
+            out[name] = {**out[name], "tile_m": round(out[name]["tile_m"] * s, 4), "scale": s}
 
 
 def _patch_tiles(brief: dict, maps: Path, a: np.ndarray, colours: dict) -> dict:

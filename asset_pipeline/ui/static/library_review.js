@@ -55,7 +55,7 @@ async function lrLoad(resetDraft) {
     const b = d.brief;
     lr.draft = {dims: lrClone(b.dims), params: lrClone(b.params || {}), features: lrClone(d.features), colors: lrClone(b.colors || {}),
                 patches: lrClone(b.patches || {}), sheet: b.sheet, position: b.position,
-                material_types: lrClone(b.material_types || {}), surface: b.surface || "auto"};
+                material_types: lrClone(b.material_types || {}), material_scale: lrClone(b.material_scale || {}), surface: b.surface || "auto"};
     lr.dirty = false;
   }
   lrRender();
@@ -264,7 +264,8 @@ function lrRenderBrief() {
     const bx = b.patches[name] || (meas.patches || {})[name] || meas.patch_px;
     const col = b.colors[name], read = ((meas.materials || {})[name] || {}).type;
     const mt = `<select data-mtype="${name}" aria-label="${name} material type" title="${esc(((meas.materials || {})[name] || {}).why || "")}">
-      <option value="">auto${read ? ` (${esc(read)})` : ""}</option>${(d.material_types || []).map(t => `<option${b.material_types[name] === t ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+      <option value="">auto${read ? ` (${esc(read)})` : ""}</option>${(d.material_types || []).map(t => `<option${b.material_types[name] === t ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <input type="number" data-mscale="${name}" min="0.05" max="20" step="any" style="width:4.5em" value="${(b.material_scale || {})[name] ?? 1}" aria-label="${name} texture scale" title="Texture scale: a multiplier on the material's tile size (0.5 = half-size joints and veining, 2 = double). 1 = as scanned.">`;
     return `<span>${name}</span><span>${mt}</span><span class="lr-patch" data-band="${name}" title="${bx ? bx.join(", ") : "none"}"></span>
       <span class="inl"><input type="checkbox" data-auto="${name}" ${col ? "" : "checked"} title="Colour from the sheet's band">auto
         <input type="color" data-color="${name}" value="${col ? rgbHex(col) : "#cccccc"}" ${col ? "" : "disabled"}></span>
@@ -286,7 +287,7 @@ function lrRenderBrief() {
       <div class="lr-fields">${Object.entries(b.params || {}).map(([k, v]) => lrField("params." + k, v, k.replace(/_/g, " "))).join("")}</div>`}
     </fieldset>
     ${d.building ? `<fieldset><legend>Parts</legend>${parts.map(([k, v]) => lrIsList(k, v) ? lrList("features." + k, v) : lrPart("features." + k, v, (d.defaults || {})[k], 0)).join("")}</fieldset>
-    <fieldset><legend>Materials per storey band</legend><div class="lr-mats"><b>Band</b><b>Type</b><b>Patch</b><b>Colour</b><b></b>
+    <fieldset><legend>Materials per storey band</legend><div class="lr-mats"><b>Band</b><b>Type · texture scale ×</b><b>Patch</b><b>Colour</b><b></b>
       ${band("top")}${band("wall")}${band("base")}</div>
       <p class="hint" style="margin:4px 0 0">Sheet palette ${pal} · Surfaces: <select id="lr-surface" aria-label="Surfaces">
         ${["auto", "library", "patch"].map(o => `<option${(b.surface || "auto") === o ? " selected" : ""}>${o}</option>`).join("")}</select>
@@ -323,6 +324,11 @@ function lrRenderBrief() {
     const n = el.dataset.mtype;
     if (el.value) lr.draft.material_types[n] = el.value; else delete lr.draft.material_types[n];
     lrSet("material_types", lr.draft.material_types);
+  }));
+  box.querySelectorAll("[data-mscale]").forEach(el => el.addEventListener("change", () => {
+    const n = el.dataset.mscale, x = parseFloat(el.value);
+    if (x === 1 || !el.value) delete lr.draft.material_scale[n]; else lr.draft.material_scale[n] = x;
+    lrSet("material_scale", lr.draft.material_scale);
   }));
   const sf = $("#lr-surface"); if (sf) sf.onchange = () => lrSet("surface", sf.value);
   box.querySelectorAll("[data-pick]").forEach(el => el.onclick = () => { lr.pick = lr.pick === el.dataset.pick ? null : el.dataset.pick; lrRenderBrief(); });
@@ -380,7 +386,7 @@ async function lrValidate() {
 
 const lrBriefBody = () => ({dims: lr.draft.dims, params: lr.draft.params, features: lr.draft.features, colors: lr.draft.colors,
                             patches: lr.draft.patches, sheet: lr.draft.sheet, position: lr.draft.position,
-                            material_types: lr.draft.material_types, surface: lr.draft.surface});
+                            material_types: lr.draft.material_types, material_scale: lr.draft.material_scale, surface: lr.draft.surface});
 
 async function lrRebuild() {
   const v = lr.data.building ? await lrValidate() : {errors: [], impact: []};

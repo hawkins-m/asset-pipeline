@@ -98,6 +98,8 @@ defaults. Change one or two things at a time, then Save & Rebuild.
 | Low side buildings | annexes (Add): side, at, w, d, h, pattern, canopy |
 | Hipped roof | hip roof (rise, over) on civic and arcade halls; campanile › cap `hip` |
 | Wall material per band | Materials › Type per band (auto reads the sheet) and Colour; Surfaces library / patch |
+| Texture scale (joint size, veining) | Materials › the × box next to Type per band: a multiplier on the material's tile size, default 1 (0.5 on 2 m stone gives 1 m blocks; 2 doubles them). Saved only when not 1 |
+| Raised moulding around the basilica's central block | basilica front › panel frame: on, w (share of the block width), proj (m proud of the wall), margin (share in from its edges), gap (m clear of the window and oculus). Off by default |
 | Kit pieces (gates, colonnade bays) | the piece's measurements in metres, in the same form |
 
 Validation runs as you type. Errors (red) block the rebuild. Notes (grey) only warn, for

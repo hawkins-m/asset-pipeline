@@ -157,3 +157,42 @@ def test_contrast_scales_the_spread_towards_the_band_and_keeps_the_mean(lib, tmp
     assert ml.lum_std(b) < 0.6 * ml.lum_std(a)
     assert b.reshape(-1, 3).mean(0) == pytest.approx(a.reshape(-1, 3).mean(0), abs=4)
     assert Image.open(calm["base"]).width == ml.GLB_PX and "/1024/" in calm["normal"]       # 1K in the GLB
+
+
+# --- texture scale per band --------------------------------------------------------------
+
+def test_scaled_tile_is_a_multiplier_on_the_real_world_size():
+    assert ml.scaled_tile([2.0, 2.0], 0.5) == [1.0, 1.0]
+    assert ml.scaled_tile([2.6, 1.3], 2) == [5.2, 2.6]
+    assert ml.scaled_tile(2.0) == [2.0, 2.0]
+
+
+def test_tinted_scale_changes_the_uv_tile_and_defaults_to_one(lib, tmp_path):
+    one = ml.tinted("limestone", [200, 190, 180], tmp_path / "a.jpg")
+    half = ml.tinted("limestone", [200, 190, 180], tmp_path / "b.jpg", scale=0.5)
+    assert (one["tile_m"], one["tile_v_m"], one["scale"]) == (2.0, 2.0, 1.0)
+    assert (half["tile_m"], half["tile_v_m"]) == (1.0, 1.0)              # 2 m joints -> 1 m
+
+
+def test_band_scales_default_validate_and_reach_the_materials(lib, tmp_path):
+    b = _brief(tmp_path)
+    assert bp.band_scales(b) == {"base": 1.0, "wall": 1.0, "top": 1.0}
+    for bad in ({"wall": 0}, {"wall": -1}, {"wall": "2"}, {"roof": 2}, {"wall": True}):
+        with pytest.raises(ValueError):
+            bp.band_scales(b | {"material_scale": bad})
+    b["measured"]["materials"] = {k: {"type": "limestone", "why": ""} for k in ("base", "wall", "top")}
+    plain = bp.materials(_Store(tmp_path), b, tmp_path / "m1", surface="library", log=lambda *a: None)
+    b["material_scale"] = {"wall": 0.5, "top": 2}
+    sc = bp.materials(_Store(tmp_path), b, tmp_path / "m2", surface="library", log=lambda *a: None)
+    assert plain["wall"]["tile_m"] == 2.0 and sc["wall"]["tile_m"] == 1.0
+    assert sc["top"]["tile_m"] == 4.0 and sc["base"]["tile_m"] == 2.0     # unlisted bands stay at 1
+    assert sc["roof"]["tile_m"] == 1.0 and sc["trim"]["tile_m"] == plain["trim"]["tile_m"]
+
+
+def test_patch_surface_tiles_scale_too(tmp_path):
+    b = _brief(tmp_path)
+    plain = bp.materials(_Store(tmp_path), b, tmp_path / "m1", surface="patch")
+    sc = bp.materials(_Store(tmp_path), b | {"material_scale": {"wall": 2.0}}, tmp_path / "m2", surface="patch")
+    assert abs(sc["wall"]["tile_m"] - 2 * plain["wall"]["tile_m"]) < 1e-3
+    assert abs(sc["roof"]["tile_m"] - 2 * plain["roof"]["tile_m"]) < 1e-3
+    assert sc["base"]["tile_m"] == plain["base"]["tile_m"]

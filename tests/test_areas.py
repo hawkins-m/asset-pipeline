@@ -79,3 +79,27 @@ def test_material_types_are_checked(store, monkeypatch):
     v = library_review.validate(store, "hall", BRIEF | {"material_types": {"base": "granite"}})
     assert any("material type base" in e for e in v["errors"])
     assert not library_review.validate(store, "hall", BRIEF | {"material_types": {"base": "brick"}, "surface": "auto"})["errors"]
+
+
+def test_material_scale_is_checked_and_saved_as_differences(store, monkeypatch):
+    monkeypatch.setattr(library_review.sw_site, "load_layout", lambda store: type("L", (), {"city": None, "shots": []})())
+    for bad in ({"wall": 0}, {"wall": -2}, {"wall": "x"}, {"roof": 1.5}, {"wall": 99}):
+        v = library_review.validate(store, "hall", BRIEF | {"material_scale": bad})
+        assert any("texture scale" in e for e in v["errors"]), bad
+    assert not library_review.validate(store, "hall", BRIEF | {"material_scale": {"wall": 0.5, "top": 2}})["errors"]
+    monkeypatch.setattr(library_review, "brief_edited", lambda *a: None)
+    kit_proc.spec_path(store, "hall").parent.mkdir(parents=True, exist_ok=True)
+    write_json(kit_proc.spec_path(store, "hall"), BRIEF)
+    saved = library_review.save_brief(store, "hall", {"material_scale": {"wall": 0.5, "top": 1}})["brief"]
+    assert saved["material_scale"] == {"wall": 0.5}                    # 1 is the default: not stored
+    saved = library_review.save_brief(store, "hall", {"material_scale": {}})["brief"]
+    assert "material_scale" not in saved
+
+
+def test_panel_frame_fields_are_validated(store, monkeypatch):
+    monkeypatch.setattr(library_review.sw_site, "load_layout", lambda store: type("L", (), {"city": None, "shots": []})())
+    b = BRIEF | {"form": "basilica", "dims": [87.0, 50.0, 24.0]}
+    ok = library_review.validate(store, "hall", b | {"features": {"front": {"panel_frame": {"on": True}}}})
+    assert not ok["errors"]
+    bad = library_review.validate(store, "hall", b | {"features": {"front": {"panel_frame": {"on": True, "proj": -0.1}}}})
+    assert any("panel_frame.proj" in e for e in bad["errors"])

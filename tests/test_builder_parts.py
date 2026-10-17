@@ -260,3 +260,78 @@ def test_basilica_front_door_leaf():
     wood = bg.basilica([87, 50, 24], {}, bg.features("basilica", {"front": {"door": {"leaf": "wood"}}}))
     assert not [p for p in glass if p["mat"] == "wood"]
     assert len([p for p in wood if p["mat"] == "wood"]) == 1
+
+
+# --- basilica: raised panel frames around the central block ----------------------------------
+
+def _frame_bars(on, **over):
+    feats = {"front": {"panel_frame": {"on": on, **over}}}
+    ps = bg.basilica([87, 50, 24], {}, bg.features("basilica", feats))
+    return ps, [p for p in ps if p["kind"] == "box" and p["mat"] == "trim" and p.get("rz") == 270
+                and p["y0"] < -0.05 and p["y1"] == 0.05]
+
+
+def test_panel_frame_is_off_by_default_and_four_bars_when_on():
+    assert bg.features("basilica", None)["front"]["panel_frame"]["on"] is False
+    assert len(_frame_bars(False)[1]) == 0
+    ps, bars = _frame_bars(True)
+    assert len(bars) == 4
+    assert len(ps) == len(_frame_bars(False)[0]) + 4
+
+
+def test_panel_frame_projects_from_the_wall_and_encloses_the_openings():
+    _, bars = _frame_bars(True, proj=0.3, w=0.03)
+    assert all(abs(p["y0"] + 0.3) < 1e-9 for p in bars)                # proud by proj, outwards (-y)
+    x0, x1 = min(p["x0"] for p in bars), max(p["x1"] for p in bars)
+    nw = 0.44 * 50
+    assert abs((x1 - x0) - (nw - 2 * 0.12 * nw)) < 1e-6 and abs(x0 + x1) < 1e-9     # centred, margin each side
+    assert min(p["z0"] for p in bars) > 0.5 * 24                        # above the door
+    assert max(p["z1"] for p in bars) < 24 + 2.5                        # under the cornice
+
+
+def test_panel_frame_has_no_room_when_the_bars_fill_it():
+    assert bg.panel_frame(0.0, 1.0, 0.0, 5.0, 0.6, 0.1) == []
+    assert bg.panel_frame(0.0, 4.0, 0.0, 5.0, 0.2, 0.0) == []
+
+
+def test_panel_frame_leaves_no_coplanar_twins():
+    ps, _ = _frame_bars(True)
+    bparts.resolve_coincident(ps)
+    assert bparts.coincident_area(ps) == []
+
+
+def test_panel_frame_brief_validation_and_form():
+    from asset_pipeline import library_review as lr
+    f = bg.features("basilica", {"front": {"panel_frame": {"on": True, "w": 1.5}}})
+    assert any("panel_frame.w" in e for e in lr._walk_fractions(f))
+    assert not lr._walk_fractions(bg.features("basilica", {"front": {"panel_frame": {"on": True}}}))
+    ff = bg.form_features("basilica")["front"]["panel_frame"]          # shown in the form with its defaults
+    assert ff == {"on": False, "w": 0.025, "proj": 0.12, "margin": 0.12, "gap": 1.0}
+    full = bg.deep_merged(bg.form_features("basilica"), {"front": {"panel_frame": {"on": True}}})
+    assert lr.diff_features("basilica", full) == {"front": {"panel_frame": {"on": True}}}
+
+
+@pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
+def test_panel_frame_builds_in_blender_with_outward_faces(tmp_path):
+    from asset_pipeline import kit_proc
+    ps = bg.basilica([87, 50, 24], {}, bg.features("basilica", {"front": {"panel_frame": {"on": True}}}))
+    bparts.resolve_coincident(ps)
+    mats = {m: {"uv": "plain", "color": [0.5, 0.5, 0.5], "rough": 0.5} for m in {p["mat"] for p in ps}}
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps({"name": "t", "out": str(tmp_path / "t.glb"), "parts": ps, "materials": mats}))
+    check = tmp_path / "check.py"
+    check.write_text("""
+import bpy, bmesh, sys
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.import_scene.gltf(filepath=sys.argv[sys.argv.index("--") + 1])
+bm = bmesh.new()
+for o in bpy.context.scene.objects:
+    if o.type == "MESH":
+        bm.from_mesh(o.data)
+print("VOL", bm.calc_volume(signed=True))
+""")
+    subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(kit_proc.SCRIPT), "--", str(job)],
+                   check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
+    r = subprocess.run(["/snap/bin/blender", "-b", "--factory-startup", "--python", str(check), "--", str(tmp_path / "t.glb")],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True, timeout=300)
+    assert float(next(ln for ln in r.stdout.splitlines() if ln.startswith("VOL")).split()[1]) > 0

@@ -327,7 +327,8 @@ def library_slots(job: Path) -> dict:
             slots[name] = {"surface": {
                 "type": m["type"], "rgb_lin": [round(float(v), 5) for v in material_lib._srgb_to_lin(np.array(m["colour"], float))],
                 "acg_id": src["acg"], "textures": {k: src[k] for k in ("color", "normal_dx", "rough")},
-                "megascans": lib["megascans"], "uv_scale": 1.0, "contrast": m.get("contrast", 1.0),
+                "megascans": lib["megascans"], "uv_scale": 1.0, "tile_scale": m.get("scale", 1.0),   # data only: the brief's texture scale
+                "contrast": m.get("contrast", 1.0),
                 "uv_scale_megascans": src["tile_m"][0] / lib.get("megascans_m", 2.0)}}
     return slots
 

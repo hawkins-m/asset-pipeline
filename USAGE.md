@@ -539,6 +539,10 @@ ap site vegetation my-project [--preview med-a]           # street-tree slots, p
 ap area checklist my-project my-area                      # areas/my-area.md in the project
 ```
 
+- Brief fields added 2026-10-17 (RUNBOOK section 4 lists them with the rest):
+  `material_scale` (`{"wall": 0.5}`; per band `base` / `wall` / `top`, a multiplier on the
+  material's tile size, default 1, stored only when not 1) and, for basilicas,
+  `features.front.panel_frame` (`on`, `w`, `proj`, `margin`, `gap`; off by default).
 - `--district ID` works wherever `--area` does.
 - Batch commands skip approved assets and builds of an unchanged brief, report each failure
   and go on. Run the same command again after a crash or a ComfyUI restart.
