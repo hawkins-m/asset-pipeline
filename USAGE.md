@@ -523,6 +523,34 @@ or through an Unreal MCP server.
   Import from File with `export/terrain/heightmap.png` and the `landscape` values in
   `export/manifest.json`.
 
+# Library assets by area (the daily loop)
+
+RUNBOOK.md walks through it. The commands:
+
+```
+ap area define my-project my-area --shots med-a med-b     # or --districts north
+ap area status my-project my-area                         # each asset's next step
+ap library sheets my-project --area my-area               # sheets for decided entries without any
+ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front
+ap library build my-project --area my-area [--renders] [--force]
+ap library trellis my-project --area my-area              # props: TRELLIS on their chosen views
+ap library instances my-project --area my-area            # every building at its own footprint
+ap site vegetation my-project [--preview med-a]           # street-tree slots, proxy previews
+ap area checklist my-project my-area                      # areas/my-area.md in the project
+```
+
+- `--district ID` works wherever `--area` does.
+- Batch commands skip approved assets and builds of an unchanged brief, report each failure
+  and go on. Run the same command again after a crash or a ComfyUI restart.
+- **Vegetation zones.** Every build writes `<glb>.zones.json` next to its GLB: planter tops,
+  garden strips, roof-edge planters, terrace and courtyard beds (type, centre, size, yaw in the
+  building's frame). Review renders draw proxies on them.
+- **Street-tree slots** (`site/vegetation.json`) come from the plan with their own random
+  stream, so the city never moves. Their settings are in City › Rules › Street trees.
+- `ap export` writes `export/vegetation.json` (every point, with Unreal transforms), and
+  `ap ue import --vegetation` places them as TargetPoints tagged `ap:veg=<type>` for a PCG
+  graph. That step is not yet tested in Unreal.
+
 # Stage 0: exploring scenes and setting a style anchor
 
 ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with

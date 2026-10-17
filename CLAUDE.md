@@ -830,3 +830,24 @@ Until the deadline, all work follows these rules:
 - **District ties were random.** `max(set(ds), key=ds.count)` picks a tie's winner by string hash
   order, which differs per process: one slot flipped between two districts across rebuilds of the
   same plan. `city.majority_district` breaks ties by the district at the slot's centre.
+
+## Self-serve asset loop (2026-10-16)
+- RUNBOOK.md is the artist's guide; areas (`ap area`) and the batch commands' `--area` /
+  `--district` are the unit of work. Builds stamp the brief's sha (procedural.json, instance
+  index): batches skip unchanged briefs and approved assets, and resume.
+- **Brief features merge at every depth** (`building_gen.features`). Until 2026-10-16 a nested brief
+  dict (e.g. `top.facade`) replaced the type's whole dict, and the grammar defaults filled in
+  the rest: the insula attics got FACADE's 0.9 m parapet and cornice instead of their type's.
+- The brief form shows every facade grammar field (`building_gen.form_features`), and saves
+  only the difference from those expanded defaults. Keys a generator passes per facade
+  (`FACADE_KW`: storeys, heights, parapet, cornice...) are never filled in, or a brief would
+  override the generator.
+- `kind` means different things per part: enums are keyed "parent.key" first (a cube's portal
+  kind is open / glazed / door).
+- Vegetation: `zone` parts carry no geometry (kit_proc splits them off before Blender and
+  writes `<glb>.zones.json`); planters draw only ground cover. Street-tree slots never touch
+  the plan's random stream (CLAUDE.md: the plan reshuffles on any change).
+- Blender `bmesh.ops.convex_hull`: geom_interior and geom_unused can list the same vertex;
+  dedupe before deleting, or "found the same BMVert used multiple times".
+- Review renders fit tall assets: the camera distance covers the height too (a 46 m campanile
+  was cropped at the old size * 1.55).

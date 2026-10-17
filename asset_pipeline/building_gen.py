@@ -68,7 +68,7 @@ TYPE_FEATURES = {
                     "bay_m": 3.2, "recess": 1.5, "cornice": [[0.3, 0.2], [0.25, 0.35]]},
         "nave_wall": {"pattern": ["blind"], "blind": {"w": 0.62, "h": 0.6, "sill": 0.2, "depth": 0.2}, "bay_m": 4.4,
                       "attic": 2.2},
-        "front": {"pylons": {"w": 0.13, "h": 0.86, "batter": 0.6}, "door": {"w": 0.42, "h": 0.5, "archivolt": 0.6},
+        "front": {"pylons": {"w": 0.13, "h": 0.86, "batter": 0.6}, "door": {"w": 0.42, "h": 0.5, "archivolt": 0.6, "leaf": "glass"},
                   "window": {"w": 0.12, "h": 0.12}, "oculus": 0.6, "side_doors": True, "attic_extra": 2.5},
         "apse": True,
     },
@@ -155,7 +155,7 @@ ENUMS = {
     "balcony.kind": ["slab", "band"], "portal.kind": ["open", "glazed", "door"],
     "arch": ["arch", "seg", "pointed"], "balustrade": ["glass", "solid", "rail"], "column": ["round", "square"],
     "on": ["window", "loggia", "all"], "profile": ["pier", "strip", "fin"], "frame_mat": ["frame", "wood"],
-    "door_leaf": ["wood", "glass"], "planter": ["box", "trough", "pots", "hedge", "bed", "none"],
+    "door_leaf": ["wood", "glass"], "leaf": ["glass", "wood"], "planter": ["box", "trough", "pots", "hedge", "bed", "none"],
     "cap": ["pyramid", "flat", "hip"], "side": ["front", "back", "left", "right"], "lining": ["wall", "base", "trim", "wood"],
     "mat": ["base", "wall", "top", "trim", "wood"],
 }
@@ -449,11 +449,14 @@ def basilica(dims, p, f) -> list[dict]:
     fr = f["front"]
     hf = h + fr["attic_extra"]
     di, ni_ = d / 2 - 0.9, nw / 2
-    door = {"kind": "arch", "cx": 0.0, "w": fr["door"]["w"] * nw, "z0": 0.0, "h": fr["door"]["h"] * h}
+    door = {"kind": "arch", "cx": 0.0, "w": fr["door"]["w"] * nw, "z0": 0.0, "h": fr["door"]["h"] * h,
+            "glass": fr["door"].get("leaf", "glass") == "glass"}
     win = {"kind": "arch", "cx": 0.0, "w": max(1.0, fr["window"]["w"] * nw), "z0": door["h"] + 2.0,
            "h": fr["window"]["h"] * h + 1.2}
     ocu = {"kind": "round", "cx": 0.0, "cz": win["z0"] + win["h"] + 1.6, "r": fr["oculus"]}
     front = pierced(-ni_, ni_, 0.0, hf, 0.0, 2.0, [door, win, ocu], "wall", inset=1.4)
+    if not door["glass"]:                                # timber door leaves in the arch, set back in its reveal
+        front.append(prism(outline(door), 1.4, 1.48, fr["door"]["leaf"]))
     if fr["door"].get("archivolt"):
         front += archivolt(door, fr["door"]["archivolt"], 0.0, 0.25)
     front += cornice(nw, hf, [[0.4, 0.3], [0.3, 0.5]])

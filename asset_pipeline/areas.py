@@ -77,7 +77,7 @@ def members(store: ProjectStore, area: str | None = None, district: str | None =
     for shot in spec["shots"]:
         ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None)
         if ids is None:
-            raise FileNotFoundError(f"{shot}: no id pass; run ap shots render {store.root.name} --shots {shot}")
+            raise FileNotFoundError(f"{shot}: no id pass; run ap shots render {store.root.name} {shot}")
         for sid, v in ids["slots"].items():
             if v["frac"] < MIN_SHARE:
                 continue

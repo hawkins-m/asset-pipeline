@@ -249,6 +249,7 @@ Paid backends (Gemini, Claude) exist but are off by default and refuse to run wi
 ## Docs
 
 - [USAGE.md](USAGE.md): running the tools and the UI.
+- [RUNBOOK.md](RUNBOOK.md): the daily asset loop for one area, matching a sheet with brief fields, common failures.
 - [PLAN.md](PLAN.md): design, stages and milestones.
 - [CLAUDE.md](CLAUDE.md): machine facts, measured findings and pitfalls.
 

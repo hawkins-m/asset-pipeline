@@ -253,3 +253,10 @@ def test_enum_values_are_checked():
     errs = lr._walk_enums(bg.features("perimeter", {"street": {"window": {"kind": "oval"}}, "planter": "vase"}))
     assert any("window.kind" in e for e in errs) and any("planter" in e for e in errs)
     assert not lr._walk_enums(bg.features("cube", None))         # a niche portal's kind is its own list
+
+
+def test_basilica_front_door_leaf():
+    glass = bg.basilica([87, 50, 24], {}, bg.features("basilica", None))
+    wood = bg.basilica([87, 50, 24], {}, bg.features("basilica", {"front": {"door": {"leaf": "wood"}}}))
+    assert not [p for p in glass if p["mat"] == "wood"]
+    assert len([p for p in wood if p["mat"] == "wood"]) == 1
