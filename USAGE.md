@@ -100,7 +100,7 @@ silent NaNs, and the script refuses to start if it is set.
 
 ---
 
-# The UI: Terraformer Pipeline
+# The UI: Terraformer
 
 `ap ui` serves it at http://127.0.0.1:8700 (`--port` for another). It looks like a classic
 desktop app:

@@ -1,6 +1,6 @@
-# Terraformer Pipeline
+# Terraformer
 
-A local-first pipeline from a world layout to an Unreal Engine 5.8 scene, built around
+Terraformer, a 3D environment pipeline: a local-first pipeline from a world layout to an Unreal Engine 5.8 scene, built around
 ComfyUI. You lay out a place (roads, districts, landmarks, terrain); the pipeline builds a
 Blender greybox, renders control passes for each camera shot, paints concept frames from them
 with FLUX.1-dev, plans which assets the frames call for, builds those assets, imports them into
@@ -10,7 +10,23 @@ machine with open-weights models. No partner or API nodes, no hosted services.
 Entry for the Comfy "Open Source Higgsfield" challenge, category **Open Weights Only**.
 
 The repo is `asset-pipeline` and the command line is `ap`; the UI (`ap ui`) is called
-Terraformer Pipeline.
+Terraformer.
+
+## How it works
+
+One line per stage, in order. **Artist:** marks a decision point; everything else runs unattended.
+
+1. **Brief and site layout.** `ap new`, `ap site init` (or `--city`), `ap style text`; no GPU needed. **Artist:** edits the layout and the brief.
+2. **Greybox.** `ap site build` makes terrain and a greybox in headless Blender (CPU).
+3. **Shot passes.** `ap shots render` renders exact depth, edge, object-id and normal passes per camera shot (Blender Cycles, CPU).
+4. **Frames.** `ap frames generate SHOT -n 4`: FLUX.1-dev with ControlNet Union Pro 2.0 (depth) and Redux through ComfyUI. **Artist:** picks and locks frames (`ap frames lock`, `ap frames role`).
+5. **Reference sheets.** `ap library plan`, `ap library check` (SAM 3.1), then `ap library sheets`: FLUX.1-dev sheets of each asset. **Artist:** decides each entry's source and picks the sheet view.
+6. **VLM brief.** `ap library brief PROJECT ASSET SHEET front`: Qwen3-VL (32B via llama.cpp) and image analysis read proportions, palette and materials off the sheet. **Artist:** edits the brief form fields.
+7. **Procedural / TRELLIS build.** `ap library build` (procedural Blender, ambientCG materials) for architecture; `ap library trellis` (TRELLIS.2) for irregular assets and props; `ap library instances` for per-building builds.
+8. **Review gate.** Library › Asset review, `ap library review apply`. **Artist:** approves, or marks needs changes with a note.
+9. **Vegetation zones.** `ap site vegetation`: zones and street-tree slots are tagged on every build and exported; the plants come from a PCG graph in Unreal.
+10. **Unreal placement.** `ap export`, then `ap ue import` (Unreal Engine 5.8, headless); `ap ue backup` snapshots the project.
+11. **Look match.** `ap ue look PROJECT SHOT`: tints, exposure and the far ridge are read from the approved frame (OneFormer, Depth Anything V2) and rendered in Unreal. **Artist:** chooses and tunes the look preset.
 
 ## What it does
 
@@ -210,7 +226,7 @@ this has been run. TRELLIS.2 on CUDA additionally needs the CUDA toolkit for its
 
 ## Models and licenses
 
-All open weights, all run locally. **Several are non-commercial, so the pipeline as configured
+All open weights, all run locally. **Commercial use requires a commercial license from each model's owner wherever that model's license calls for one; check every row below before using any output commercially.** Several are non-commercial, so the pipeline as configured
 is for non-commercial use unless you swap those models.**
 
 | Model | Used for | License |

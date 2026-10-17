@@ -1,4 +1,4 @@
-/* Terraformer Pipeline: classic desktop look. One light theme (window chrome, white-ish
+/* Terraformer: classic desktop look. One light theme (window chrome, white-ish
    fields, group boxes, real menus). Blue = selected, green = ready, amber = out of date;
    the dark viewport is only used around images and 3D. */
 @font-face { font-family: "MS Sans Serif 98"; src: url("fonts/ms_sans_serif.woff2") format("woff2"); font-weight: 400; }

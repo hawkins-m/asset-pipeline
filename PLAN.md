@@ -1,6 +1,6 @@
-# Terraformer Pipeline — Project Plan
+# Terraformer — Project Plan
 
-(Repo `asset-pipeline`, command `ap`; Terraformer Pipeline is the tool's name in the UI and docs.)
+(Repo `asset-pipeline`, command `ap`; Terraformer is the tool's name in the UI and docs.)
 
 ## Goal
 A local-first tool that turns a single concept/scene image into organized, reviewable
@@ -197,7 +197,7 @@ Open questions:
 - Whether approved frames used as references (`--ref`) make shots consistent enough.
 - Whether a moodboard-derived anchor helps beyond the style text.
 
-UI (2026-10-09): the browser UI is now Terraformer Pipeline, a classic desktop layout:
+UI (2026-10-09): the browser UI is now Terraformer, a classic desktop layout:
 - menus, toolbar, a side panel with stage states and per-lane jobs, and tabs (Style,
   Site, City, Shots, Frames, Library, Views and 3D, Unreal);
 - an *Apply changes* chain (re-plan → rebuild → passes), the City tab as a table plus a
