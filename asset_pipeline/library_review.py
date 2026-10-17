@@ -252,6 +252,12 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     f = building_gen.features(brief["form"], brief.get("features"))
     errs += _walk_fractions(f)
     errs += _walk_enums(f)
+    from .material_lib import LIBRARY
+    for band, t in (brief.get("material_types") or {}).items():
+        if band not in ("base", "wall", "top") or t not in LIBRARY:
+            errs.append(f"material type {band} = {t!r}: bands base / wall / top, types {', '.join(sorted(LIBRARY))}")
+    if brief.get("surface") not in (None, "", "auto", "library", "patch"):
+        errs.append(f"surface {brief['surface']!r}: library or patch")
     e = entry_of(store, asset)
     layout = sw_site.load_layout(store)
     typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
@@ -338,7 +344,12 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
     defaults); an Approved asset goes back to Needs review."""
     sp = kit_proc.spec_path(store, asset)
     old = read_json(sp, default=None) or {}
-    b = {**old, **{k: v for k, v in new.items() if k in ("dims", "params", "features", "colors", "patches", "form")}}
+    b = {**old, **{k: v for k, v in new.items() if k in ("dims", "params", "features", "colors", "patches", "form",
+                                                         "material_types", "surface")}}
+    if not b.get("material_types"):
+        b.pop("material_types", None)
+    if b.get("surface") in (None, "", "auto"):
+        b.pop("surface", None)
     if new.get("sheet") and (new.get("sheet"), new.get("position")) != (old.get("sheet"), old.get("position")):
         from . import building_proc                       # another view: cut it and measure it again
         pos = new.get("position")

@@ -439,7 +439,7 @@ details summary { cursor: default; }
 #asset-detail .lr-fields { display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 3px 0 3px 18px; }
 #asset-detail .lr-f { display: inline-flex; gap: 4px; align-items: center; }
 #asset-detail .lr-f input[type=number] { width: 5.5em; }
-#asset-detail .lr-mats { display: grid; grid-template-columns: auto auto auto minmax(0, 1fr); gap: 3px 8px; align-items: center; }
+#asset-detail .lr-mats { display: grid; grid-template-columns: auto auto auto auto minmax(0, 1fr); gap: 3px 8px; align-items: center; }
 #asset-detail .lr-patch { display: inline-block; width: 30px; height: 30px; border: 1px solid var(--border-dark); background: var(--field); }
 #asset-detail .sw { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--border-dark); vertical-align: -3px; }
 #asset-detail input.bad { border-color: var(--danger); background: #F3DCDC; }

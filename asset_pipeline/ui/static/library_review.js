@@ -54,7 +54,8 @@ async function lrLoad(resetDraft) {
   if (resetDraft || !lr.draft) {
     const b = d.brief;
     lr.draft = {dims: lrClone(b.dims), params: lrClone(b.params || {}), features: lrClone(d.features), colors: lrClone(b.colors || {}),
-                patches: lrClone(b.patches || {}), sheet: b.sheet, position: b.position};
+                patches: lrClone(b.patches || {}), sheet: b.sheet, position: b.position,
+                material_types: lrClone(b.material_types || {}), surface: b.surface || "auto"};
     lr.dirty = false;
   }
   lrRender();
@@ -261,8 +262,10 @@ function lrRenderBrief() {
   const pal = (meas.palette || []).map(c => `<span class="sw" style="background:rgb(${c.rgb.join(",")})" title="${Math.round(100 * c.share)}%"></span>`).join("");
   const band = name => {
     const bx = b.patches[name] || (meas.patches || {})[name] || meas.patch_px;
-    const col = b.colors[name];
-    return `<span>${name}</span><span class="lr-patch" data-band="${name}" title="${bx ? bx.join(", ") : "none"}"></span>
+    const col = b.colors[name], read = ((meas.materials || {})[name] || {}).type;
+    const mt = `<select data-mtype="${name}" aria-label="${name} material type" title="${esc(((meas.materials || {})[name] || {}).why || "")}">
+      <option value="">auto${read ? ` (${esc(read)})` : ""}</option>${(d.material_types || []).map(t => `<option${b.material_types[name] === t ? " selected" : ""}>${t}</option>`).join("")}</select>`;
+    return `<span>${name}</span><span>${mt}</span><span class="lr-patch" data-band="${name}" title="${bx ? bx.join(", ") : "none"}"></span>
       <span class="inl"><input type="checkbox" data-auto="${name}" ${col ? "" : "checked"} title="Colour from the sheet's band">auto
         <input type="color" data-color="${name}" value="${col ? rgbHex(col) : "#cccccc"}" ${col ? "" : "disabled"}></span>
       <button type="button" class="small" data-pick="${name}" title="Click the reference image to take this band's patch">${lr.pick === name ? "Click the reference…" : "Pick on view"}</button>`;
@@ -283,8 +286,11 @@ function lrRenderBrief() {
       <div class="lr-fields">${Object.entries(b.params || {}).map(([k, v]) => lrField("params." + k, v, k.replace(/_/g, " "))).join("")}</div>`}
     </fieldset>
     ${d.building ? `<fieldset><legend>Parts</legend>${parts.map(([k, v]) => lrIsList(k, v) ? lrList("features." + k, v) : lrPart("features." + k, v, (d.defaults || {})[k], 0)).join("")}</fieldset>
-    <fieldset><legend>Materials per storey band</legend><div class="lr-mats"><b>Band</b><b>Patch</b><b>Colour</b><b></b>
-      ${band("top")}${band("wall")}${band("base")}</div><p class="hint" style="margin:4px 0 0">Sheet palette ${pal}</p></fieldset>` : ""}
+    <fieldset><legend>Materials per storey band</legend><div class="lr-mats"><b>Band</b><b>Type</b><b>Patch</b><b>Colour</b><b></b>
+      ${band("top")}${band("wall")}${band("base")}</div>
+      <p class="hint" style="margin:4px 0 0">Sheet palette ${pal} · Surfaces: <select id="lr-surface" aria-label="Surfaces">
+        ${["auto", "library", "patch"].map(o => `<option${(b.surface || "auto") === o ? " selected" : ""}>${o}</option>`).join("")}</select>
+        (library: scanned PBR set per type, tinted; patch: a tile cut from the sheet)</p></fieldset>` : ""}
     <div class="row end"><span id="lr-dirty" class="hint" style="margin:0;flex:1" ${lr.dirty ? "" : "hidden"}>${(d.review || {}).status === "approved" ? "Unsaved edits · saving sets this Approved asset back to Needs review" : "Unsaved edits"}</span>
       <span id="lr-errors" class="err"></span><span id="lr-warnings" class="hint" style="margin:0"></span><button type="button" id="lr-revert">Revert</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
   box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("change", lrFieldChange));
@@ -313,6 +319,12 @@ function lrRenderBrief() {
   box.querySelectorAll("[data-color]").forEach(el => el.addEventListener("input", ev => {
     lr.draft.colors[ev.target.dataset.color] = hexRgb(ev.target.value); lrSet("colors", lr.draft.colors);
   }));
+  box.querySelectorAll("[data-mtype]").forEach(el => el.addEventListener("change", () => {
+    const n = el.dataset.mtype;
+    if (el.value) lr.draft.material_types[n] = el.value; else delete lr.draft.material_types[n];
+    lrSet("material_types", lr.draft.material_types);
+  }));
+  const sf = $("#lr-surface"); if (sf) sf.onchange = () => lrSet("surface", sf.value);
   box.querySelectorAll("[data-pick]").forEach(el => el.onclick = () => { lr.pick = lr.pick === el.dataset.pick ? null : el.dataset.pick; lrRenderBrief(); });
   const vs = $("#lr-view"); if (vs) vs.onchange = () => { const [s, p] = vs.value.split("|"); lr.draft.sheet = s; lr.draft.position = p === "all" ? "all" : +p; lrSet("sheet", s); };
   $("#lr-revert").onclick = () => { lrLoad(true); };
@@ -367,7 +379,8 @@ async function lrValidate() {
 }
 
 const lrBriefBody = () => ({dims: lr.draft.dims, params: lr.draft.params, features: lr.draft.features, colors: lr.draft.colors,
-                            patches: lr.draft.patches, sheet: lr.draft.sheet, position: lr.draft.position});
+                            patches: lr.draft.patches, sheet: lr.draft.sheet, position: lr.draft.position,
+                            material_types: lr.draft.material_types, surface: lr.draft.surface});
 
 async function lrRebuild() {
   const v = lr.data.building ? await lrValidate() : {errors: [], impact: []};

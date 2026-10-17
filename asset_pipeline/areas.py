@@ -88,6 +88,10 @@ def members(store: ProjectStore, area: str | None = None, district: str | None =
                 got = [k for k in (f"{t}-{s.get('material')}", t) if k in ents][:1]
             for e in got:
                 out[e] = max(out.get(e, 0.0), v["frac"])
+    for e in ents.values():                          # props and kit pieces inside a slot (stalls in a market):
+        for src in e.get("sources") or []:           # the shots the library plan found them in
+            if src.get("shot") in spec["shots"]:
+                out[e["id"]] = max(out.get(e["id"], 0.0), float(src.get("share") or 0.0))
     for d in spec.get("districts") or []:
         for e in ents.values():
             if d in (e.get("districts") or {}) or e.get("district") == d:
@@ -139,7 +143,7 @@ def next_step(store: ProjectStore, r: dict, area: str | None, district: str | No
     p = store.root.name
     if r["status"] == "approved":
         return "done (approved)"
-    if not r["decision"]:
+    if not r["decision"] and not r["brief"]:
         return f"decide its source in Library › Entries (or ap library decide {p} {r['entry']} ...)"
     if not r["sheets"] and not (r["route"] == "procedural" and r["brief"]):
         return f"make sheets: References tab, or ap library sheets {p} {sel}"

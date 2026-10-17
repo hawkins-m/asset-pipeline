@@ -689,11 +689,119 @@ def cmd_library_brief(a) -> None:
           f"{m.get('storeys')}, bay {m.get('bay_m')} m")
 
 
+COMFY_DOWN = ("ComfyUI is not answering at {url}. Start it: ~/Projects/AI/ComfyUI/run_comfy.sh "
+              "(log to $AP_ROOT/logs/comfyui.log), check with `ap comfy-check`, then run the same command again: "
+              "finished items are skipped.")
+
+
+def _comfy_up() -> bool:
+    try:
+        connect().health()
+        return True
+    except Exception:
+        return False
+
+
+def _selection(a, store) -> list[dict] | None:
+    """The area's (or district's) asset rows (areas.status), or None without --area / --district."""
+    if not (getattr(a, "area", None) or getattr(a, "district", None)):
+        return None
+    from . import areas
+    try:
+        return areas.status(store, a.area, a.district)
+    except (KeyError, FileNotFoundError, ValueError) as e:
+        raise SystemExit(str(e).strip('"'))
+
+
+def _batch(items, fn, what: str) -> None:
+    """Run fn per item; a failure is reported and the batch goes on. Ends with a summary and
+    the exit code 1 when anything failed (rerun the same command: finished items are skipped)."""
+    failed = []
+    for x in items:
+        try:
+            fn(x)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:                   # noqa: BLE001 - every failure is reported, the rest go on
+            print(f"{x}: FAILED: {type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
+            failed.append(x)
+    print(f"{what}: {len(items) - len(failed)} done, {len(failed)} failed" + (f" ({', '.join(failed)})" if failed else ""))
+    if failed:
+        raise SystemExit(1)
+
+
 def cmd_library_build(a) -> None:
-    from .kit_proc import build_any
+    from .kit_proc import build_any, spec_path
     store = ProjectStore.open(a.project)
-    for x in a.entries:
-        build_any(store, x, log=lambda s: print(f"{x}: {s}"), surface=a.surface)
+    rows = _selection(a, store)
+    if rows is None:
+        todo = list(a.entries)
+        if not todo:
+            raise SystemExit("name the assets, or give --area NAME / --district ID")
+    else:
+        todo = [r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["status"] != "approved"
+                and (a.force or not r["fresh"])]
+        skipped = [r["asset"] for r in rows if r["status"] == "approved"]
+        print(f"{len(todo)} to build" + (f"; approved, skipped: {', '.join(skipped)}" if skipped else "")
+              + ("" if a.force else "; builds of an unchanged brief are skipped (--force rebuilds them)"))
+    missing = [x for x in todo if not spec_path(store, x).is_file()]
+    if missing:
+        raise SystemExit(f"no brief for {', '.join(missing)}: make one with ap library brief {a.project} ASSET SHEET front")
+
+    def one(x):
+        if a.renders:                                # build + the review round's renders, as Save & Rebuild
+            from . import library_review as lr
+            print(f"{x}: {lr.rebuild(store, x, log=lambda s: None)['images']}")
+        else:
+            build_any(store, x, log=lambda s: print(f"{x}: {s}"), surface=a.surface)
+    _batch(todo, one, "build")
+
+
+def cmd_library_trellis(a) -> None:
+    """TRELLIS for the area's props (trellis route): each asset's chosen view, skipping approved
+    assets and those that have a result already (--more makes another)."""
+    from . import review
+    from .stages import s5_3d, sw_library
+    store = ProjectStore.open(a.project)
+    rows = _selection(a, store)
+    if rows is None:
+        raise SystemExit("give --area NAME or --district ID")
+    rows = [r for r in rows if r["route"] == "trellis" and r["status"] != "approved" and (a.more or not r["trellis"])]
+    nochoice = [r["asset"] for r in rows if not review.chosen(store, sw_library.PLAN_NAME, r["asset"])]
+    if nochoice:
+        print(f"no view chosen (Review tab: click a view of each), skipped: {', '.join(nochoice)}")
+    todo = [r["asset"] for r in rows if r["asset"] not in nochoice]
+    print(f"{len(todo)} to make (GPU 0; the VLM is stopped while TRELLIS runs)")
+    _batch(todo, lambda x: print(f"{x}: {s5_3d.run(store, sw_library.PLAN_NAME, x, mode=a.mode)}"), "TRELLIS")
+
+
+def cmd_area(a) -> None:
+    from . import areas
+    store = ProjectStore.open(a.project)
+    if a.action == "define":
+        if not a.name:
+            raise SystemExit("ap area define PROJECT NAME --shots ... [--districts ...]")
+        try:
+            print(areas.define(store, a.name, a.shots, a.districts))
+        except ValueError as e:
+            raise SystemExit(str(e))
+        return
+    if a.action == "list":
+        for k, v in areas.load(store).items():
+            print(f"{k}: shots {', '.join(v['shots']) or '-'}; districts {', '.join(v['districts']) or '-'}")
+        return
+    if a.action == "checklist":
+        if not a.name:
+            raise SystemExit("ap area checklist PROJECT NAME")
+        print(areas.checklist(store, a.name))
+        return
+    try:
+        rows = areas.status(store, a.name, a.district)
+    except (KeyError, FileNotFoundError, ValueError) as e:
+        raise SystemExit(str(e).strip('"'))
+    for r in rows:
+        print(f"{r['asset']:28s} {r['tier'] or '-'} {r['route']:10s} {100 * r['share']:5.1f}%  "
+              f"{(r['status'] or 'not reviewed'):14s} next: {r['next']}")
 
 
 def cmd_library_instances(a) -> None:
@@ -702,10 +810,22 @@ def cmd_library_instances(a) -> None:
     store = ProjectStore.open(a.project)
     near = None
     if a.near:
-        s = next(x for x in sw_site.load_layout(store).shots if x.id == a.near)
+        s = next((x for x in sw_site.load_layout(store).shots if x.id == a.near), None)
+        if s is None:
+            raise SystemExit(f"no shot {a.near} (ap shots list {a.project})")
         near = tuple(s.effective().pos[:2])
-    for e, idx in library_instances.build_entries(store, a.entries, near, a.radius).items():
+    rows = _selection(a, store)
+    entries = list(a.entries) if rows is None else sorted({r["asset"] for r in rows if r["route"] == "procedural" and r["brief"]
+                                                          and r["kind"] == "building"})
+    if not entries:
+        raise SystemExit("name the entries, or give --area NAME / --district ID")
+    have = {p.stem for p in (store.root / "library/kits").glob("*.json")}
+    typed = [e for e in entries if e in have]
+
+    def one(e):
+        idx = library_instances.build_entries(store, [e], near, a.radius, skip_fresh=not a.force)[e]
         print(f"{e}: {len(idx)} instances -> 3d/library/{e}/instances/")
+    _batch(typed, one, "instances")
 
 
 def cmd_library_silhouette(a) -> None:
@@ -725,6 +845,18 @@ def cmd_library_pending(a) -> None:
 def cmd_library_sheets(a) -> None:
     from .stages import s2_refs, sw_library
     store = ProjectStore.open(a.project)
+    rows = _selection(a, store)
+    if rows is not None:                             # the area's decided, unapproved entries
+        dec = sw_library.decisions(store)
+        a.only = sorted({r["entry"] for r in rows if r["status"] != "approved"
+                         and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")})
+        undecided = sorted({r["entry"] for r in rows if not r["decision"]})
+        if undecided:
+            print(f"not decided yet (Library › Entries), skipped: {', '.join(undecided)}")
+        if not a.only:
+            raise SystemExit("nothing to do in this area")
+    if not a.plan_only and not _comfy_up():
+        raise SystemExit(COMFY_DOWN.format(url=config.backends()["comfyui"]["url"]))
     plan = sw_library.asset_plan(store, only=a.only)
     inc = [x for x in plan.assets if x.include]
     print(f"plans/library.json: {len(plan.assets)} decided assets, {len(inc)} included")
@@ -733,12 +865,17 @@ def cmd_library_sheets(a) -> None:
               f"refs {x.refs or '-'} at {x.ref_strength:g}")
     if a.plan_only:
         return
-    for u in s2_refs.units(store, sw_library.PLAN_NAME):
-        if a.unit and u.key not in a.unit:
-            continue
-        if u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u)):
+    todo = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if (not a.unit or u.key in a.unit)
+            and u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u))]
+    for u in todo:
+        try:
             out = s2_refs.generate(store, u, n=a.n, view=a.view)
-            print(f"{u.key}: {', '.join(p.name for p in out)}")
+        except Exception as e:                       # noqa: BLE001 - ComfyUI gone mid-batch: say how to resume
+            if not _comfy_up():
+                raise SystemExit(f"{u.key}: {type(e).__name__}. " + COMFY_DOWN.format(url=config.backends()["comfyui"]["url"]))
+            raise
+        print(f"{u.key}: {', '.join(p.name for p in out)}")
+    print(f"sheets: {len(todo)} unit(s) made; units with sheets were skipped (--more adds sheets to them)")
 
 
 def cmd_library_show(a) -> None:
@@ -1286,7 +1423,11 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_library_brief)
     p = libsub.add_parser("build", help="procedural route: build entries' kit pieces / buildings in Blender")
     p.add_argument("project")
-    p.add_argument("entries", nargs="+")
+    p.add_argument("entries", nargs="*", help="assets to build (or --area / --district)")
+    p.add_argument("--area", help="every procedural asset of this area with a brief (ap area define)")
+    p.add_argument("--district", help="every procedural asset with instances in this district")
+    p.add_argument("--force", action="store_true", help="--area / --district: rebuild unchanged briefs too")
+    p.add_argument("--renders", action="store_true", help="also the review renders (Library › Asset review), as Save & Rebuild")
     p.add_argument("--surface", choices=["patch", "library"],
                    help="buildings' storey-band surfaces: a tile cut from the sheet, or the material library "
                         "(type per band read off the sheet, scanned PBR set tinted to its colour); default: "
@@ -1306,7 +1447,10 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_library_route)
     p = libsub.add_parser("instances", help="procedural route: build entries at each of their buildings' own footprint")
     p.add_argument("project")
-    p.add_argument("entries", nargs="+")
+    p.add_argument("entries", nargs="*", help="entries (or --area / --district)")
+    p.add_argument("--area")
+    p.add_argument("--district")
+    p.add_argument("--force", action="store_true", help="rebuild instances whose brief and size haven't changed too")
     p.add_argument("--near", metavar="SHOT", help="only the buildings within --radius of this shot's camera")
     p.add_argument("--radius", type=float, default=600.0)
     p.set_defaults(fn=cmd_library_instances)
@@ -1323,6 +1467,8 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_library_pending)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
     p.add_argument("project")
+    p.add_argument("--area", help="only this area's decided, unapproved entries (ap area define)")
+    p.add_argument("--district", help="only this district's decided, unapproved entries")
     p.add_argument("--only", nargs="+", help="just these entries (a pilot)")
     p.add_argument("-n", type=int, default=2, help="sheets per asset")
     p.add_argument("--more", action="store_true", help="also for assets that have sheets already")
@@ -1332,6 +1478,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--view", choices=["turnaround", "three-quarter"], default="turnaround",
                    help="object sheet layout: front/side/back, or three-quarter views (deep assets)")
     p.set_defaults(fn=cmd_library_sheets)
+    p = libsub.add_parser("trellis", help="TRELLIS route: 3D for the area's props from their chosen views (GPU 0)")
+    p.add_argument("project")
+    p.add_argument("--area")
+    p.add_argument("--district")
+    p.add_argument("--mode", default="1024_cascade")
+    p.add_argument("--more", action="store_true", help="also props that have a result (another try)")
+    p.set_defaults(fn=cmd_library_trellis)
     p = libsub.add_parser("show", help="the library plan, by district")
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
@@ -1356,6 +1509,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)
+
+    p = sub.add_parser("area", help="areas for the daily asset loop: define, status (next step per asset), checklist")
+    p.add_argument("action", choices=["define", "list", "status", "checklist"])
+    p.add_argument("project")
+    p.add_argument("name", nargs="?")
+    p.add_argument("--shots", nargs="+", help="define: the shots whose id passes define the area")
+    p.add_argument("--districts", nargs="+", help="define: districts (every entry with instances there)")
+    p.add_argument("--district", help="status: a district instead of a named area")
+    p.set_defaults(fn=cmd_area)
 
     p = sub.add_parser("terrain", help="world mode: terrain beyond the city, fitted to the locked shots")
     p.add_argument("action", choices=["analyse", "build", "outer", "apply", "landscape", "ue"],

@@ -411,14 +411,16 @@ def bays(x0: float, x1: float, F: dict, pat: list[str]) -> list[tuple[float, flo
 
 
 def count_bays(L: float, F: dict, pat: list[str]) -> list[tuple[float, float, str]] | None:
-    """With F["count"]: that many bays centred on the facade, `spacing` m apart (or spread evenly);
-    None otherwise."""
+    """With F["count"]: that many openings centred on the facade, `spacing` m apart (or spread
+    evenly), their kinds cycling through the pattern's openings (its "solid" entries are skipped:
+    the count is what you see); None otherwise."""
     n = int(F.get("count") or 0)
     if n <= 0:
         return None
     sp = F.get("spacing") or L / n
     sp = min(sp, L / n)
-    return [((i - (n - 1) / 2) * sp, sp, pat[i % len(pat)]) for i in range(n)]
+    kinds = [k for k in pat if k != "solid"] or ["window"]
+    return [((i - (n - 1) / 2) * sp, sp, kinds[i % len(kinds)]) for i in range(n)]
 
 
 def _bay_openings(kind, cx, bw, z, sh, F):

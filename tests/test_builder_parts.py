@@ -114,7 +114,7 @@ def test_opening_proportions_per_storey():
 
 
 def test_opening_count_and_spacing():
-    F = _F(storeys=2, pattern=["window"], count=4, spacing=6.0, ground={"kind": "plain"})
+    F = _F(storeys=2, pattern=["window", "solid"], count=4, spacing=6.0, ground={"kind": "plain"})
     ps = bparts.facade(40.0, F)
     zs = bparts.levels(F)
     upper = _upper_ops(ps, zs[1][0], zs[1][0] + zs[1][1])

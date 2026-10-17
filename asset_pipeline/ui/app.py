@@ -551,6 +551,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
 
     @app.get("/api/projects/{slug}/review")
     def review_state(slug: str):
+        from .. import library_review
         store = _store(slug)
         stars = review.load(store)["stars"]
         pending = [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]
@@ -565,7 +566,9 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                     "views": s3_views.views(store, name, a.id),
                     "chosen": review.chosen(store, name, a.id),
                     "results": s5_3d.results(store, name, a.id),
-                    "cleanups": s6_cleanup.results(store, name, a.id)})
+                    "cleanups": s6_cleanup.results(store, name, a.id),
+                    # library props (TRELLIS route): the same review status as Library › Asset review
+                    "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None})
         return {"pending_sheets": pending, "assets": assets,
                 "starred_sheets": sum(1 for k, v in stars.items() if v and k.startswith(s2_refs.REFS + "/"))}
 
@@ -928,6 +931,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                 "features": building_gen.form_features(form, brief.get("features")) if building else None,
                 "defaults": building_gen.form_features(form) if building else None,
                 "templates": building_gen.TEMPLATES, "enums": building_gen.ENUMS,
+                "material_types": sorted(__import__("asset_pipeline.material_lib", fromlist=["LIBRARY"]).LIBRARY),
                 "catalog": ({"width": typ.width, "depth": typ.depth, "storeys": typ.storeys,
                              "storey_m": typ.storey_m or (layout.city.storey_m if layout.city else 3.4)} if typ else None),
                 "entry": e and {k: e.get(k) for k in ("id", "tier", "typology", "district", "material", "size_m", "instances")},

@@ -33,8 +33,18 @@ function assetReview(a) {
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
       <span class="actions"><button type="button" class="make3d">Make 3D</button>
-        <button type="button" class="secondary cleanup" title="Scale to the plan size, pivot at the base${x.usage === "game" ? ", decimate and bake (game)" : ""}">Clean up</button></span>
+        <button type="button" class="secondary cleanup" title="Scale to the plan size, pivot at the base${x.usage === "game" ? ", decimate and bake (game)" : ""}">Clean up</button>
+        ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}">${esc((a.review || "not reviewed").replace("_", " "))}</span>
+          <button type="button" class="secondary approve" ${a.results.length ? "" : "disabled title=\"Make 3D first\""}>Approve</button>
+          <button type="button" class="secondary changes">Needs changes</button>` : ""}</span>
     </div>`;
+  for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {
+    const b = $(cls, el);
+    if (b) b.onclick = async () => {
+      try { await api(`/api/projects/${slug}/library/asset/${x.id}/review`, {status, note: ""}); await load(); }
+      catch (err) { alert(err.message); }
+    };
+  }
   el.querySelectorAll(".usage button").forEach(b => b.onclick = async () => {
     try { await api(`/api/projects/${slug}/review/usage`, {plan: a.plan, asset: x.id, usage: b.dataset.u}); await load(); }
     catch (err) { alert(err.message); }
