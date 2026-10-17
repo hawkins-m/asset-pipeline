@@ -95,6 +95,13 @@ def fetch(kind: str, log=print, acg: str | None = None) -> dict:
             "tile_m": tile, "acg": aid}
 
 
+def scaled_tile(tile_m, scale: float = 1.0) -> list[float]:
+    """The metres one texture repeat covers (width, height) at a texture scale: a multiplier on
+    the material's real-world size (0.5 on a 2 m stone set gives 1 m blocks and joints)."""
+    t = [tile_m, tile_m] if isinstance(tile_m, (int, float)) else list(tile_m)
+    return [round(float(v) * float(scale), 4) for v in t[:2]]
+
+
 def tint_ratio(mean_lin, rgb) -> list[float]:
     """Per-channel factor that moves the texture's mean (linear) to the sheet colour (sRGB 0-255)."""
     t = _srgb_to_lin(np.array(rgb, np.float64))
@@ -133,11 +140,12 @@ def _small(path: str, size: int = GLB_PX) -> str:
 
 
 def tinted(kind: str, rgb, out: Path, contrast_std: float | None = None, size: int = GLB_PX, log=print,
-           acg: str | None = None) -> dict:
+           acg: str | None = None, scale: float = 1.0) -> dict:
     """Blender maps for one band: the type's albedo tinted to rgb, its luminance spread scaled
     towards contrast_std (the sheet band's relative spread, see building_proc.band_contrast),
     baked to out at `size`; its own normal (OpenGL) and roughness, shared 1K copies. In linear
-    RGB: target + k * (albedo x target / mean - target), the same as M_AP_Surface in Unreal."""
+    RGB: target + k * (albedo x target / mean - target), the same as M_AP_Surface in Unreal.
+    scale multiplies the tile size (see scaled_tile): larger = coarser joints and veining."""
     src = fetch(kind, log=log, acg=acg)
     k = contrast_factor(kind, contrast_std, acg=acg)
     im = Image.open(src["color"]).convert("RGB")
@@ -148,7 +156,8 @@ def tinted(kind: str, rgb, out: Path, contrast_std: float | None = None, size: i
     out.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(_lin_to_srgb(lin).round().astype(np.uint8)).save(out, quality=92)
     return {"base": str(out), "normal": _small(src["normal_gl"], size), "rough": _small(src["rough"], size), "uv": "tile",
-            "tile_m": src["tile_m"][0], "tile_v_m": src["tile_m"][1], "colour": [int(c) for c in rgb],
+            "tile_m": scaled_tile(src["tile_m"], scale)[0], "tile_v_m": scaled_tile(src["tile_m"], scale)[1],
+            "scale": float(scale), "colour": [int(c) for c in rgb],
             "type": kind, "acg": src["acg"], "contrast": k}
 
 

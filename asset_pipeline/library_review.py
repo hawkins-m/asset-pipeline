@@ -34,7 +34,7 @@ STEPS = ("brief saved", "Blender build", "quick preview", "Cycles: sheet angle",
 FRACTIONS = {"niche": ("w", "h", "rise", "mezzanine", "door_w"), "loggia": ("w", "h", "sill"),
              "window": ("w", "h", "sill"), "slot": ("w", "h", "sill"), "blind": ("w", "h", "sill"),
              "top": ("span",), "accent": ("w",), "end_screen": ("mezzanine", "passage_w"), "curtain": ("w", "transom"),
-             "street_garden": ("length",)}
+             "street_garden": ("length",), "panel_frame": ("w", "margin")}
 TOP_FRACTIONS = ("nave", "aisle_h", "gallery_h", "atrium")
 ZERO_OK = ("sill", "transom")          # shares that may be 0 (a loggia from the floor, no transom)
 
@@ -256,6 +256,14 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     for band, t in (brief.get("material_types") or {}).items():
         if band not in ("base", "wall", "top") or t not in LIBRARY:
             errs.append(f"material type {band} = {t!r}: bands base / wall / top, types {', '.join(sorted(LIBRARY))}")
+    for band, x in (brief.get("material_scale") or {}).items():
+        if band not in ("base", "wall", "top") or isinstance(x, bool) or not isinstance(x, (int, float)) \
+                or not 0.05 <= x <= 20:
+            errs.append(f"texture scale {band} = {x!r}: bands base / wall / top, a multiplier of the tile size in 0.05–20")
+    pf = ((f.get("front") or {}).get("panel_frame") or {}) if brief["form"] == "basilica" else {}
+    for k in ("proj", "gap"):
+        if isinstance(pf.get(k), (int, float)) and not pf[k] > 0 - (k == "gap") * 1e-9:
+            errs.append(f"front.panel_frame.{k} = {pf[k]}: must be {'positive' if k == 'proj' else 'zero or more'} (metres)")
     if brief.get("surface") not in (None, "", "auto", "library", "patch"):
         errs.append(f"surface {brief['surface']!r}: library or patch")
     e = entry_of(store, asset)
@@ -345,9 +353,12 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
     sp = kit_proc.spec_path(store, asset)
     old = read_json(sp, default=None) or {}
     b = {**old, **{k: v for k, v in new.items() if k in ("dims", "params", "features", "colors", "patches", "form",
-                                                         "material_types", "surface")}}
+                                                         "material_types", "material_scale", "surface")}}
     if not b.get("material_types"):
         b.pop("material_types", None)
+    b["material_scale"] = {k: v for k, v in (b.get("material_scale") or {}).items() if v != 1}   # only the differences
+    if not b["material_scale"]:
+        b.pop("material_scale")
     if b.get("surface") in (None, "", "auto"):
         b.pop("surface", None)
     if new.get("sheet") and (new.get("sheet"), new.get("position")) != (old.get("sheet"), old.get("position")):

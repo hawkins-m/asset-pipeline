@@ -69,7 +69,11 @@ TYPE_FEATURES = {
         "nave_wall": {"pattern": ["blind"], "blind": {"w": 0.62, "h": 0.6, "sill": 0.2, "depth": 0.2}, "bay_m": 4.4,
                       "attic": 2.2},
         "front": {"pylons": {"w": 0.13, "h": 0.86, "batter": 0.6}, "door": {"w": 0.42, "h": 0.5, "archivolt": 0.6, "leaf": "glass"},
-                  "window": {"w": 0.12, "h": 0.12}, "oculus": 0.6, "side_doors": True, "attic_extra": 2.5},
+                  "window": {"w": 0.12, "h": 0.12}, "oculus": 0.6, "side_doors": True, "attic_extra": 2.5,
+                  # raised moulding around the window and oculus of the central block: bars w
+                  # (share of the block's width) standing proj m proud of the wall, margin (share)
+                  # in from the block's edges, gap m clear of the openings. Off unless "on".
+                  "panel_frame": {"on": False, "w": 0.025, "proj": 0.12, "margin": 0.12, "gap": 1.0}},
         "apse": True,
     },
     "podium_tower": {
@@ -409,6 +413,17 @@ def _head(o, x):
     return s[1] if s else o["z0"] + o["h"] - o.get("rise", 0)
 
 
+def panel_frame(x0, x1, z0, z1, bar, proj, mat="trim") -> list[dict]:
+    """A raised rectangular frame (four bars `bar` wide) standing `proj` proud of a wall whose
+    outer face is the plane y = 0 (outwards is -y). The bars are sunk 5 cm into the wall, so
+    neither face is coplanar with the wall's. Empty when there is no room for it."""
+    if x1 - x0 <= 2 * bar or z1 - z0 <= 2 * bar or proj <= 0:
+        return []
+    y0, y1 = -proj, 0.05
+    return [box(x0, x0 + bar, y0, y1, z0, z1, mat), box(x1 - bar, x1, y0, y1, z0, z1, mat),
+            box(x0 + bar, x1 - bar, y0, y1, z0, z0 + bar, mat), box(x0 + bar, x1 - bar, y0, y1, z1 - bar, z1, mat)]
+
+
 def basilica(dims, p, f) -> list[dict]:
     """A civic basilica along X in three tiers: aisles with a dense blind arcade, a set-back
     gallery storey with square windows, a tall nave with blind panels and a panelled attic band;
@@ -460,6 +475,10 @@ def basilica(dims, p, f) -> list[dict]:
     if fr["door"].get("archivolt"):
         front += archivolt(door, fr["door"]["archivolt"], 0.0, 0.25)
     front += cornice(nw, hf, [[0.4, 0.3], [0.3, 0.5]])
+    pf = fr.get("panel_frame")
+    if pf and pf.get("on"):
+        front += panel_frame(-ni_ + pf["margin"] * nw, ni_ - pf["margin"] * nw, win["z0"] - pf["gap"],
+                             min(ocu["cz"] + ocu["r"] + pf["gap"], hf - 1.5), pf["w"] * nw, pf["proj"])
     for sx in (-1, 1):
         a_, b_ = sorted((sx * ni_, sx * di))
         ops = [{"kind": "arch", "cx": (a_ + b_) / 2, "w": 0.3 * (b_ - a_), "z0": 0.0, "h": 0.55 * ha}] if fr.get("side_doors") else []
