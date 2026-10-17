@@ -337,7 +337,7 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
 
 
 def create_app(jobs: JobQueue | None = None) -> FastAPI:
-    app = FastAPI(title="Terraformer Pipeline")
+    app = FastAPI(title="Terraformer")
     jobs = jobs or JobQueue()
 
     @app.get("/")

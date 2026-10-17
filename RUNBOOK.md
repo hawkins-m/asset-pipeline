@@ -1,4 +1,4 @@
-# Terraformer Pipeline runbook
+# Terraformer runbook
 
 How to produce library assets for one area of a city, day to day, without editing code or
 JSON. Everything an artist adjusts is done in the app (the UI at `ap ui`) or with one `ap`

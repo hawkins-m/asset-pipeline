@@ -1,4 +1,4 @@
-// Terraformer Pipeline UI: data loading, shared helpers and stage 0 (Style). State lives on
+// Terraformer UI: data loading, shared helpers and stage 0 (Style). State lives on
 // the server; this re-renders from it. The window chrome (menus, tabs, side panel, job
 // dialogs) is in shell.js; stage 1 (Plan) is in plan.js.
 const $ = (s, el = document) => el.querySelector(s);

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-The tool is called **Terraformer Pipeline** in the UI and docs; the repo stays
+The tool is called **Terraformer** in the UI and docs; the repo stays
 `asset-pipeline` and the command stays `ap`.
 
 **[PLAN.md](PLAN.md) is the source of truth for the design** (goal, architecture, stages,

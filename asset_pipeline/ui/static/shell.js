@@ -152,7 +152,7 @@ const MENUS = [
     ["Generate missing frames", "frames"], ["Cut views", "cutViews"], ["Make 3D…", "make3d"], "-",
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
   ["Tools", "T", [["ComfyUI status…", "comfyCheck"], ["Vision LLM status…", "vlmStatus"], "-", ["Open city plan image", "planImage"]]],
-  ["Help", "H", [["Keyboard shortcuts", "shortcuts"], "-", ["About Terraformer Pipeline", "about"]]],
+  ["Help", "H", [["Keyboard shortcuts", "shortcuts"], "-", ["About Terraformer", "about"]]],
 ];
 
 function buildMenus() {
@@ -279,7 +279,7 @@ function shortcutsDialog() {
       .map(([k, v]) => `<tr><td class="mono">${k}</td><td>${v}</td></tr>`).join("")}</tbody></table>`});
 }
 function aboutDialog() {
-  dialog({title: "About Terraformer Pipeline", body: `<p><b>Terraformer Pipeline</b>: concept images, greybox and shots →
+  dialog({title: "About Terraformer", body: `<p><b>Terraformer</b>, a 3D environment pipeline: concept images, greybox and shots →
     reviewed frames → asset library → Unreal Engine.</p><p class="hint">Command line: <code>ap</code> (see USAGE.md).
     Fonts: MS Sans Serif from 98.css (MIT), Cousine (SIL OFL 1.1).</p>`});
 }
@@ -457,8 +457,8 @@ function renderStages() {
 
 function renderShell() {
   const proj = slug ? ` · ${slug}` : "";
-  document.title = `Terraformer Pipeline${proj}`;
-  $("#titlebar").textContent = `Terraformer Pipeline${proj}`;
+  document.title = `Terraformer${proj}`;
+  $("#titlebar").textContent = `Terraformer${proj}`;
   for (const t of TABS) document.querySelector(`#tabs [data-tab="${t}"]`).disabled = !slug;
   if (!data || !slug) { $("#status-line").textContent = "No project"; renderLanes(); return; }
   $("#empty").hidden = true;
