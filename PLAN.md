@@ -445,6 +445,30 @@ Step order, each a reviewable milestone:
 - GPU budget: sheets take about 55 s each and run on GPU 1 alongside the frames; TRELLIS
   runs on GPU 0.
 
+## After the weekly reset (planned 2026-10-16)
+
+**Unreal pass** (Unreal look work is paused until the assets are final):
+- The Landscape is imported into the city level (landscape.json values, `M_AP_LandscapeAuto`)
+  and saved. `AP_site_terrain` and `AP_site_terrain-far` are hidden in the editor only.
+  - Verify that the Landscape lines up with the old Nanite terrain.
+  - Decide in the tool which terrain actors the Landscape replaces. The importer should
+    skip or hide those actors, not recreate them.
+- Place `SM_OuterRing` at its correct transform.
+- Render med-west and med-market once with the auto material and haze matched to each
+  frame: the final check for the terrain workstream.
+- Fix the faint far-horizon line in wide-hills.
+- Fix the darker sea band where the outer ring sinks under the sea.
+- Add a translucent Unreal material for railing glass. The GLBs carry `rail_glass` with
+  alpha 0.25, but the plain material in Unreal is opaque.
+
+**Vegetation:** a PCG graph that reads the vegetation zones and street-tree slots
+(imported as data), and the plants themselves.
+
+## Post-contest
+- **Hand-finish layer and kit pieces:** an optional layer of hand edits and hand-made kit
+  pieces on top of the procedural builds. Until the contest deadline, everything an artist
+  adjusts goes through the app (UI or `ap` commands); nothing is hand-edited in Blender.
+
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a
 second path that gives the 3D model real side and back information:
