@@ -900,3 +900,23 @@ ap hero mesh my-project batch_001__scene_000 market-stall orbit_s2 \
 swap `--left` and `--right`. `ap hero angles ... orbit_s2` tries to find the angles by
 matching the frames to renders of the asset's TRELLIS mesh, but on real orbits it isn't
 reliable yet. Hunyuan3D-2mv's license excludes the EU, UK and South Korea.
+
+## Asset versions (version bank)
+
+Every build of a library asset is kept as a numbered version under
+`3d/library/<asset>/versions/` (`versions.json` is the index, `v<N>/` holds a procedural
+version's brief, build settings and thumbnails). A TRELLIS version keeps no copy: its GLB, stats
+and input image stay where TRELLIS wrote them. A procedural version holds no GLB unless pinned.
+
+- Library › Asset review (detail view) and Views and 3D show a version strip: Restore, Pin or
+  Unpin, Delete, and tick two versions for Compare. Restoring a procedural version puts its brief
+  back and rebuilds (or copies back the GLB of a pinned version); restoring a TRELLIS version makes
+  it the newest result.
+- The last N unpinned versions are kept (Tools › Settings…, per project, default 3). Older ones are
+  never removed silently: after a build the strip offers "N old versions can be removed". The
+  Approved, pinned and current versions are never removed.
+- Tools › Storage… shows the size of builds and versions per asset and project, and deletes
+  unpinned versions after a confirmation.
+- Existing builds become version 1 of their asset the first time the strip is opened, or all at
+  once with `ap library versions migrate PROJECT` (safe to repeat). `ap library versions show
+  PROJECT` prints the sizes.

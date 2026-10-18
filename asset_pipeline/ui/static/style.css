@@ -462,3 +462,17 @@ details summary { cursor: default; }
 .commit-list { max-height: 220px; overflow: auto; background: var(--field); border: 1px solid var(--border-dark); padding: 4px 6px; font-size: 12px; }
 .ff-size { display: inline-flex; align-items: center; gap: 4px; }
 .ff-size input { width: 6em; }
+
+/* --- Asset version bank (versions.js) ---------------------------------------------------------- */
+.version-strip { min-width: 0; }
+.version-strip .ver-list { display: grid; gap: 4px; max-height: 340px; overflow: auto; }
+.version-strip .ver { display: grid; grid-template-columns: auto 72px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 2px; border: 1px solid transparent; }
+.version-strip .ver.cur { border-color: var(--select); }
+.version-strip .ver img, .version-strip .ver-nothumb { width: 72px; height: 54px; object-fit: contain; background: #fff; display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+.version-strip .ver-btns { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; }
+.version-strip .ver-prune { background: var(--field); border: 1px solid var(--stale-line); padding: 2px 4px; margin-bottom: 4px; }
+.version-strip .mark { font-size: 10px; border: 1px solid currentColor; padding: 0 3px; margin-left: 3px; }
+.version-strip .m-ok { color: var(--ready); } .version-strip .m-new { color: var(--star); } .version-strip .m-rdy { color: var(--select); }
+.ver-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ver-cmp-col { margin: 0; display: grid; gap: 4px; align-content: start; }
+.ver-cmp-col img, .ver-cmp-col .ver-nothumb { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; display: grid; place-items: center; }

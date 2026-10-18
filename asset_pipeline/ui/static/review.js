@@ -93,6 +93,10 @@ function assetReview(a) {
     catch (err) { alert(errorText(err)); }
   };
 
+  if (a.plan === "library" && a.results.length) {      // library props on the TRELLIS route: every run is a version
+    const vs = document.createElement("fieldset"); vs.className = "version-strip"; el.append(vs);
+    versionStrip(vs, x.id, () => load());
+  }
   if (a.results.length) {
     const r = document.createElement("div"); r.className = "results";
     for (const res of a.results) {

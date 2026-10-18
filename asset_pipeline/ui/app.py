@@ -1369,4 +1369,6 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     app.mount("/static", VersionedStatic(directory=STATIC), name="static")
     from . import tools_api          # areas, preflight and the remaining runbook commands
     tools_api.register(app, jobs, _store, _comfy_up, _on_comfy)
+    from . import versions_api       # the asset version bank, Storage and Settings
+    versions_api.register(app, jobs, _store)
     return app

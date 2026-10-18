@@ -70,7 +70,7 @@ function lrWatch() {      // while its rebuild runs, reload the images every 2.5
     if (!d || lr.asset !== asset) return;
     lr.data = {...lr.data, images: d.images, jobs: d.jobs, review: d.review, usage: d.usage, silhouette: d.silhouette};
     lrRenderViewer(); lrRenderReview();
-    if (!d.jobs.length) { clearInterval(lr.poll); lr.poll = null; }
+    if (!d.jobs.length) { clearInterval(lr.poll); lr.poll = null; lrRenderVersions(); }
   }, 2500);
 }
 
@@ -90,6 +90,7 @@ function lrRender() {
         <div class="row"><label class="check"><input type="checkbox" id="lr-orbit" ${lr.orbit ? "checked" : ""}>Orbit (3D)</label>
           <label>Previous: <select id="lr-prev-view"><option value="threeq">three-quarter</option><option value="sheet">sheet angle</option></select></label>
           <span class="hint" id="lr-job" style="margin:0"></span></div>
+        <fieldset id="lr-versions"></fieldset>
         <fieldset id="lr-review"></fieldset>
         <fieldset id="lr-usage"></fieldset></div>
       <div class="lr-right" id="lr-brief"></div>
@@ -108,6 +109,11 @@ function lrRender() {
     ul.append(li);
   }
   lrRenderViewer(); lrRenderReview(); lrRenderUsage(); lrRenderBrief();
+  lrRenderVersions();
+}
+
+function lrRenderVersions() {      // the version strip (versions.js); restoring reloads the brief and images
+  versionStrip($("#lr-versions"), lr.asset, () => lrLoad(true));
 }
 
 function lrImg(path, cap, extra = "", cls = "") {
