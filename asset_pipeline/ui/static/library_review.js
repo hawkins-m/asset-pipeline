@@ -293,7 +293,7 @@ function lrRenderBrief() {
         ${["auto", "library", "patch"].map(o => `<option${(b.surface || "auto") === o ? " selected" : ""}>${o}</option>`).join("")}</select>
         (library: scanned PBR set per type, tinted; patch: a tile cut from the sheet)</p></fieldset>` : ""}
     <div class="row end"><span id="lr-dirty" class="hint" style="margin:0;flex:1" ${lr.dirty ? "" : "hidden"}>${(d.review || {}).status === "approved" ? "Unsaved edits · saving sets this Approved asset back to Needs review" : "Unsaved edits"}</span>
-      <span id="lr-errors" class="err"></span><span id="lr-warnings" class="hint" style="margin:0"></span><button type="button" id="lr-revert">Revert</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
+      <span id="lr-errors" class="err"></span><span id="lr-warnings" class="hint" style="margin:0"></span><button type="button" id="lr-revert">Revert</button><button type="button" id="lr-guide" title="Describe what should change; the vision model proposes brief edits">Guidance…</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
   box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("change", lrFieldChange));
   box.querySelectorAll("[data-toggle]").forEach(el => el.addEventListener("change", ev => {
     const p = ev.target.dataset.toggle, name = p.split(".").at(-1);
@@ -335,6 +335,7 @@ function lrRenderBrief() {
   const vs = $("#lr-view"); if (vs) vs.onchange = () => { const [s, p] = vs.value.split("|"); lr.draft.sheet = s; lr.draft.position = p === "all" ? "all" : +p; lrSet("sheet", s); };
   $("#lr-revert").onclick = () => { lrLoad(true); };
   $("#lr-rebuild").onclick = lrRebuild;
+  $("#lr-guide").onclick = lrGuide;
   lrPatchThumbs();
 }
 
@@ -409,6 +410,20 @@ async function lrRebuild() {
     return;
   }
   go(false);
+}
+
+function lrGuide() {            // guidance for the next build (refs.js guideRun), from the saved brief's sheet
+  const sheet = lr.data.brief.sheet;
+  const body = document.createElement("div");
+  body.innerHTML = `<p>Say what the next build should change. ${lr.dirty ? "Unsaved edits in the form are not part of this: save them first. " : ""}</p>
+    <textarea id="lr-guidance" rows="4" style="width:100%" aria-label="Guidance for the next build"></textarea>`;
+  $("#lr-guidance", body).value = lr.data.brief.guidance || "";
+  if (!sheet) { body.insertAdjacentHTML("afterbegin", `<p class="error">This brief has no reference sheet to read.</p>`); }
+  dialog({title: "Guidance for the next build", body, buttons: [{label: "Propose changes", default: true, onClick: () => {
+    const g = $("#lr-guidance", body).value.trim();
+    if (!g || !sheet) return false;
+    guideRun(lr.asset, sheet, "front", g, async () => { lr.dirty = false; await lrLoad(true); lr.data.jobs = [{}]; lrWatch(); });
+  }}, {label: "Cancel"}]});
 }
 
 // --- navigation, keys ------------------------------------------------------------------------

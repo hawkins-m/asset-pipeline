@@ -13,6 +13,7 @@ Layout under the project:
 """
 import json
 import os
+import random
 import signal
 import subprocess
 import time
@@ -46,8 +47,11 @@ def _stop(proc: subprocess.Popen, gpu: int) -> None:
 
 
 def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
-        mode: str = "1024_cascade", seed: int = 42, gpu: int = 0) -> dict:
-    """TRELLIS.2 on the asset's chosen view (or `view`). Returns the run's stats."""
+        mode: str = "1024_cascade", seed: int | None = 42, gpu: int = 0) -> dict:
+    """TRELLIS.2 on the asset's chosen view (or `view`). Returns the run's stats. seed=None draws a
+    new random seed (Make 3D, new seed); every result JSON carries the seed it used."""
+    if seed is None:
+        seed = random.randrange(2**31)
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
     key = review.rel(store, view) if view else review.chosen(store, plan, asset_id)
@@ -81,6 +85,9 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         tail = (out / "trellis.log").read_text().splitlines()[-15:]
         raise RuntimeError(f"trellis exited with code {proc.returncode}:\n" + "\n".join(tail))
     stats = json.loads(stats_file.read_text())
+    if stats.get("seed") != seed:
+        stats["seed"] = seed
+        stats_file.write_text(json.dumps(stats, indent=2))
     record = {"view": key, "mode": mode, "seed": seed, "glb": f"{OUT}/{plan}/{asset_id}/{stem}.glb",
               "input": f"{OUT}/{plan}/{asset_id}/{stem}_input.png", "stats": stem + ".json",
               "seconds": round(time.time() - t, 1)}
@@ -99,5 +106,5 @@ def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
                      "faces": stats.get("glb_faces"), "vertices": stats.get("glb_vertices"),
                      "raw_ratio": round(stats["raw_faces"] / stats["raw_vertices"], 2)
                      if stats.get("raw_vertices") else None,
-                     "peak_vram_gb": stats.get("peak_vram_gb"), "name": glb.stem})
+                     "peak_vram_gb": stats.get("peak_vram_gb"), "seed": stats.get("seed"), "name": glb.stem})
     return rows
