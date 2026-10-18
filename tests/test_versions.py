@@ -283,3 +283,25 @@ def test_ui_scripts_are_wired_and_free_of_commands():
         assert needle in js, needle
     assert not re.search(r"\bap [a-z]+ |--[a-z]", js)
     assert "versionStrip(" in (st / "library_review.js").read_text() and "versionStrip(" in (st / "review.js").read_text()
+
+
+def test_trellis_source_is_relative_and_names_the_sheet(tmp_path, monkeypatch):
+    from asset_pipeline import versions
+    from asset_pipeline.project import ProjectStore, write_json
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    store = ProjectStore.create("p")
+    vd = store.root / "views/library/a"
+    vd.mkdir(parents=True)
+    (vd / "sheet_002_v1.png").write_bytes(b"png")
+    write_json(vd / "meta.json", {"views": [{"file": "sheet_002_v1.png", "sheet": "refs/library/a/sheet_002.png"}]})
+    od = store.root / "3d/library/a"
+    od.mkdir(parents=True)
+    (od / "r_1024_cascade_s7.glb").write_bytes(b"glb")
+    (od / "r_1024_cascade_s7_input.png").write_bytes(b"png")
+    row = versions.record_trellis(store, "library", "a", {"glb": "3d/library/a/r_1024_cascade_s7.glb",
+                                  "input": "3d/library/a/r_1024_cascade_s7_input.png", "seed": 7,
+                                  "view": str(vd / "sheet_002_v1.png"), "mode": "1024_cascade"})
+    assert row["source"]["view"] == "views/library/a/sheet_002_v1.png"
+    assert row["source"]["sheet"] == "refs/library/a/sheet_002.png"
+    (store.root / "3d/library/_keep-copy").mkdir()
+    assert versions.assets_of(store) == ["a"]

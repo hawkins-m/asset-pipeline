@@ -279,7 +279,7 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
     w, d, h = dims
     p = brief.get("params") or {}
-    if typ is not None:
+    if typ is not None and typ.width and typ.depth:      # landmark types carry no size ranges
         lo_w, hi_w = typ.width
         lo_d, hi_d = typ.depth
         form = brief["form"]
@@ -300,9 +300,11 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         st = p.get("storey_h") or f.get("storey_h") or typ.storey_m or (layout.city.storey_m if layout.city else 3.4)
         gh = f.get("ground_h") or st
         n = round((h - gh) / st) + 1 if form == "perimeter" else round(h / st)
-        lo_s, hi_s = typ.storeys
+        lo_s, hi_s = typ.storeys or (n, n)
         if not lo_s <= n <= hi_s:
             warns.append(f"{n} storeys at {st:g} m ({h:g} m) outside the catalog's {lo_s}–{hi_s}")
+    elif typ is not None:
+        warns.append("its catalog type has no size ranges (a landmark): sizes not checked")
     else:
         warns.append("no catalog typology for this asset: sizes not checked against ranges")
     if brief["form"] == "cube":

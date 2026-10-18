@@ -37,8 +37,11 @@ async function api(path, body, method = "POST") {
   }
   if (!r.ok) throw new Error(errorText(j && j.detail != null ? j.detail : j && Object.keys(j).length ? j : null)
                              .replace(/^Unknown error$/, r.statusText || `HTTP ${r.status}`));
-  // every job this UI starts gets its progress dialog (loaders.js)
-  if (method === "POST" && j && typeof j.id === "number" && j.kind && j.status && typeof openJobDialog === "function")
-    setTimeout(() => openJobDialog(j.id), 0);
+  // every job this UI starts gets its progress dialog (loaders.js) and shows in the Jobs panel:
+  // refresh the app state so the panel lists it and keeps polling until it ends
+  if (method === "POST" && j && typeof j.id === "number" && j.kind && j.status) {
+    if (typeof openJobDialog === "function") setTimeout(() => openJobDialog(j.id), 0);
+    if (typeof load === "function") setTimeout(() => { load(); }, 0);
+  }
   return j;
 }

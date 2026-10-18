@@ -468,6 +468,25 @@ Step order, each a reviewable milestone:
 - **Hand-finish layer and kit pieces:** an optional layer of hand edits and hand-made kit
   pieces on top of the procedural builds. Until the contest deadline, everything an artist
   adjusts goes through the app (UI or `ap` commands); nothing is hand-edited in Blender.
+- **Assemblies:** large assets composed from reusable library pieces instead of one generator
+  run. An enclosed forum, for example, is a gate, arcade bays and corner pavilions, each its
+  own reviewed library asset.
+  - An assembly is a recipe: its pieces (library asset ids, with a pinned version each) and a
+    placement rule.
+    - Along a path: bays repeated along a polyline at a module, corners at the turns, a gate
+      where an avenue crosses.
+    - On a footprint: pieces on the edges and corners of a block outline.
+  - It reuses what exists: kit modularity (whole modules per run, module / radius on curves),
+    the greybox slots (a path or footprint from the layout), procedural builds and versions,
+    and per-instance placement for Unreal (one instanced mesh per piece).
+  - Review happens twice: each piece in Asset review, and the assembled result against the
+    locked frame (silhouette check) as one asset.
+  - Open questions:
+    - Seams where pieces meet: shared end walls and cornice runs; the coplanar-twins rule
+      applies between pieces too.
+    - Pieces that must stretch: fractional bays, or a filler piece.
+    - How an assembly's brief references piece versions, so restoring a piece doesn't
+      silently change approved assemblies.
 
 ## Hero tier (multi-view path)
 Default assets (game, cine) stay single-image TRELLIS.2. Assets tagged **hero** get a

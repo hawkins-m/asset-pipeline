@@ -55,10 +55,18 @@ list, largest frame share first:
      catalog, the brief, or a suggestion from the entry's description, e.g. *One-storey colonnade
      range* for a portico) and the **Size** (width × depth × height, from the plan). The vision
      model then writes the brief and Blender builds and renders it. The form and size you choose
-     are kept with the entry. With a brief already there it asks: *Re-brief from this sheet* or *Just
+     are kept with the entry.
+   - **Guidance for the next build** (the text box in the same dialog, or **Guidance…** next to
+     Save & Rebuild in Asset review): describe what to change, e.g. "round arches on square
+     piers, a lighter gallery above". The vision model reads it with the starred sheet and
+     proposes brief edits as a before → after list; untick or adjust any row, then **Accept &
+     build**. Edits it can't map to a field are listed as dropped, with the reason (that's
+     usually a builder feature to request). The guidance is saved with the build's version. With a brief already there it asks: *Re-brief from this sheet* or *Just
      rebuild*. Then **Open in Asset review**.
    - **Cut views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
-     3D**: click the view to use and **Make 3D** there.
+     3D**: click the view to use and **Make 3D** there. Tick **New seed** for another try
+     from the same view; to steer the result with words, reroll the sheet with guidance
+     (step 2) instead.
 4. **Review.** Library › Asset review › the asset: match the sheet with the brief fields
    (section 4) and press **Save & Rebuild** (a quick preview in seconds, Cycles about 15 s
    later). Approve with **A**, or **C** (Needs changes) with a note, then **Save review**. A new
@@ -78,6 +86,17 @@ list, largest frame share first:
 Every batch skips approved assets and builds whose brief hasn't changed, reports a failure and
 goes on. After a crash, or after restarting ComfyUI, run the same batch again: finished items
 are skipped.
+
+**Versions.** Every build (procedural or TRELLIS) is a version of its asset, shown as a strip
+in Asset review and in Views and 3D: thumbnail, date, source (sheet, view, form, guidance,
+seed) and size. Tick two and **Compare** (side by side, with the source and brief fields that
+differ); **Restore** brings one back (a procedural version is rebuilt from its saved brief; a
+pinned one, or a TRELLIS one, comes back as it was); **Pin** keeps a version and its 3D model
+for good; **Delete** removes one (asks first; never the Approved one). The last 3 unpinned
+versions are kept (Tools › **Settings…**); when there are more, the strip offers to remove the
+old ones. Pinned, Approved and current versions are never removed. Tools › **Storage…** shows
+the space per asset and per project, with "Delete unpinned versions" per asset or for the
+whole project.
 
 The review round: Library › **Review round: task list…** lists every Needs changes and Needs
 new feature note (what Claude Code works from); **Review round: mark done…** marks the handled

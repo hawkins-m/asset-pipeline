@@ -113,7 +113,7 @@ function lrRender() {
 }
 
 function lrRenderVersions() {      // the version strip (versions.js); restoring reloads the brief and images
-  versionStrip($("#lr-versions"), lr.asset, () => lrLoad(true));
+  versionStrip("#lr-versions", lr.asset, () => lrLoad(true));
 }
 
 function lrImg(path, cap, extra = "", cls = "") {
@@ -281,11 +281,11 @@ function lrRenderBrief() {
     ${d.building ? `<div class="lr-form">
       <span>View</span><select id="lr-view">${views.map(([s, p]) => `<option value="${esc(s)}|${p}" ${s === b.sheet && String(p) === String(b.position) ? "selected" : ""}>${esc(s.split("/").pop())} · ${pos(p)}</option>`).join("")}</select>
       <span>Footprint</span><span class="inl"><input type="number" step="any" data-path="dims.0" data-t="num" value="${b.dims[0]}" aria-label="width"> × <input type="number" step="any" data-path="dims.1" data-t="num" value="${b.dims[1]}" aria-label="depth"> m
-        <span class="hint">${cat ? `catalog ${cat.width.join("–")} × ${cat.depth.join("–")}` : "no catalog range"}</span></span>
+        <span class="hint">${cat && cat.width && cat.depth ? `catalog ${cat.width.join("–")} × ${cat.depth.join("–")}` : "no catalog range"}</span></span>
       <span>Height</span><span class="inl"><input type="number" step="any" data-path="dims.2" data-t="num" value="${b.dims[2]}" aria-label="height"> m
         <span class="hint">${d.usage.size_m ? `greybox ${d.usage.size_m[2]}` : ""}</span></span>
       <span>Storey</span><span class="inl"><input type="number" step="any" data-path="params.storey_h" data-t="num" value="${b.params.storey_h ?? ""}" placeholder="${b.features.storey_h ?? cat?.storey_m ?? 3.4}"> m
-        <span class="hint">${cat ? `catalog ${cat.storeys.join("–")} storeys` : ""}${meas.storeys ? ` · sheet ${meas.storeys} storeys` : ""}</span></span>
+        <span class="hint">${cat && cat.storeys ? `catalog ${cat.storeys.join("–")} storeys` : ""}${meas.storeys ? ` · sheet ${meas.storeys} storeys` : ""}</span></span>
       <span>Bay rhythm</span><span class="inl"><input type="number" step="any" data-path="params.bay_m" data-t="num" value="${b.params.bay_m ?? ""}" placeholder="auto"> m
         <span class="hint">sheet: ${meas.bay_m ? meas.bay_m + " m" : "not measured"}</span></span>
       ${top.map(([k, v]) => `<span>${esc(k.replace(/_/g, " "))}</span><span>${lrField("features." + k, v, "").replace('<span></span>', "")}</span>`).join("")}

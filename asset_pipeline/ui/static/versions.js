@@ -28,11 +28,16 @@ async function versionJob(job) {        // a started job: wait (api() has opened
   return j;
 }
 
-async function versionStrip(box, asset, onChange) {
-  if (!box) return;
-  let d;
-  try { d = await api(`/api/projects/${slug}/library/asset/${asset}/versions`, undefined, "GET"); }
-  catch (err) { box.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
+// box: the element, or a selector looked up again after the request (the view may have been
+// re-rendered meanwhile, leaving the first element detached and the strip empty)
+async function versionStrip(boxOrSel, asset, onChange) {
+  const find = () => typeof boxOrSel === "string" ? document.querySelector(boxOrSel) : boxOrSel;
+  if (!find()) return;
+  let d, err = null;
+  try { d = await api(`/api/projects/${slug}/library/asset/${asset}/versions`, undefined, "GET"); } catch (e) { err = e; }
+  const box = find();
+  if (!box || !box.isConnected) return;
+  if (err) { box.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
   if (box.dataset.asset !== asset) box.dataset.sel = "[]";
   box.dataset.asset = asset;
   const sel = new Set(JSON.parse(box.dataset.sel || "[]").filter(n => d.versions.some(v => v.n === n)));

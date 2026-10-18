@@ -111,7 +111,8 @@ def _brief(store, asset) -> dict | None:
 
 def _source_of(brief: dict) -> dict:
     return {"sheet": brief.get("sheet"), "view": brief.get("view"), "position": brief.get("position"),
-            "guidance": brief.get("guidance") or "", "form": brief.get("form") or brief.get("kind"),
+            "guidance": brief.get("guidance") or "",
+            "form": brief.get("form_choice") or brief.get("form") or brief.get("kind"),   # the form picked in the app
             "seed": None, "input": None}
 
 
@@ -188,13 +189,34 @@ def attach_thumbs(store: ProjectStore, asset: str, n: int | None, src_dir: Path 
     _save(store, asset, rows)
 
 
+def _rel_path(store: ProjectStore, p: str | None) -> str | None:
+    """A project-relative path (TRELLIS stats record absolute ones)."""
+    if not p:
+        return None
+    q = Path(p)
+    try:
+        return q.resolve().relative_to(store.root.resolve()).as_posix() if q.is_absolute() else q.as_posix()
+    except ValueError:
+        return q.as_posix()
+
+
+def _sheet_of_view(store: ProjectStore, view: str | None) -> str | None:
+    """The reference sheet a cut view came from (the view dir's meta.json), else the view."""
+    if not view:
+        return None
+    meta = read_json((store.root / view).parent / "meta.json", default=None) or {}
+    hit = next((v.get("sheet") for v in meta.get("views", []) if v.get("file") == Path(view).name), None)
+    return hit or view
+
+
 def record_trellis(store: ProjectStore, plan: str, asset: str, record: dict, created: str | None = None) -> dict:
     """A new version from a TRELLIS result (s5_3d.run's record). The files stay in place."""
     rows = load(store, asset, plan)
     glb = record["glb"]
     files = [glb, str(Path(glb).with_suffix(".json").as_posix()), record["input"]]
     files = [f for f in files if (store.root / f).is_file()]
-    src = {"sheet": record.get("view"), "view": record.get("view"), "position": None, "guidance": "", "form": None,
+    view = _rel_path(store, record.get("view"))
+    src = {"sheet": _sheet_of_view(store, view), "view": view, "position": None, "guidance": "", "form": None,
            "seed": record.get("seed"), "input": record.get("input"), "mode": record.get("mode")}
     row = next((r for r in rows if r["kind"] == "trellis" and r["files"][:1] == [glb]), None)
     if row is None:       # a rerun with the same view, mode and seed overwrites its files: one version
@@ -453,7 +475,8 @@ def compare(store: ProjectStore, asset: str, a: int, b: int, plan: str = PLAN) -
 
 def assets_of(store: ProjectStore, plan: str = PLAN) -> list[str]:
     base = store.root / "3d" / plan
-    return sorted(p.name for p in base.iterdir() if p.is_dir()) if base.is_dir() else []
+    return sorted(p.name for p in base.iterdir() if p.is_dir() and not p.name.startswith(("_", "."))) \
+        if base.is_dir() else []                   # "_keep-…" folders are hand-kept copies, not assets
 
 
 def current_bytes(store: ProjectStore, asset: str, plan: str = PLAN) -> int:

@@ -60,3 +60,15 @@ def test_locked_impact_only_for_size_changes_in_locked_frames(store, monkeypatch
     assert lr.locked_impact(store, "cube-a", BRIEF, {**BRIEF, "features": {"x": 1}}) == []
     imp = lr.locked_impact(store, "cube-a", BRIEF, {**BRIEF, "dims": [40.0, 40.0, 44.0]})
     assert [r["shot"] for r in imp] == ["med-a"] and imp[0]["changed"] == ["h"]
+
+
+def test_validate_copes_with_a_landmark_type_without_size_ranges(store, monkeypatch):
+    """A landmark typology (a forum) has no width / depth / storey ranges; validation (Asset
+    review's form, the guidance edit check) must not crash on it."""
+    from types import SimpleNamespace
+    from asset_pipeline.stages import sw_site
+    typ = SimpleNamespace(id="forum", width=None, depth=None, storeys=None, storey_m=None)
+    monkeypatch.setattr(sw_site, "load_layout", lambda s: SimpleNamespace(city=SimpleNamespace(typologies=[typ], storey_m=3.4)))
+    monkeypatch.setattr(lr, "entry_of", lambda s, a: {"id": a, "typology": "forum", "size_m": None})
+    v = lr.validate(store, "cube-a", BRIEF)
+    assert not v["errors"] and any("no size ranges" in w for w in v["warnings"])
