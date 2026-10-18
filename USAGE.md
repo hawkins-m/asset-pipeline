@@ -567,6 +567,18 @@ ap area checklist my-project my-area                      # areas/my-area.md in 
   `material_scale` (`{"wall": 0.5}`; per band `base` / `wall` / `top`, a multiplier on the
   material's tile size, default 1, stored only when not 1) and, for basilicas,
   `features.front.panel_frame` (`on`, `w`, `proj`, `margin`, `gap`; off by default).
+- **Library › Entries** (browser): *New entry…* adds an entry of your own (id, name,
+  description, prop/building, route, size, tier); it is kept in `site/library_custom.json`, so a
+  re-plan never wipes it. *Manage entry…* on a card edits name, description (*Reset to auto*),
+  route and decision, and offers *Duplicate…* (copies the description, route, decision, sheets,
+  views, brief, build, TRELLIS results and review renders to a new id; the copy starts
+  unreviewed) and *Rename…* (your own entries: the files move and the review stays; plan entries:
+  display name only). API: `/api/projects/{slug}/library/entries[/{id}/duplicate|rename|description]`.
+- **Next step per sheet** (Library › Reference sheets): once a sheet is starred (the newest
+  starred one is used), a procedural asset's row shows *Brief & build* (the brief from that
+  sheet, as `ap library brief ... front`, then the build and review renders; job
+  `library.brief_build`) and a TRELLIS asset's row *Cut views*, with links on to Asset review or
+  Views and 3D.
 - `--district ID` works wherever `--area` does.
 - Batch commands skip approved assets and builds of an unchanged brief, report each failure
   and go on. Run the same command again after a crash or a ComfyUI restart.
