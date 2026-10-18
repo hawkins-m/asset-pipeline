@@ -443,6 +443,15 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
             line = f"Blender on the CPU · mesh {done + 1} of {total}" if done < total else "writing the manifest"
         else:
             line = "Blender on the CPU · opening the greybox"
+    elif job.kind == "3d.trellis" and tag.get("asset"):
+        # real TRELLIS stages from its log; uncounted stages stay indeterminate (done None)
+        from .. import trellis_progress
+        from ..stages import s5_3d
+        log = s5_3d.out_dir(store, tag.get("plan") or "library", tag["asset"]) / "trellis.log"
+        tp = trellis_progress.parse(_run_tail(log, since), tag.get("mode"))
+        out = {"done": tp["done"], "total": tp["total"], "line": f"{tag['asset']} · {trellis_progress.line(tp)}",
+               "elapsed_s": round(now - t0), "stages": tp["stages"], "stage": tp["stage"], "stage_label": tp["label"]}
+        return out
     elif job.kind == "ue.backup":
         m = re.findall(r"to-chk=(\d+)/(\d+)", _run_tail(ue.backup_log(store), since) or "")
         if m:
@@ -858,7 +867,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             raise HTTPException(400, f"mode must be one of {', '.join(s5_3d.MODES)}")
         return jobs.submit("3d.trellis", slug, lambda: s5_3d.run(store, req.plan, req.asset,
                                                                  mode=req.mode, seed=None if req.new_seed else req.seed),
-                           lane="gpu0", tag={"plan": req.plan, "asset": req.asset}).public()
+                           lane="gpu0", tag={"plan": req.plan, "asset": req.asset, "mode": req.mode}).public()
 
     @app.get("/api/vlm")
     def vlm_status():

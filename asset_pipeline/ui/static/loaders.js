@@ -138,15 +138,16 @@ function updateJobDialog() {
   let line2, bar, buttons;
   if (j.status === "queued") {
     line2 = `Waiting for ${LANE_NAMES[j.lane] || j.lane}: another job is running there.`;
-    bar = progressBar({});
+    bar = {frac: null};
   } else if (j.status === "running") {
-    const counted = p.total != null && p.done != null;
-    line2 = counted ? `${p.done} of ${p.total}${unit ? ` ${unit}` : ""}${p.eta ? ` · ${p.eta}` : ""}` : p.eta || "Working…";
-    bar = progressBar(p);
-  } else {
+    const counted = p.total != null && p.done != null && !p.stages;
+    line2 = counted ? `${p.done} of ${p.total}${unit ? ` ${unit}` : ""}${p.eta ? ` · ${p.eta}` : ""}`
+      : p.stages ? `${p.stageLabel}${p.eta ? ` · ${p.eta}` : ""}` : p.eta || "Working…";
+    bar = p;
+  } else {                              // finished: full, or frozen where it stopped (never backwards)
     const secs = j.finished && j.created ? Math.round(j.finished - j.created) : null;
     line2 = j.status === "done" ? `Done${secs != null ? ` in ${fmtDur(secs)}` : ""}.` : j.status === "canceled" ? "Canceled." : `Failed: ${j.error || "unknown error"}`;
-    bar = progressBar(j.status === "done" ? {done: 1, total: 1} : {done: p.done || 0, total: p.total || 1});
+    bar = j.status === "done" ? (p.stages ? {...p, stage: p.stages.length, frac: 1} : {frac: 1}) : p;
   }
   const active = isActive(j);
   $(".wt", win).textContent = active ? title : j.status === "done" ? title.replace("…", ": done") : j.status === "canceled" ? title.replace("…", ": canceled") : title.replace("…", ": failed");
@@ -154,7 +155,9 @@ function updateJobDialog() {
   if (body.dataset.pic !== pic) { body.dataset.pic = pic; body.innerHTML = `<div class="ld-pic">${PICS[pic] || ""}</div><div class="ld-line1"></div><div class="ld-bar"></div><div class="ld-foot"><span class="ld-line2"></span><span class="ld-btns"></span></div>`; }
   body.classList.toggle("still", !active);
   $(".ld-line1", body).textContent = detailLine(j, p);
-  $(".ld-bar", body).innerHTML = bar;
+  const slot = $(".ld-bar", body);       // one bar per job, updated in place (smooth, never restarted)
+  if (slot.dataset.job !== String(j.id)) { slot.replaceChildren(); slot.dataset.job = String(j.id); }
+  paintBar(slot, bar);
   const l2 = $(".ld-line2", body); l2.textContent = line2; l2.className = `ld-line2${j.status === "error" ? " error" : ""}`;
   const btns = $(".ld-btns", body);
   const want = active ? (STOPPABLE(j.kind) ? "cancel" : "none") : "close";

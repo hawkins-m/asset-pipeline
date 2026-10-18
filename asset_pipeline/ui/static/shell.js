@@ -366,26 +366,42 @@ const jobLabel = j => (JOB_LABELS[j.kind] || j.kind).replace(/^./, c => c.toUppe
   (j.tag.shot ? ` · ${j.tag.shot}` : j.tag.unit ? ` · ${assetName(j.tag.unit)}` : j.tag.asset ? ` · ${assetName(j.tag.asset)}` : "");
 
 function renderLanes() {
-  const el = $("#lanes"); el.replaceChildren();
+  // rows are kept and updated in place: a rebuilt bar would restart its animation every poll
+  const el = $("#lanes");
   const jobs = data ? data.jobs : [];
+  const rows = [];
   for (const [lane, name] of LANES) {
     const act = jobs.filter(j => j.lane === lane && isActive(j));
     if (lane === "service" && !act.length) continue;
     const run = act.find(j => j.status === "running"), queued = act.filter(j => j.status === "queued").length;
-    const row = document.createElement("div"); row.className = "lane";
+    let row = el.querySelector(`:scope > .lane[data-lane="${lane}"]`);
+    if (!row) {
+      row = document.createElement("div"); row.className = "lane"; row.dataset.lane = lane;
+      row.innerHTML = `<span class="ln"></span><span class="what"></span><div class="bar-slot"></div><span class="eta"></span><div class="actions"></div>`;
+    }
+    rows.push(row);
     const p = run && jobProgress(run);
-    row.innerHTML = `<span>${name}:</span><span class="what" title="${run ? esc(p.line) : ""}">${run ? esc(jobLabel(run)) + (p.count ? ` ${p.done} / ${p.total}` : "") : queued ? "waiting" : "idle"}${queued ? ` (+${queued} queued)` : ""}</span>`;
-    if (run) {
-      row.insertAdjacentHTML("beforeend", `${progressBar(p)}<span class="eta">${esc(p.eta || p.line || "")}</span>`);
-      const actions = document.createElement("div"); actions.className = "actions";
+    $(".ln", row).textContent = `${name}:`;
+    const what = $(".what", row);
+    what.title = run ? p.line : "";
+    what.textContent = (run ? jobLabel(run) + (p.count ? ` ${p.done} / ${p.total}` : "") : queued ? "waiting" : "idle") + (queued ? ` (+${queued} queued)` : "");
+    const slot = $(".bar-slot", row), eta = $(".eta", row), actions = $(".actions", row);
+    slot.hidden = eta.hidden = actions.hidden = !run;
+    if (!run) { slot.replaceChildren(); slot.dataset.job = ""; continue; }
+    if (slot.dataset.job !== run.id) { slot.replaceChildren(); slot.dataset.job = run.id; }
+    paintBar(slot, p);
+    eta.textContent = p.stages ? `${p.stageLabel}${p.eta ? ` · ${p.eta}` : ""}` : (p.eta || p.line || "");
+    const sig = `${run.id}|${STOPPABLE(run.kind)}|${act.map(j => j.id).join(",")}`;
+    if (actions.dataset.sig !== sig) {
+      actions.dataset.sig = sig; actions.replaceChildren();
       const show = document.createElement("button"); show.type = "button"; show.className = "small"; show.textContent = "Details";
       show.onclick = () => openJobDialog(run.id);
       actions.append(show);
-      if (STOPPABLE(run.kind)) { const s = stopButton(act); s.classList.add("small"); actions.append(s); }
-      row.append(actions);
+      if (STOPPABLE(run.kind)) { const st = stopButton(act); st.classList.add("small"); actions.append(st); }
     }
-    el.append(row);
   }
+  for (const r of [...el.children]) if (!rows.includes(r)) r.remove();
+  rows.forEach((r, i) => { if (el.children[i] !== r) el.insertBefore(r, el.children[i] || null); });
   const msg = $("#jobs-msg"); msg.replaceChildren();
   if (!jobs.some(isActive)) {
     const last = jobs.filter(j => j.status === "error" || j.status === "canceled").sort((a, b) => b.finished - a.finished)[0];
@@ -401,18 +417,65 @@ function renderLanes() {
 // Progress of a running job: counted by the server from the files the job has written
 // (frames, passes, sheets); jobs it can't count show a marquee bar and the elapsed time.
 const fmtDur = s => s >= 5400 ? `${Math.round(s / 3600 * 10) / 10} h` : s >= 90 ? `${Math.round(s / 60)} min` : `${Math.max(1, Math.round(s))} s`;
+// One progress source for the Jobs panel and the job dialog. Bars never move backwards within a
+// job: a stage never goes back, and a stage's (or a counted job's) fraction never drops, whatever a
+// poll reads. Staged jobs (TRELLIS: server-side trellis_progress.py) show one segment per stage:
+// done stages full, the current one filled to its real fraction, or striped when it has no count.
+const PROG_TRACK = {};     // job id -> {stage, frac}: what the bars last showed
 function jobProgress(j) {
   const p = (statusData && statusData.progress && statusData.progress[j.id]) || {};
   const det = p.total != null && p.done != null;
-  return {done: p.done ?? null, total: p.total ?? null, line: p.line || j.note || "",
-    count: det ? `${p.done} of ${p.total}` : "",
+  const t = PROG_TRACK[j.id] ||= {stage: -1, frac: null};
+  let frac = det && p.total ? Math.min(1, p.done / p.total) : null, stage = p.stage ?? null;
+  if (p.stages) {
+    if (stage < t.stage) { stage = t.stage; frac = t.frac; }               // an older reading: keep what was shown
+    else if (stage === t.stage && frac != null && t.frac != null) frac = Math.max(frac, t.frac);
+    t.stage = stage; t.frac = frac;
+  } else if (frac != null) { frac = Math.max(frac, t.frac ?? 0); t.frac = frac; }
+  return {done: p.done ?? null, total: p.total ?? null, line: p.line || j.note || "", frac, stage,
+    stages: p.stages || null, stageLabel: p.stage_label || "",
+    count: det && !p.stages ? `${p.done} of ${p.total}` : "",
     eta: p.eta_s != null ? `about ${fmtDur(p.eta_s)} left` : p.elapsed_s != null ? `${fmtDur(p.elapsed_s)} elapsed` : ""};
 }
+
+// Paint a job's bar into `box`: built once, then only updated (so the width animates between polls
+// and a striped stage keeps moving instead of restarting on every redraw).
+function paintBar(box, p) {
+  const staged = !!(p.stages && p.stages.length);
+  const kind = staged ? `stages:${p.stages.length}` : "single";
+  let bar = box.firstElementChild;
+  if (!bar || bar.dataset.kind !== kind) {
+    box.innerHTML = `<div class="progress${staged ? " stages" : ""}" role="progressbar" aria-valuemin="0" aria-valuemax="100" data-kind="${kind}">${
+      staged ? p.stages.map(l => `<div class="seg" title="${esc(l)}"><div class="fill"></div></div>`).join("") : `<div class="fill"></div>`}</div>`;
+    bar = box.firstElementChild;
+  }
+  let pct = null, text = "";
+  if (staged) {
+    const n = p.stages.length, at = Math.min(p.stage ?? 0, n);
+    [...bar.children].forEach((seg, i) => {
+      const st = i < at ? "done" : i > at ? "todo" : p.frac == null ? "busy" : "part";
+      if (seg.dataset.st !== st) { seg.dataset.st = st; seg.className = `seg ${st}`; }
+      seg.firstElementChild.style.width = `${st === "done" ? 100 : st === "part" ? Math.round(100 * p.frac) : 0}%`;
+    });
+    pct = Math.round(100 * (at + (at < n && p.frac != null ? p.frac : 0)) / n);
+    text = at < n ? `Stage ${at + 1} of ${n}: ${p.stages[at]}` : "Done";
+  } else {
+    const det = p.frac != null;
+    bar.classList.toggle("marquee", !det);
+    bar.firstElementChild.style.width = det ? `${Math.round(100 * p.frac)}%` : "";
+    pct = det ? Math.round(100 * p.frac) : null;
+  }
+  if (pct != null) bar.setAttribute("aria-valuenow", pct); else bar.removeAttribute("aria-valuenow");
+  if (text) bar.setAttribute("aria-valuetext", text); else bar.removeAttribute("aria-valuetext");
+  return bar;
+}
+// the bar as HTML, for one-off views (a fresh bar each time: no animation to keep)
 function progressBar(p) {
-  const det = p.total && p.done != null;
-  const pct = det ? Math.min(100, Math.round(100 * p.done / p.total)) : 0;
-  return `<div class="progress${det ? "" : " marquee"}" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-    ${det ? `aria-valuenow="${pct}"` : ""}><div class="fill" style="${det ? `width:${pct}%` : ""}"></div></div>`;
+  const q = {...p};
+  if (q.frac === undefined) q.frac = q.total && q.done != null ? Math.min(1, q.done / q.total) : null;
+  const box = document.createElement("div");
+  paintBar(box, q);
+  return box.innerHTML;
 }
 
 // --- what's out of date, and Apply changes ----------------------------------------------

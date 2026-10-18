@@ -202,3 +202,61 @@ def test_polling_redraws_keep_rows_images_and_scroll(tmp_path, monkeypatch):
         assert out[k]["scroll"] == 500 and not out[k]["moved"], (k, out[k])
     assert out["changed"] == [True, True, 0]                          # rebuilt, image kept, others untouched
     assert out["errors"] == []
+
+
+PROGRESS_SCRIPT = r'''
+import json, sys
+from playwright.sync_api import sync_playwright
+url = sys.argv[1]
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome")
+    pg = b.new_page(viewport={"width": 1400, "height": 800})
+    errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.goto(url); pg.wait_for_selector("#lanes .lane", state="attached", timeout=20000); pg.wait_for_timeout(500)
+    out = pg.evaluate("""() => {
+      const now = Date.now() / 1000, stages = ["a", "b", "c", "d", "e", "f", "g"];
+      data.jobs.push({id: "jt", kind: "3d.trellis", lane: "gpu0", status: "running", tag: {plan: "library", asset: "x"}, created: now, note: ""},
+                     {id: "jc", kind: "refs.generate", lane: "comfy", status: "running", tag: {plan: "library", unit: "y"}, created: now, note: ""});
+      const reads = [
+        [{stage: 2, done: 6, total: 24}, {done: 2, total: 8}],
+        [{stage: 2, done: 3, total: 24}, {done: 1, total: 8}],      // backwards readings
+        [{stage: 1, done: 12, total: 12}, {done: 2, total: 8}],     // an older stage
+        [{stage: 2, done: 18, total: 24}, {done: 5, total: 8}],
+        [{stage: 4, done: null, total: null}, {done: 6, total: 8}], // a stage with no count
+      ];
+      const rows = [];
+      let laneBar0 = null, dlgBar0 = null, cBar0 = null;
+      for (const [t, c] of reads) {
+        statusData.progress = {jt: {...t, stages, stage_label: stages[t.stage], line: "x", elapsed_s: 5},
+                               jc: {...c, line: "y", elapsed_s: 5}};
+        renderLanes(); clearInterval(polling); polling = null;
+        if (!jobDlg) openJobDialog("jt"); else updateJobDialog();
+        const lane = document.querySelector('#lanes .lane[data-lane="gpu0"] .progress');
+        const dlg = document.querySelector('.loader-window .ld-bar .progress');
+        const cl = document.querySelector('#lanes .lane[data-lane="comfy"] .progress');
+        laneBar0 ||= lane; dlgBar0 ||= dlg; cBar0 ||= cl;
+        rows.push({lane: +lane.getAttribute("aria-valuenow"), dlg: +dlg.getAttribute("aria-valuenow"),
+                   comfy: +cl.getAttribute("aria-valuenow"), busy: lane.querySelectorAll(".seg.busy").length,
+                   label: lane.getAttribute("aria-valuetext"), same: lane === laneBar0 && dlg === dlgBar0 && cl === cBar0});
+      }
+      return rows;
+    }""")
+    out = {"rows": out, "errors": errs}
+    b.close()
+print("RESULT " + json.dumps(out))
+'''
+
+
+@pytest.mark.skipif(not BROWSER_PY.exists(), reason="needs the browser-test env (Playwright + system Chrome)")
+def test_progress_bars_never_go_back_agree_and_are_not_rebuilt(tmp_path, monkeypatch):
+    """The bug: the Make 3D bars jumped backwards every poll (a rebuilt marquee restarting)."""
+    out = _browse(tmp_path, monkeypatch, PROGRESS_SCRIPT)
+    rows = out["rows"]
+    assert [r["lane"] for r in rows] == [32, 32, 32, 39, 57]           # (stage + fraction) / 7, never back
+    assert all(r["lane"] == r["dlg"] for r in rows)                    # the dialog and the Jobs panel agree
+    assert [r["comfy"] for r in rows] == [25, 25, 25, 63, 75]          # counted jobs: never back either
+    assert [r["busy"] for r in rows] == [0, 0, 0, 0, 1]                # no count: a striped stage, no number
+    assert rows[-1]["label"] == "Stage 5 of 7: e"
+    assert all(r["same"] for r in rows)                                # bars updated in place, never rebuilt
+    assert out["errors"] == []

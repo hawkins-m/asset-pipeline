@@ -965,3 +965,13 @@ Until the deadline, all work follows these rules:
   Asset review cards (flex-wrap, later in the file, so it won). The Views row wrapped its parts
   freely and the version strip jumped beside / below the cards. The card div is `.asset-builds`.
 - The version strip caches its data per asset (VER_CACHE) and redraws only on a change.
+
+## Job progress (2026-10-18)
+- The Make 3D bars "jumped back" every poll: TRELLIS had no counted progress, so both bars were
+  marquees, and the Jobs panel (replaceChildren) and the dialog (innerHTML) rebuilt them on every
+  redraw, restarting the animation. Bars are now built once per job and updated in place
+  (`paintBar`), widths ease between polls, and `jobProgress` (one source for both) never lets a
+  stage or a fraction go back (PROG_TRACK).
+- `asset_pipeline/trellis_progress.py` reads the stages from trellis.log: loading (2 passes),
+  sparse structure, shape (2 passes on cascade modes), texture are counted (passes folded into
+  one fraction); decode, UV/bake and export have no usable count and show as striped stages.

@@ -167,7 +167,7 @@ table.grid-table td.dirty::after { content: " *"; }
 #stage-list .n { display: inline-block; width: 12px; }
 .lane { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 2px 4px; margin-bottom: 6px; }
 .lane .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lane .progress, .lane .eta, .lane .actions { grid-column: 2; }
+.lane .bar-slot, .lane .eta, .lane .actions { grid-column: 2; }
 .lane .eta { color: var(--muted); }
 .lane .actions { display: flex; gap: 4px; }
 #jobs-msg .error { display: block; margin-top: 4px; }
@@ -523,3 +523,15 @@ details summary { cursor: default; }
 .result model-viewer, .result img { display: block; }
 @media (max-width: 1100px) { .ar-body.with-strip { grid-template-columns: minmax(0, 1fr); } }
 .keyed-head h3 { margin: 14px 0 4px; }
+
+/* job progress: widths ease toward the latest reading between polls; staged jobs (TRELLIS) show a
+   segment per stage, the current one filled to its real fraction or striped when it has no count */
+.progress:not(.marquee) > .fill { transition: width 1.6s linear; }
+.progress.stages { display: flex; gap: 2px; padding: 1px; }
+.progress.stages > .seg { flex: 1; position: relative; background: var(--field); outline: 1px solid var(--border); overflow: hidden; }
+.progress.stages > .seg > .fill { height: 100%; width: 0; background: var(--select); transition: width 1.6s linear; }
+.progress.stages > .seg.done > .fill { width: 100%; }
+.progress.stages > .seg.busy { background: repeating-linear-gradient(135deg, var(--field) 0 6px, color-mix(in srgb, var(--select) 45%, var(--field)) 6px 12px);
+  background-size: 17px 100%; animation: segbusy 0.9s linear infinite; }
+@keyframes segbusy { to { background-position: 17px 0; } }
+@media (prefers-reduced-motion: reduce) { .progress.stages > .seg.busy { animation: none; } .progress > .fill, .progress.stages > .seg > .fill { transition: none; } }
