@@ -77,6 +77,29 @@ GPU 1, so the two never compete. If you pick GPU 1 with `TRELLIS_GPU=1` while Co
 up, `trellis` prints a note. Both can share a GPU as long as their combined VRAM fits in
 32 GB.
 
+Start and stop the main ComfyUI from the pipeline (it only launches and stops it):
+
+```bash
+ap comfy start        # launch per [comfyui.service], wait until it answers (-v prints the whole log)
+ap comfy status       # running / starting / stopped, pid, launch command, GPU, log; the proxy for sdk
+ap comfy restart
+ap comfy stop         # SIGTERM to the process group it started (or the ComfyUI on the port), then SIGKILL
+```
+
+Settings, in `$AP_ROOT/backends.local.toml` (the repo default suits a plain `~/ComfyUI`):
+
+```toml
+[comfyui.service]
+launch = "~/path/to/run_comfy.sh --port {port}"   # {port} and {url} from [comfyui] url
+cwd = ""                                          # working directory ("" = current)
+gpu = "1"                                         # HIP_/CUDA_VISIBLE_DEVICES; "" = untouched
+start_timeout_s = 300
+```
+
+With the `sdk` backend, start also brings up comfy-api-proxy at `sdk_url` and stop takes it down.
+In the app: Status box › Start ComfyUI / Stop / Restart; a ComfyUI job started while it's down
+offers **Start ComfyUI and run** and waits in the GPU 1 queue until ComfyUI answers.
+
 ## Checking a result without opening Blender
 
 ```bash
@@ -557,8 +580,8 @@ ap area checklist my-project my-area                      # areas/my-area.md in 
 
 # Stage 0: exploring scenes and setting a style anchor
 
-ComfyUI must be running (`~/Projects/AI/ComfyUI/run_comfy.sh`; check with
-`ap comfy-check`). Everything below runs locally. No paid APIs are used.
+ComfyUI must be running (`ap comfy start`, or Start ComfyUI in the app's Status box; check
+with `ap comfy status`). Everything below runs locally. No paid APIs are used.
 
 ## In the browser
 

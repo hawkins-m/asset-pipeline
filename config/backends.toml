@@ -23,6 +23,21 @@ timeout_s = 900
 backend = "sdk"
 sdk_url = "http://127.0.0.1:8190"
 
+[comfyui.service]
+# How `ap comfy start|stop|restart` and the app's Start ComfyUI button launch the server. It
+# only launches and stops ComfyUI; its install and environment are never changed. The port is
+# the one in url above ({port} and {url} are filled into launch; ~ is expanded). The default
+# fits a plain ComfyUI checkout in ~/ComfyUI run with the Python on PATH; point launch at your
+# own launcher (a venv's python, a run script) in $AP_ROOT/backends.local.toml.
+launch = "python main.py --listen 127.0.0.1 --port {port}"
+cwd = "~/ComfyUI"
+# GPU index to pin it to (HIP_VISIBLE_DEVICES on AMD, CUDA_VISIBLE_DEVICES on NVIDIA); "" = all
+gpu = ""
+start_timeout_s = 300
+stop_timeout_s = 30
+# The sdk backend also needs comfy-api-proxy at sdk_url: start brings it up after ComfyUI
+# answers and stop takes it down (scripts/comfy_api_proxy.sh install, once).
+
 [comfyui.workflows]
 # Logical name -> workflows/<file>.json (+ <file>.bindings.json)
 t2i = "flux_t2i"

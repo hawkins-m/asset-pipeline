@@ -137,7 +137,7 @@ def test_unreachable_server_gives_launch_hint():
     def down(request):
         raise httpx.ConnectError("refused")
     c = ComfyClient("http://127.0.0.1:1", transport=httpx.MockTransport(down))
-    with pytest.raises(ComfyUnavailable, match="run_comfy.sh"):
+    with pytest.raises(ComfyUnavailable, match="ap comfy start"):
         c.health()
 
 

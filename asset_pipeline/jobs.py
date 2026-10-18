@@ -1,8 +1,12 @@
 """Background job queue for the UI: one worker per GPU lane, cancellable jobs.
 
 Lanes: "comfy" (ComfyUI, GPU 1: scenes, derive, sheets, SAM), "gpu0" (the local VLM and
-TRELLIS, GPU 0) and "cpu" (Blender cleanup). Each lane runs one job at a time; the lanes
-run side by side.
+TRELLIS, GPU 0), "cpu" (Blender cleanup) and "service" (starting and stopping ComfyUI). Each
+lane runs one job at a time; the lanes run side by side.
+
+A lane can have a gate (comfy.service.Gate for "comfy"): submit() asks it first (it raises
+when the lane's server is down and nothing is starting it), and the worker waits on it before
+running each job. Jobs with project "" (the service jobs) show in every project's list.
 
 Cancelling a queued job just drops it. Cancelling a running one sets its event and runs
 the cancellers the job registered while running (ComfyClient registers one per prompt it
@@ -39,6 +43,7 @@ class Job:
     status: str = "queued"          # queued | running | done | error | canceled
     result: Any = None
     error: str | None = None
+    note: str = ""                  # what a running job is doing right now (startup log line, waiting)
     created: float = field(default_factory=time.time)
     finished: float | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -48,7 +53,7 @@ class Job:
     def public(self) -> dict:
         return {"id": self.id, "kind": self.kind, "project": self.project, "lane": self.lane,
                 "tag": self.tag, "status": self.status, "result": self.result,
-                "error": self.error, "created": self.created, "finished": self.finished}
+                "error": self.error, "note": self.note, "created": self.created, "finished": self.finished}
 
     def on_cancel(self, fn: Callable[[], None]) -> Callable[[], None]:
         """Register fn to run if the job is canceled; returns a function that unregisters
@@ -78,9 +83,10 @@ def check_canceled() -> None:
 
 
 class JobQueue:
-    LANES = ("comfy", "gpu0", "cpu")
+    LANES = ("comfy", "gpu0", "cpu", "service")
 
-    def __init__(self, lanes: tuple[str, ...] = LANES):
+    def __init__(self, lanes: tuple[str, ...] = LANES, gates: dict | None = None):
+        self.gates = dict(gates or {})    # lane -> object with check_submit() and wait(job)
         self._ids = itertools.count(1)
         self._jobs: dict[int, Job] = {}
         self._queues: dict[str, queue.Queue] = {}
@@ -90,20 +96,25 @@ class JobQueue:
             threading.Thread(target=self._worker, args=(lane,), daemon=True, name=f"ap-jobs-{lane}").start()
 
     def submit(self, kind: str, project: str, fn: Callable[[], Any], lane: str = "comfy",
-               tag: dict | None = None) -> Job:
+               tag: dict | None = None, gated: bool = True) -> Job:
+        """gated=False: the job runs in a gated lane without needing its server (e.g. an image
+        stage on a hosted backend in the "comfy" lane)."""
         if lane not in self._queues:
             raise ValueError(f"unknown lane {lane!r}")
+        gate = self.gates.get(lane) if gated else None
+        if gate is not None:
+            gate.check_submit()
         with self._lock:
             job = Job(id=next(self._ids), kind=kind, project=project, lane=lane, tag=tag or {})
             self._jobs[job.id] = job
-        self._queues[lane].put((job, fn))
+        self._queues[lane].put((job, fn, gate))
         return job
 
     def get(self, job_id: int) -> Job | None:
         return self._jobs.get(job_id)
 
     def list(self, project: str | None = None) -> list[Job]:
-        return [j for j in self._jobs.values() if project is None or j.project == project]
+        return [j for j in self._jobs.values() if project is None or j.project in (project, "")]
 
     def cancel(self, job_id: int) -> Job | None:
         job = self._jobs.get(job_id)
@@ -124,13 +135,15 @@ class JobQueue:
     def _worker(self, lane: str) -> None:
         q = self._queues[lane]
         while True:
-            job, fn = q.get()
+            job, fn, gate = q.get()
             with job._lock:
                 if job.cancel_event.is_set():
                     continue
                 job.status = "running"
             _local.job = job
             try:
+                if gate is not None:
+                    gate.wait(job)
                 result = fn()
                 if job.cancel_event.is_set():  # finished anyway: keep the result, say so
                     job.status, job.result = "canceled", result

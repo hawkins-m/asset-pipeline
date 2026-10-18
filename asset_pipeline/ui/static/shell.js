@@ -4,7 +4,7 @@
 const TABS = ["style", "site", "city", "shots", "frames", "library", "views", "unreal"];
 const TAB_NAMES = {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library",
   views: "Views and 3D", unreal: "Unreal"};
-const LANES = [["gpu0", "GPU 0"], ["comfy", "GPU 1"], ["cpu", "CPU"]];
+const LANES = [["gpu0", "GPU 0"], ["comfy", "GPU 1"], ["cpu", "CPU"], ["service", "Comfy"]];   // "service" shows only while active
 let currentTab = "style";
 const saveHandlers = {};      // tab -> () => void: Edit › Save (Ctrl+S) on that tab
 const revertHandlers = {};    // tab -> () => void: Edit › Revert
@@ -260,7 +260,61 @@ async function comfyDialog() {
   $(".wbody", d.win).innerHTML = s.up
     ? `<div class="form"><span class="lbl">URL:</span><code>${esc(s.url)}</code><span class="lbl">State:</span><span class="status-ok">connected</span>
        ${s.device ? `<span class="lbl">Device:</span><span>${esc(s.device)}</span>` : ""}</div>`
-    : `<p class="error">${esc(s.error || "not reachable")}</p><p class="hint">Start it with <code>~/Projects/AI/ComfyUI/run_comfy.sh</code>.</p>`;
+    : `<p class="error">${esc(s.error || "not reachable")}</p><p class="hint">Start it from the Status box (Start ComfyUI)
+       or with <code>ap comfy start</code>.</p>`;
+}
+
+// --- ComfyUI service: Start / Stop / Restart in the Status box ---------------------------------
+async function comfyAction(what) {
+  try { await api(`/api/comfy/${what}`, {}); } catch (e) { dialog({title: "ComfyUI", body: `<p class="error">${esc(e.message)}</p>`}); }
+  load();
+}
+function confirmComfy(what, run) {
+  const busy = allActive().filter(j => j.lane === "comfy").length;
+  if (!busy) return run();
+  dialog({title: `${what} ComfyUI`, body: `<p>${busy} ComfyUI job${busy === 1 ? " is" : "s are"} running or queued.
+    ${what === "Stop" ? "They will be canceled." : "The running one is canceled; queued ones run after the restart."}</p>`,
+    buttons: [{label: what, default: true, onClick: run}, {label: "Cancel"}]});
+}
+// Resolves true once a start is under way (the caller then re-sends its request), false if declined.
+function offerComfyStart(message) {
+  return new Promise(resolve => {
+    let chosen = false;      // onClose also runs after a button: only an unanswered close declines
+    dialog({title: "ComfyUI is not running", body: `<p>This job needs ComfyUI, which isn't running.</p>
+      <p class="hint">${esc(message || "")}</p>`,
+      buttons: [{label: "Start ComfyUI and run", default: true, onClick: () => {
+                  chosen = true;
+                  api("/api/comfy/start", {}).then(() => { load(); resolve(true); }, e => {
+                    dialog({title: "ComfyUI", body: `<p class="error">${esc(e.message)}</p>`}); resolve(false); });
+                }},
+                {label: "Cancel", onClick: () => { chosen = true; resolve(false); }}],
+      onClose: () => { if (!chosen) resolve(false); }});
+  });
+}
+function renderComfyControls() {
+  const box = $("#comfy-ctl");
+  if (!box) return;
+  const up = statusData && statusData.comfy, svc = data ? data.jobs.find(j => j.lane === "service" && isActive(j)) : null;
+  const known = statusData && statusData.comfy != null;
+  const want = !known ? "" : svc ? `busy:${svc.kind}` : up ? "up" : `down:${statusData.comfy_error || ""}`;
+  if (box.dataset.state === want) return;
+  box.dataset.state = want; box.replaceChildren();
+  if (!known) return;
+  const btn = (label, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = "small";
+    b.textContent = label; b.onclick = fn; box.append(b); return b; };
+  if (svc) {
+    const s = document.createElement("span"); s.className = "hint";
+    s.textContent = `${(JOB_LABELS[svc.kind] || svc.kind).replace(/^./, c => c.toUpperCase())}…`; box.append(s);
+  } else if (up) {
+    btn("Stop", () => confirmComfy("Stop", () => comfyAction("stop")));
+    btn("Restart", () => confirmComfy("Restart", () => comfyAction("restart")));
+  } else {
+    btn("Start ComfyUI", () => comfyAction("start"));
+    if (statusData.comfy_error) {
+      const s = document.createElement("span"); s.className = "error"; s.title = statusData.comfy_error;
+      s.textContent = "last start failed"; box.append(s);
+    }
+  }
 }
 async function vlmDialog() {
   const d = dialog({title: "Vision LLM status", body: `<p>Checking…</p>`});
@@ -293,6 +347,7 @@ function renderLanes() {
   const jobs = data ? data.jobs : [];
   for (const [lane, name] of LANES) {
     const act = jobs.filter(j => j.lane === lane && isActive(j));
+    if (lane === "service" && !act.length) continue;
     const run = act.find(j => j.status === "running"), queued = act.filter(j => j.status === "queued").length;
     const row = document.createElement("div"); row.className = "lane";
     const p = run && jobProgress(run);
@@ -326,7 +381,7 @@ const fmtDur = s => s >= 5400 ? `${Math.round(s / 3600 * 10) / 10} h` : s >= 90 
 function jobProgress(j) {
   const p = (statusData && statusData.progress && statusData.progress[j.id]) || {};
   const det = p.total != null && p.done != null;
-  return {done: p.done ?? null, total: p.total ?? null, line: p.line || "",
+  return {done: p.done ?? null, total: p.total ?? null, line: p.line || j.note || "",
     count: det ? `${p.done} of ${p.total}` : "",
     eta: p.eta_s != null ? `about ${fmtDur(p.eta_s)} left` : p.elapsed_s != null ? `${fmtDur(p.elapsed_s)} elapsed` : ""};
 }
@@ -480,7 +535,9 @@ function renderShell() {
   const right = statusRight[currentTab] && statusRight[currentTab]();
   $("#sb-right").textContent = right || (comfy == null ? "" : comfy ? "ComfyUI: connected" : "ComfyUI: not running");
   $("#sb-right").className = !right && comfy === false ? "error" : "";
-  if (comfy != null) $("#status-line").textContent += comfy ? " · ComfyUI connected" : " · ComfyUI not running";
+  if (comfy != null) $("#status-line").textContent += comfy ? " · ComfyUI connected"
+    : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
+  renderComfyControls();
   renderApplyBar();
   updateJobDialog();
 }

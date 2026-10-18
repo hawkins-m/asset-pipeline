@@ -114,14 +114,27 @@ mkdir -p "$AP_ROOT"
    COMFYUI_MODELS=~/ComfyUI/models scripts/fetch_models.sh --dry-run   # see what it would do
    COMFYUI_MODELS=~/ComfyUI/models scripts/fetch_models.sh
    ```
-   It skips files that are already there and touches nothing else. Start ComfyUI as usual
-   (default `http://127.0.0.1:8188`).
+   It skips files that are already there and touches nothing else.
+
+   Tell the pipeline how to launch your ComfyUI, in `$AP_ROOT/backends.local.toml` (the repo
+   default runs `python main.py` in `~/ComfyUI`):
+   ```toml
+   [comfyui.service]
+   launch = "~/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"   # or your run script
+   cwd = "~/ComfyUI"
+   gpu = "1"          # GPU to pin it to; "" = leave the environment alone
+   ```
+   Then `ap comfy start` (also `stop`, `restart`, `status`), or **Start ComfyUI** in the app's
+   Status box. The port comes from `[comfyui] url` (default `http://127.0.0.1:8188`); the log
+   goes to `$AP_ROOT/logs/comfyui.log`. It only launches and stops ComfyUI; it never changes
+   its install. A job that needs ComfyUI while it's down offers **Start ComfyUI and run** and
+   waits until ComfyUI answers.
 
 3. **The Comfy API proxy** (for the default `sdk` backend; skip it if you use `httpx`):
    ```bash
    scripts/comfy_api_proxy.sh install
-   scripts/comfy_api_proxy.sh start      # port 8190, next to a local ComfyUI
    ```
+   `ap comfy start` starts it (port 8190) once ComfyUI answers, and `ap comfy stop` stops it.
 
 4. **Vision LLM** (reads reference sheets, plans assets). Either:
    ```bash

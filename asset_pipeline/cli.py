@@ -35,6 +35,32 @@ def cmd_comfy_check(a) -> None:
               f"{d.get('vram_total', 0) / 2**30:.1f} GB free")
 
 
+def cmd_comfy(a) -> None:
+    """ap comfy start | stop | restart | status: the local ComfyUI ([comfyui.service])."""
+    from .comfy import service
+    if a.action == "status":
+        st = service.status()
+        s = service.settings()
+        print(f"ComfyUI {st['state']} at {st['url']}" + (f" (pid {st['pid']}{', started by ap' if st['managed'] else ''})" if st["pid"] else ""))
+        print(f"  launch: {' '.join(service.command(s))}" + (f"  (cwd {s['cwd']})" if s.get("cwd") else "")
+              + (f"  GPU {s['gpu']}" if str(s.get('gpu', '')) != "" else ""))
+        print(f"  log: {st['log']}")
+        if "proxy" in st:
+            print(f"  comfy-api-proxy ({st['backend']} backend): {'up' if st['proxy']['up'] else 'down'} at {st['proxy']['url']}")
+        return
+    try:
+        if a.action == "stop":
+            service.stop()
+        else:
+            fn = service.start if a.action == "start" else service.restart
+            on_line = (lambda ln: print(f"  | {ln}")) if a.verbose else (
+                lambda ln: print(f"  ! {ln}") if service.ERROR_RE.search(ln) else None)
+            st = fn(print, on_line)
+            print(f"ComfyUI {st['state']} at {st['url']}" + (f" (pid {st['pid']})" if st.get("pid") else ""))
+    except RuntimeError as e:
+        raise SystemExit(str(e))
+
+
 def cmd_preflight(a) -> None:
     from . import preflight
     checks = preflight.run(ue=a.ue)
@@ -689,9 +715,8 @@ def cmd_library_brief(a) -> None:
           f"{m.get('storeys')}, bay {m.get('bay_m')} m")
 
 
-COMFY_DOWN = ("ComfyUI is not answering at {url}. Start it: ~/Projects/AI/ComfyUI/run_comfy.sh "
-              "(log to $AP_ROOT/logs/comfyui.log), check with `ap comfy-check`, then run the same command again: "
-              "finished items are skipped.")
+COMFY_DOWN = ("ComfyUI is not answering at {url}. Start it with `ap comfy start` (or the app's Status box), "
+              "then run the same command again: finished items are skipped.")
 
 
 def _comfy_up() -> bool:
@@ -1087,6 +1112,11 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("comfy-check", help="check the ComfyUI server is reachable")
     p.set_defaults(fn=cmd_comfy_check)
+
+    p = sub.add_parser("comfy", help="start / stop / restart / status of the local ComfyUI (config [comfyui.service])")
+    p.add_argument("action", choices=["start", "stop", "restart", "status"])
+    p.add_argument("-v", "--verbose", action="store_true", help="start: print every log line, not only errors")
+    p.set_defaults(fn=cmd_comfy)
     p = sub.add_parser("preflight", help="check ComfyUI (+ its models), local models, Blender and Unreal for the demo path")
     p.add_argument("--ue", action="store_true", help="Unreal is required (the last demo steps)")
     p.set_defaults(fn=cmd_preflight)

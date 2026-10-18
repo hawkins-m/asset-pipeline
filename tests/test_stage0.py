@@ -122,8 +122,9 @@ def test_review_rejects_escapes_and_missing(env):
 
 def test_ui_api_flow(env, monkeypatch):
     store, _ = env
+    from asset_pipeline.jobs import JobQueue
     from asset_pipeline.ui.app import create_app
-    client = TestClient(create_app())
+    client = TestClient(create_app(JobQueue()))     # ungated: the image backend is a fake
     assert "demo" in client.get("/api/projects").json()
     job = client.post("/api/projects/demo/style/explore", json={"n": 2}).json()
     for _ in range(100):

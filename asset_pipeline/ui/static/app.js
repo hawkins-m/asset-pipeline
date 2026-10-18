@@ -10,8 +10,15 @@ async function api(path, body, method = "POST") {
   const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
     method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const j = await r.json().catch(() => ({}));
+  // a job that needs ComfyUI while it's down: offer to start it, then send the same request
+  // again (the server queues it until ComfyUI answers)
+  if (r.status === 409 && j.detail && j.detail.code === "comfy_down") {
+    if (!(await offerComfyStart(j.detail.message))) throw new Error("ComfyUI is not running");
+    return api(path, body, method);
+  }
   if (!r.ok) {
-    const d = j.detail;  // FastAPI: a string, or a list of pydantic validation errors
+    const d = j.detail;  // FastAPI: a string, an object with a message, or a list of pydantic validation errors
+    if (d && !Array.isArray(d) && typeof d === "object") throw new Error(d.message || r.statusText);
     throw new Error(Array.isArray(d) ? d.map(e => `${e.loc.filter(x => x !== "body").join(" › ")}: ${e.msg}`).join("\n")
       : d || r.statusText);
   }
@@ -55,7 +62,8 @@ const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive
   "site.extract": "reading the .blend", "site.preview": "aerial previews", "shots.render": "shot passes",
   "frames.generate": "concept frames", "style.draft": "style text draft", "site.plan": "city plan",
   "shots.camera": "moving a camera", "ue.export": "export to Unreal", "ue.backup": "UE backup",
-  "library.plan": "library plan", "library.check": "library crop check", "library.rebuild": "asset rebuild"};
+  "library.plan": "library plan", "library.check": "library crop check", "library.rebuild": "asset rebuild",
+  "comfy.start": "starting ComfyUI", "comfy.stop": "stopping ComfyUI", "comfy.restart": "restarting ComfyUI"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
 

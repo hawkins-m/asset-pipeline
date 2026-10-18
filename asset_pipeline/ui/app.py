@@ -10,11 +10,12 @@ from typing import Literal
 
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi import Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .. import config, review, silhouette, ue, vlm
+from ..comfy import service as comfy_service
 from ..comfy.client import ComfyError, connect
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
@@ -220,6 +221,12 @@ def _uncut(store: ProjectStore, sheet: str) -> bool:
 _comfy_cache: dict = {"t": 0.0, "up": None}
 
 
+def _on_comfy(store: ProjectStore, stage: str) -> bool:
+    """Does this project's image stage run on ComfyUI (not a hosted backend)?"""
+    defaults = config.backends().get("defaults", {}).get("backends", {})
+    return ((store.load().backends or {}).get(stage) or defaults.get(stage, "comfyui")) == "comfyui"
+
+
 def _comfy_up() -> bool:
     """Is ComfyUI reachable (cached 10 s; the status is polled every 2 s while jobs run)."""
     if time.time() - _comfy_cache["t"] > 10:
@@ -336,9 +343,60 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     return out
 
 
-def create_app(jobs: JobQueue | None = None) -> FastAPI:
+def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | None = None) -> FastAPI:
+    """jobs: a queue to use (tests pass their own, ungated unless it has a "comfy" gate);
+    by default a new queue whose "comfy" lane waits for ComfyUI (comfy_service.Gate)."""
     app = FastAPI(title="Terraformer")
-    jobs = jobs or JobQueue()
+    if jobs is None:
+        comfy_gate = comfy_gate or comfy_service.Gate()
+        jobs = JobQueue(gates={"comfy": comfy_gate})
+    gate = comfy_gate or jobs.gates.get("comfy") or comfy_service.Gate()
+
+    @app.exception_handler(comfy_service.ComfyDown)
+    def comfy_down(request: Request, exc: comfy_service.ComfyDown):
+        """A job that needs ComfyUI while it's down: the UI offers "Start ComfyUI and run"."""
+        return JSONResponse(status_code=409, content={"detail": {
+            "code": "comfy_down", "message": f"{exc}. Start it (Status › Start ComfyUI) and run the job again."}})
+
+    def _service_job(kind: str, work):
+        """start / stop / restart as a job in the "service" lane; log lines go to the job's
+        note (the Jobs panel) and, for a start, into the gate that queued jobs wait on."""
+        active = [j for j in jobs.list() if j.lane == "service" and j.status in ("queued", "running")]
+        if active:
+            return active[0].public()
+
+        def run():
+            from ..jobs import current_job
+            job = current_job()
+            lines = []
+
+            def on_line(ln):
+                gate.lines.append(ln)
+                if job is not None:
+                    err = comfy_service.ERROR_RE.search(ln)
+                    if err:
+                        lines.append(ln)
+                    job.note = (f"⚠ {ln}" if err else ln)[:200]
+
+            def log(msg):
+                gate.lines.append(msg)
+                if job is not None:
+                    job.note = msg[:200]
+            if kind != "comfy.stop":
+                gate.starting()
+            try:
+                st = work(log, on_line, lambda: bool(job and job.cancel_event.is_set()))
+            except Exception as e:
+                gate.finished(str(e).splitlines()[0] if str(e) else type(e).__name__)
+                raise
+            finally:
+                _comfy_cache["t"] = 0.0          # the status bar re-checks at once
+            gate.finished()
+            if job is not None:
+                job.note = ""
+            return {"state": st.get("state"), "url": st.get("url"), "pid": st.get("pid"),
+                    "warnings": lines[-10:]}
+        return jobs.submit(kind, "", run, lane="service").public()
 
     @app.get("/")
     def index():
@@ -346,14 +404,37 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
 
     @app.get("/api/comfy")
     def comfy_status():
-        """Read-only: is ComfyUI reachable (for the status bar)."""
+        """Read-only: is ComfyUI reachable, and is the app starting it (status box and bar)."""
         url = config.backends()["comfyui"]["url"]
+        svc = {"starting": gate.state == "starting", "start_error": gate.error if gate.state == "failed" else None,
+               "service": next((j.public() for j in jobs.list() if j.lane == "service"
+                                and j.status in ("queued", "running")), None)}
         try:
             stats = connect(timeout_s=2).health()
         except ComfyError as e:
-            return {"up": False, "url": url, "error": str(e)}
+            return {"up": False, "url": url, "error": str(e)} | svc
         dev = (stats.get("devices") or [{}])[0]
-        return {"up": True, "url": url, "device": dev.get("name")}
+        return {"up": True, "url": url, "device": dev.get("name")} | svc
+
+    @app.post("/api/comfy/start")
+    def comfy_start():
+        """Start ComfyUI (and the proxy for the sdk backend) with [comfyui.service] launch."""
+        return _service_job("comfy.start", lambda log, on_line, cancel: comfy_service.start(log, on_line, cancel))
+
+    @app.post("/api/comfy/stop")
+    def comfy_stop():
+        """Stop ComfyUI. Jobs waiting for it or running on it are canceled first."""
+        for j in jobs.list():
+            if j.lane == "comfy" and j.status in ("queued", "running"):
+                jobs.cancel(j.id)
+        return _service_job("comfy.stop", lambda log, on_line, cancel: comfy_service.stop(log))
+
+    @app.post("/api/comfy/restart")
+    def comfy_restart():
+        for j in jobs.list():
+            if j.lane == "comfy" and j.status == "running":
+                jobs.cancel(j.id)
+        return _service_job("comfy.restart", lambda log, on_line, cancel: comfy_service.restart(log, on_line, cancel))
 
     @app.get("/api/projects")
     def projects():
@@ -407,7 +488,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         store = _store(slug)
         job = jobs.submit("style.explore", slug, lambda: str(
             s0_style.explore(store, req.brief, n=req.n, seed=req.seed).relative_to(store.root)),
-            lane="comfy")
+            lane="comfy", gated=_on_comfy(store, "style"))
         return job.public()
 
     @app.post("/api/projects/{slug}/style/derive")
@@ -545,7 +626,7 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
         tag["n"] = req.n
         tag["units"] = [req.unit] if req.unit else \
             [u.dir(store).relative_to(store.root).as_posix() for u in s2_refs.units(store, req.plan) if not s2_refs.sheets(store, u)]
-        return jobs.submit("refs.generate", slug, fn, lane="comfy", tag=tag).public()
+        return jobs.submit("refs.generate", slug, fn, lane="comfy", tag=tag, gated=_on_comfy(store, "references")).public()
 
     # --- stages 3-4: views, review, 3D -------------------------------------------------
 
@@ -1049,7 +1130,8 @@ def create_app(jobs: JobQueue | None = None) -> FastAPI:
                 prog[j.id] = _progress(store, j, started[j.id], now)
         sd = sw_site.site_dir(store)
         mt = lambda p: p.stat().st_mtime if p.is_file() else None  # noqa: E731
-        return {"progress": prog, "comfy": _comfy_up(), "layout_mtime": mt(sd / "layout.json"),
+        return {"progress": prog, "comfy": _comfy_up(), "comfy_service": gate.state,
+                "comfy_error": gate.error, "layout_mtime": mt(sd / "layout.json"),
                 "plan_mtime": mt(sd / "city_plan.png"), "greybox_mtime": mt(sd / "greybox.json")}
 
     started: dict[int, float] = {}      # job id -> when this server first saw it running

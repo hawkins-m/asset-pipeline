@@ -156,6 +156,8 @@ table.grid-table td.dirty::after { content: " *"; }
 .applybar .msg { flex: 1; }
 
 /* --- side panel bits ----------------------------------------------------------------- */
+#side-status .comfy-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+#side-status .comfy-ctl:empty { display: none; }
 #side-status .line { background: var(--field); border: 1px solid var(--border-dark); padding: 3px 6px; }
 #stage-list li { padding: 2px 6px; }
 #stage-list .n { display: inline-block; width: 12px; }

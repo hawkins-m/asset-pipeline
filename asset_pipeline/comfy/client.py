@@ -45,7 +45,7 @@ class ComfyClient:
         except httpx.HTTPError as e:
             raise ComfyUnavailable(
                 f"ComfyUI not reachable at {self.url} ({e}). Start it with "
-                f"~/Projects/AI/ComfyUI/run_comfy.sh") from e
+                f"`ap comfy start` (or Start ComfyUI in the app's Status box)") from e
         return r.json()
 
     def upload_image(self, path: Path) -> str:

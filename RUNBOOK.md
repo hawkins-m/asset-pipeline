@@ -9,10 +9,17 @@ command. Examples use the placeholders `my-project`, `my-area`, `my-asset` and s
 
 | What | Command | Needed for |
 |---|---|---|
-| ComfyUI | your ComfyUI's launcher (`run_comfy.sh`), logging to `$AP_ROOT/logs/comfyui.log` | sheets, frames, SAM checks |
-| Check it | `ap comfy-check` | |
-| Comfy API proxy (only for `AP_COMFY_BACKEND=sdk`) | `scripts/comfy_api_proxy.sh start` (`status`, `stop`) | the SDK backend |
 | The app | `ap ui` (http://127.0.0.1:8700) | everything below |
+| ComfyUI | **Start ComfyUI** in the app's Status box, or `ap comfy start` | sheets, frames, SAM checks |
+| Check it | the Status box (Stop and Restart appear once it runs), or `ap comfy status` / `ap comfy-check` | |
+
+Start uses the machine's own launcher and GPU from config `[comfyui.service]` (here:
+`run_comfy.sh` on GPU 1, port 8188), logs to `$AP_ROOT/logs/comfyui.log`, and also starts the
+Comfy API proxy when the backend is `sdk`. Startup progress and any errors from the log show
+in the Jobs panel (a "Comfy" row while it starts). Starting a job that needs ComfyUI while
+it's down asks **Start ComfyUI and run**: the job waits in the GPU 1 queue until ComfyUI
+answers, and fails with the log's error if the start fails. Stop cancels ComfyUI jobs first
+(it asks); Restart keeps queued jobs, which run once ComfyUI is back.
 
 Builds (Blender) and review renders run on the CPU. TRELLIS runs on GPU 0, ComfyUI on GPU 1.
 The local vision model starts by itself when a step needs it and stops after 10 idle minutes.
@@ -110,7 +117,8 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| "ComfyUI is not answering" | ComfyUI not started, or it stopped | Start it, `ap comfy-check`, run the same command again |
+| "ComfyUI is not answering" | ComfyUI not started, or it stopped | Status › Start ComfyUI (or `ap comfy start`), then run the same command again |
+| Start ComfyUI fails | The launcher exited or didn't answer in time; the Jobs panel shows the log's error lines | Read `$AP_ROOT/logs/comfyui.log`; check `ap comfy status` (launch command, GPU) |
 | "no brief for …" | No brief yet | `ap library brief my-project my-asset <sheet> front` |
 | "no view chosen" (TRELLIS) | No view clicked in Review | Review › click a view of the asset |
 | "not decided yet" (sheets) | No source decision | Library › Entries |

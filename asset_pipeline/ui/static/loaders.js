@@ -85,7 +85,7 @@ const LOADERS = {
   "library.plan": ["Planning the asset library…", "plan", ""], "library.check": ["Checking the crops…", "scene", ""],
   "library.rebuild": ["Rebuilding the asset…", "greybox", "steps"],
 };
-const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU"};
+const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU", service: "the ComfyUI service"};
 const base = k => String(k || "").split("/").pop();
 
 function detailLine(j, p) {

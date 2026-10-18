@@ -66,9 +66,14 @@ Until the deadline, all work follows these rules:
 - **Both instances are pinned to GPU 1** (`HIP_VISIBLE_DEVICES=1` in the launchers). GPU 0
   carries the desktop and is where TRELLIS and other local 3D work run.
 - **Never modify these directories or that env.** Talk to ComfyUI only over HTTP.
-- Starting the main instance is OK whenever it's needed. Run
-  `~/Projects/AI/ComfyUI/run_comfy.sh` in the background, log to
-  `$AP_ROOT/logs/comfyui.log`, and check it with `ap comfy-check`.
+- Starting the main instance is OK whenever it's needed: `ap comfy start` (launches
+  `run_comfy.sh` per `[comfyui.service]` in `$AP_ROOT/backends.local.toml`, detached, logs to
+  `$AP_ROOT/logs/comfyui.log`); `ap comfy status`, `ap comfy stop`. Verified live 2026-10-17:
+  answers in ~5 s; stop ends the launcher's process group in <1 s; a hand-started instance is
+  found by its port; the sdk backend's proxy comes up and goes down with it.
+- Stopping a server found by its port checks the program name (`main.py`, `comfyui`), never a
+  substring of the command line: a "comfy" substring match made the first stop test kill
+  pytest itself (`tests/test_comfy_service.py` holds the test socket).
 - `run_comfy.sh` sets `PYTORCH_HIP_ALLOC_CONF=expandable_segments:True`, but ComfyUI's
   torch logs "expandable_segments not supported on this platform". So it's a no-op
   there, unlike the NaN problem it caused in the TRELLIS env.
