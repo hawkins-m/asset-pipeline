@@ -59,6 +59,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         raise ValueError(f"{plan}/{asset_id}: choose a view first")
     out = out_dir(store, plan, asset_id)
     out.mkdir(parents=True, exist_ok=True)
+    from .. import versions
+    versions.migrate_asset(store, asset_id, plan)       # results from before the bank become versions first
     cmd = [str(TRELLIS), str(store.root / key),
            "--type", mode, "--seed", str(seed), "--out-dir", str(out)]
     t = time.time()
@@ -91,6 +93,7 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     record = {"view": key, "mode": mode, "seed": seed, "glb": f"{OUT}/{plan}/{asset_id}/{stem}.glb",
               "input": f"{OUT}/{plan}/{asset_id}/{stem}_input.png", "stats": stem + ".json",
               "seconds": round(time.time() - t, 1)}
+    versions.record_trellis(store, plan, asset_id, record)          # every run is a version
     store.log_run({"stage": "3d.trellis", "plan": plan, "asset": asset_id, **record})
     return record
 

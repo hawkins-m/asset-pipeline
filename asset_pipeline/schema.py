@@ -84,6 +84,7 @@ class Project(BaseModel):
     anchor: StyleAnchor | None = None
     mode: Literal["scenes", "world"] = "scenes"  # world: one site, greybox, shots (PLAN.md)
     frames: "FrameSettings | None" = None        # world mode concept frames; None = defaults
+    versions_keep: int | None = Field(default=None, ge=1)   # asset versions kept per asset (None: 3)
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------

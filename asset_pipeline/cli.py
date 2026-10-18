@@ -676,6 +676,21 @@ def cmd_library_review(a) -> None:
             print(f"  {asset:24s} {lr.STATUSES.get(r.get('status'), '-'):18s} {r.get('note', '').replace(chr(10), ' / ')[:90]}")
 
 
+def cmd_library_versions(a) -> None:
+    from . import versions
+    store = ProjectStore.open(a.project)
+    if a.what == "migrate":
+        r = versions.migrate(store)
+        print(f"{r['versions']} version(s) made for {r['assets']} asset(s)")
+        for asset, n in r["detail"].items():
+            print(f"  {asset}: {n}")
+        return
+    s = versions.storage(store)
+    print(f"keep {s['keep']} unpinned per asset; versions {s['versions_bytes'] / 1e6:.1f} MB, builds {s['current_bytes'] / 1e6:.1f} MB")
+    for r in s["assets"]:
+        print(f"  {r['asset']:28s} {r['versions']:3d} version(s) {r['versions_bytes'] / 1e6:8.1f} MB   build {r['current_bytes'] / 1e6:8.1f} MB")
+
+
 def cmd_library_route(a) -> None:
     from .stages import sw_library
     store = ProjectStore.open(a.project)
@@ -1477,6 +1492,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--done", nargs="+", metavar="ASSET", help="apply: mark these handled (Ready for review) and open "
                                                               "the next round")
     p.set_defaults(fn=cmd_library_review)
+    p = libsub.add_parser("versions", help="asset version bank: migrate (every existing build becomes version 1 of its "
+                                           "asset; safe to repeat) or show (sizes per asset)")
+    p.add_argument("what", choices=["migrate", "show"])
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_library_versions)
     p = libsub.add_parser("route", help="how an entry's 3D is made: procedural (architecture) or trellis")
     p.add_argument("project")
     p.add_argument("entry")

@@ -77,6 +77,8 @@ def set_status(store: ProjectStore, asset: str, status: str | None, note: str = 
             "images": [p for p in (imgs.get("reference"), *(imgs.get("current") or {}).values()) if p]}
     hist = [h for h in rev.get("history", []) if h.get("round") != rnd or h.get("status") in ("ready", "needs_review")]
     hist.append(item)
+    from . import versions
+    versions.mark_approved(store, asset, status == "approved")        # the version current now is the Approved one
     return _save(store, asset, {"status": status, "note": note.strip(), "round": rnd, "at": item["at"], "history": hist})
 
 
@@ -87,6 +89,8 @@ def brief_edited(store: ProjectStore, asset: str) -> dict:
         return rev
     hist = rev.get("history", []) + [{"round": current_round(store), "status": "needs_review",
                                       "note": "brief edited after approval", "at": _now(), "images": []}]
+    from . import versions
+    versions.mark_approved(store, asset, False)
     return _save(store, asset, rev | {"status": "needs_review", "at": _now(), "history": hist})
 
 
@@ -162,16 +166,20 @@ def rebuild(store: ProjectStore, asset: str, log=print) -> dict:
         write_json(d / "status.json", {"step": k, "of": len(STEPS), "steps": STEPS, "line": line or STEPS[min(k, len(STEPS) - 1)],
                                        "at": _now()})
     step(1, "Blender build")
+    from . import versions
     res = kit_proc.build_any(store, asset, log=log)
+    vn = res.get("version")
     glb = kit_proc.out_dir(store, asset) / "procedural.glb"
     shutil.copy2(glb, d / "procedural.glb")
     form = (read_json(kit_proc.spec_path(store, asset), default={}) or {}).get("form")
     step(2, f"quick preview · {res.get('faces', 0):,} faces")
     render(store, asset, glb, d, "quick", form)
+    versions.attach_thumbs(store, asset, vn, d)
     step(3)
     render(store, asset, glb, d, "cycles", form, extra_views=None)
+    versions.attach_thumbs(store, asset, vn, d)
     step(5, "done")
-    return {"round": rnd, "faces": res.get("faces"), "images": _imgs(store, d)}
+    return {"round": rnd, "faces": res.get("faces"), "images": _imgs(store, d), "version": vn}
 
 
 # --- usage, checks ---------------------------------------------------------------------------

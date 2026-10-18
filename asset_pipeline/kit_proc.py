@@ -260,11 +260,17 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
 def build_any(store: ProjectStore, asset: str, log=print, surface: str | None = None) -> dict:
     """An asset's procedural piece, whatever its spec: a kit piece or a whole building (surface:
     its band surfaces, building_proc.DEFAULT_SURFACE)."""
+    from . import versions
+    if spec_path(store, asset).is_file():
+        versions.migrate_asset(store, asset)      # a build from before the bank becomes v1 before this one replaces it
     spec = read_json(spec_path(store, asset), default=None)
     if spec is not None and spec.get("kind") == "building":
         from . import building_proc
-        return building_proc.build(store, asset, log=log, surface=surface)
-    return build(store, asset, log=log)
+        res = building_proc.build(store, asset, log=log, surface=surface)
+    else:
+        res = build(store, asset, log=log)
+    v = versions.record_procedural(store, asset, res, surface=surface)       # every successful build is a version
+    return {**res, "version": v["n"]}
 
 
 if __name__ == "__main__":
