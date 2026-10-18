@@ -198,7 +198,7 @@ def test_review_api(env, fake_trellis, monkeypatch):
     assert client.post("/api/projects/demo/review/usage", json={"plan": NAME, "asset": "shrub", "usage": "hero"}).status_code == 200
     assert client.post("/api/projects/demo/review/usage", json={"plan": NAME, "asset": "shrub", "usage": "x"}).status_code == 422
     job = client.post("/api/projects/demo/3d", json={"plan": NAME, "asset": "shrub", "mode": "512"}).json()
-    assert job["lane"] == "gpu0" and job["tag"] == {"plan": NAME, "asset": "shrub"}
+    assert job["lane"] == "gpu0" and job["tag"] == {"plan": NAME, "asset": "shrub", "mode": "512"}   # the mode: its expected passes (progress)
     end = time.time() + 10
     while client.get(f"/api/jobs/{job['id']}").json()["status"] not in ("done", "error") and time.time() < end:
         time.sleep(0.05)
