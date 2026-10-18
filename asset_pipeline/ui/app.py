@@ -1238,7 +1238,11 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                 try:
                     library_entries.brief_from_sheet(store, asset, req.sheet, req.view)
                 except ValueError as ex:
-                    raise RuntimeError(str(ex)) from None
+                    msg = str(ex)
+                    if "no near-front view" in msg:          # the UI's words, not the CLI's 0 / 1 / 2
+                        msg = msg.split(" (pick one")[0] + ". Click Brief & build again and choose the view to measure."
+                    raise RuntimeError(msg) from None
+                lr.brief_edited(store, asset)                # a new brief: an Approved asset needs review again
             at(2, "Blender build, then renders…")
             return lr.rebuild(store, asset, log=lambda *a: None) | {"brief": rebrief}
         return jobs.submit("library.brief_build", slug, run, lane="gpu0",

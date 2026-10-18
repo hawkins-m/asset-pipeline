@@ -144,7 +144,7 @@ function lrRenderReview() {
     <div class="row" role="radiogroup" aria-label="Status">${opts.map(([k, l]) => `<label class="check"><input type="radio" name="lr-st" value="${k}" ${rv.status === k ? "checked" : ""}>${l}</label>`).join("")}
       ${rv.status === "ready" || rv.status === "needs_review" ? `<span class="hint" style="margin:0">now: ${esc(d.statuses[rv.status])}</span>` : ""}</div>
     <textarea id="lr-note" aria-label="Notes" placeholder="What to change, or the feature it needs">${esc(rv.note || "")}</textarea>
-    <div class="row end"><span class="hint" style="margin:0;flex:1">Saved to site/library_review.json with this round's images; <code>ap library review apply</code> lists it.</span>
+    <div class="row end"><span class="hint" style="margin:0;flex:1">Saved to site/library_review.json with this round's images; Library › Review round: task list shows it.</span>
       <button type="button" class="default" id="lr-save-review">Save review</button></div>
     <h3>History</h3><ul class="lr-hist">${(rv.history || []).slice().reverse().map(h => `<li><span class="mono">round ${h.round}</span>
       <span class="mark ${LR_STATUS_CLASS[h.status] || "m-none"}">${esc(d.statuses[h.status] || "cleared")}</span><span>${esc(h.note || "")} <span class="hint">· ${esc((h.at || "").slice(0, 10))}</span></span></li>`).join("") || `<li class="hint">No reviews yet.</li>`}</ul>`;

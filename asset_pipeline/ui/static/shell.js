@@ -89,7 +89,7 @@ function dialog({title, body, buttons = [{label: "OK", default: true}], onClose,
 
 function newProjectDialog() {
   const f = document.createElement("form"); f.className = "form"; f.id = "new-form";
-  f.innerHTML = `<label for="np-slug">Slug:</label><input id="np-slug" name="slug" placeholder="my-project" required pattern="[a-z0-9][a-z0-9_-]*">
+  f.innerHTML = `<label for="np-slug">Slug:</label><input id="np-slug" name="slug" placeholder="my-project" required pattern="[a-z0-9](?:[a-z0-9_]|-)*">
     <label for="np-brief">Brief:</label><input id="np-brief" name="brief" placeholder="optional">`;
   const submit = async () => {
     if (!f.reportValidity()) return false;

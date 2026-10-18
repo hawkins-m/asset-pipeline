@@ -120,16 +120,22 @@ function refsNextStep(u, el) {
 }
 
 async function refsBriefBuild(u, sheet, nx) {
+  // The view the brief reads proportions and rhythm from: auto picks the most frontal one,
+  // which fails on curved buildings (vaults); then choose it by eye.
+  const body = document.createElement("div");
+  body.innerHTML = `<p>${nx.has_brief ? `<b>${esc(u.title)}</b> already has a brief. Re-brief from <code>${esc(sheet.split("/").pop())}</code>
+    replaces it (your feature edits stay; the measured proportions and the view change), or just rebuild with the brief as it is.`
+      : `Brief <b>${esc(u.title)}</b> from <code>${esc(sheet.split("/").pop())}</code> with the vision model, then build it.`}</p>
+    <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">
+      <option value="front">Auto (the most frontal view)</option><option value="0">Left view</option>
+      <option value="1">Middle view</option><option value="2">Right view</option><option value="all">The whole sheet</option></select></div>`;
   const go = async rebrief => {
-    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`, {sheet, rebrief}); await load(); }
+    const view = $("#bb-view", body).value;
+    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`, {sheet, rebrief, view}); await load(); }
     catch (err) { alert(errorText(err)); }
   };
-  if (!nx.has_brief) { go(true); return; }
-  const body = document.createElement("div");
-  body.innerHTML = `<p><b>${esc(u.title)}</b> already has a brief. Re-brief from <code>${esc(sheet.split("/").pop())}</code>
-    replaces it (your feature edits stay; the measured proportions and the view change), or just rebuild with the brief as it is.</p>`;
-  dialog({title: "Brief & build", body, buttons: [
+  dialog({title: "Brief & build", body, buttons: nx.has_brief ? [
     {label: "Re-brief from this sheet", default: true, onClick: () => { go(true); }},
     {label: "Just rebuild", onClick: () => { go(false); }},
-    {label: "Cancel"}]});
+    {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => { go(true); }}, {label: "Cancel"}]});
 }

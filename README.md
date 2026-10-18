@@ -15,6 +15,8 @@ Terraformer.
 ## How it works
 
 One line per stage, in order. **Artist:** marks a decision point; everything else runs unattended.
+Each stage is also a button or menu item in the app, so after installing nobody needs the
+terminal: [RUNBOOK.md](RUNBOOK.md) describes the clicks.
 
 1. **Brief and site layout.** `ap new`, `ap site init` (or `--city`), `ap style text`; no GPU needed. **Artist:** edits the layout and the brief.
 2. **Greybox.** `ap site build` makes terrain and a greybox in headless Blender (CPU).
@@ -175,7 +177,11 @@ mkdir -p "$AP_ROOT"
    Environment overrides: `AP_ROOT`, `AP_BLENDER`, `AP_UE_EDITOR_CMD`, `AP_COMFY_BACKEND`.
 
 8. `ap preflight` (add `--ue` if you will use Unreal) checks all of the above, including that
-   ComfyUI can see each model file the workflows load.
+   ComfyUI can see each model file the workflows load (also Tools › Preflight… in the app).
+
+9. **Desktop launcher:** `ap launcher install` (or Tools › Install desktop launcher… in the app)
+   adds **Terraformer** to the Linux applications menu. It starts the app if it isn't running
+   and opens it in the browser, so day-to-day work needs no terminal.
 
 ## Backend selection
 
@@ -202,7 +208,7 @@ scripts/demo.sh starter            # neutral starter layout, no Unreal needed
 `demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the
 greybox, the shot passes, sets a style text and generates two concept frames for the `street`
 shot through ComfyUI. Frames land under `$AP_ROOT/projects/my-project/`; `ap ui` shows them in
-the browser.
+the browser. In the app the same demo is Help › Run demo….
 
 The full path on one area of a project, brief to Unreal render:
 

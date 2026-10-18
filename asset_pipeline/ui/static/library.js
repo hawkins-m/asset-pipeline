@@ -190,7 +190,7 @@ async function entriesCall(path, body) {
 
 function newEntryDialog() {
   const f = document.createElement("form"); f.className = "form"; f.id = "entry-new-form";
-  f.innerHTML = `${entryField("en-id", "Id:", `<input id="en-id" name="id" placeholder="stone-counter" required pattern="[a-z0-9][a-z0-9-]*">`)}
+  f.innerHTML = `${entryField("en-id", "Id:", `<input id="en-id" name="id" placeholder="stone-counter" required pattern="[a-z0-9](?:[a-z0-9]|-)*">`)}
     ${entryField("en-name", "Name:", `<input id="en-name" name="name" placeholder="Stone counter">`)}
     ${entryField("en-desc", "Description:", `<textarea id="en-desc" name="description" rows="3" placeholder="What the sheets should show"></textarea>`)}
     ${entryField("en-kind", "Kind:", `<select id="en-kind" name="kind"><option value="prop">prop</option><option value="building">building</option></select>`)}
@@ -214,7 +214,7 @@ function newEntryDialog() {
 
 function idPrompt({title, intro, label, value, button, onGo}) {
   const f = document.createElement("form"); f.className = "form"; f.id = "entry-id-form";
-  f.innerHTML = `<p class="hint" style="grid-column:1/-1">${intro}</p>${entryField("en-newid", label, `<input id="en-newid" value="${esc(value)}" required pattern="[a-z0-9][a-z0-9-]*">`)}
+  f.innerHTML = `<p class="hint" style="grid-column:1/-1">${intro}</p>${entryField("en-newid", label, `<input id="en-newid" value="${esc(value)}" required pattern="[a-z0-9](?:[a-z0-9]|-)*">`)}
     ${entryField("en-newname", "Name:", `<input id="en-newname" placeholder="optional">`)}`;
   return dialog({title, body: f, buttons: [
     {label: button, default: true, onClick: async () => {

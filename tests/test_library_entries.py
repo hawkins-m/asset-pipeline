@@ -198,3 +198,38 @@ def test_refs_next_step_and_brief_build_job(proj, monkeypatch):
             break
         time.sleep(0.05)
     assert calls == [("rebuild", "hall-a")]
+
+
+def test_a_duplicate_briefs_with_its_catalog_form_not_a_cube(proj, monkeypatch):
+    """A copy of a plan entry keeps its typology, so its brief uses the catalog form (a vaulted
+    hall stays a vault), found when the UI walkthrough re-briefed a duplicated market hall."""
+    from types import SimpleNamespace
+    from asset_pipeline import building_proc
+    le.duplicate(proj, "hall-a", "hall-copy")
+    typ = SimpleNamespace(id=le._all_entries(proj)["hall-copy"]["typology"], form="vault_hall")
+    monkeypatch.setattr(sw_site, "load_layout", lambda s: SimpleNamespace(city=SimpleNamespace(typologies=[typ])))
+    monkeypatch.setitem(building_proc.FORM_OF, "vault_hall", "hall_vault")
+    got = {}
+    monkeypatch.setattr(building_proc, "brief", lambda store, e, sheet, view, form, dims, params: got.update(form=form) or {})
+    le.brief_from_sheet(proj, "hall-copy", "refs/library/hall-copy/sheet_000.png", view="0")
+    assert got["form"] == "hall_vault"
+    le.create(proj, "plain-box", kind="building")
+    le.brief_from_sheet(proj, "plain-box", "refs/library/plain-box/sheet_000.png", view="0")
+    assert got["form"] == "cube"                                   # a new entry of your own has no catalog form
+
+
+def test_brief_and_build_sets_an_approved_asset_back_to_needs_review(proj, monkeypatch):
+    _populate(proj, "hall-a")
+    lr.set_status(proj, "hall-a", "approved", "looked right")
+    monkeypatch.setattr(le, "brief_from_sheet", lambda *a, **k: {})
+    monkeypatch.setattr(lr, "rebuild", lambda store, asset, log=None: {"round": 1})
+    sw_library.set_route(proj, "hall-a", "procedural")
+    c = TestClient(ui_app.create_app(JobQueue()))
+    job = c.post("/api/projects/p/library/asset/hall-a/brief_build",
+                 json={"sheet": "refs/library/hall-a/sheet_000.png", "rebrief": True}).json()
+    for _ in range(300):
+        j = c.get(f"/api/jobs/{job['id']}").json()
+        if j["status"] in ("done", "error"):
+            break
+    assert j["status"] == "done", j
+    assert lr.get(proj, "hall-a")["status"] == "needs_review"

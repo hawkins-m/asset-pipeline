@@ -44,3 +44,23 @@ def test_version_endpoint_names_the_repo_code():
     v = _client().get("/api/version").json()
     assert v["build"] == ui_app.build_id()
     assert (Path(v["code"]) / "asset_pipeline" / "ui" / "app.py").resolve() == Path(ui_app.__file__).resolve()
+
+
+def test_input_patterns_are_valid_in_unicode_sets_mode():
+    """Browsers compile pattern="" with the v flag: a bare "-" in a character class is a syntax
+    error there and silently disables the field's validation (found in a headless check)."""
+    static = Path(ui_app.STATIC)
+    pats = [m for f in static.glob("*.*") if f.suffix in (".js", ".html")
+            for m in re.findall(r'pattern="([^"]*)"', f.read_text())]
+    assert pats
+    for p in pats:
+        assert not re.search(r"\[[^\]]*[^\\]-\]", p), p
+
+
+def test_the_old_product_name_is_gone():
+    """The product is "Terraformer" (2026-10-17); the old long name crept back once, in the launcher."""
+    root = Path(ui_app.__file__).resolve().parents[2]
+    files = [p for p in root.rglob("*") if p.is_file() and p.suffix in (".py", ".js", ".html", ".css", ".md", ".sh", ".toml")
+             and not any(part in (".git", ".claude", "build", "__pycache__") for part in p.parts)]
+    hits = [str(p.relative_to(root)) for p in files if p != Path(__file__).resolve() and "Terraformer Pipeline" in p.read_text(errors="ignore")]
+    assert not hits, hits

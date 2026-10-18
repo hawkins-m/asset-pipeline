@@ -1,84 +1,82 @@
 # Terraformer runbook
 
-How to produce library assets for one area of a city, day to day, without editing code or
-JSON. Everything an artist adjusts is done in the app (the UI at `ap ui`) or with one `ap`
-command. Examples use the placeholders `my-project`, `my-area`, `my-asset` and shots
-`med-a`, `med-b`. USAGE.md has every command's details; PLAN.md has the design.
+How to produce library assets for one area of a city, day to day, in the app: every step
+below is a click. Nothing needs a terminal after installing (README › Setup); the command line
+still works and is listed in the appendix. Examples use the placeholders `my-project`,
+`my-area`, `my-asset` and shots `med-a`, `med-b`. USAGE.md has every command's details;
+PLAN.md has the design.
 
-## 1. Start the services
+## 1. Open the app
 
-| What | Command | Needed for |
-|---|---|---|
-| The app | `ap ui` (http://127.0.0.1:8700) | everything below |
-| ComfyUI | **Start ComfyUI** in the app's Status box, or `ap comfy start` | sheets, frames, SAM checks |
-| Check it | the Status box (Stop and Restart appear once it runs), or `ap comfy status` / `ap comfy-check` | |
-
-Start uses the machine's own launcher and GPU from config `[comfyui.service]` (here:
-`run_comfy.sh` on GPU 1, port 8188), logs to `$AP_ROOT/logs/comfyui.log`, and also starts the
-Comfy API proxy when the backend is `sdk`. Startup progress and any errors from the log show
-in the Jobs panel (a "Comfy" row while it starts). Starting a job that needs ComfyUI while
-it's down asks **Start ComfyUI and run**: the job waits in the GPU 1 queue until ComfyUI
-answers, and fails with the log's error if the start fails. Stop cancels ComfyUI jobs first
-(it asks); Restart keeps queued jobs, which run once ComfyUI is back.
-
-Builds (Blender) and review renders run on the CPU. TRELLIS runs on GPU 0, ComfyUI on GPU 1.
-The local vision model starts by itself when a step needs it and stops after 10 idle minutes.
+- **Once:** Tools › **Install desktop launcher…** › Install. It adds **Terraformer** to the
+  applications menu.
+- **Every day:** open Terraformer from the applications menu. It starts the app if it isn't
+  running and opens it in the browser (http://127.0.0.1:8700).
+- **ComfyUI** (sheets, frames, SAM checks): **Start ComfyUI** in the Status box. Stop and
+  Restart appear once it runs. Tools › ComfyUI status… shows the same buttons, the GPU and
+  the startup log line. Starting a job that needs ComfyUI while it's down asks **Start
+  ComfyUI and run**: the job waits until ComfyUI answers.
+- The vision model starts by itself when a step needs it (Tools › Start / Stop vision LLM to
+  do it by hand). Builds and review renders run on the CPU, TRELLIS on GPU 0, ComfyUI on GPU 1.
+- Every long step is a job: progress in the **Jobs** panel, details and Stop in its dialog.
 
 ## 2. Preflight
 
-`ap preflight` checks ComfyUI (and the proxy for `sdk`), the model files the workflows load,
-the local models and envs under `$AP_ROOT`, Blender and (with `--ue`) Unreal. A required check
-that fails names what's missing; fix that first. Optional checks (TRELLIS, Unreal) only warn.
+Tools › **Preflight…** checks ComfyUI (and the proxy for the `sdk` backend), the model files
+the workflows load, the local models, Blender and, with *Also require Unreal Engine*, Unreal.
+Each failed check has a fix button where one exists (**Start ComfyUI**; **Copy** for an install
+command). Optional checks only warn.
 
 ## 3. The daily loop for one area
 
-An area is a set of shots and/or districts. Define it once:
+Library › **Areas…** is the area panel. An area is a set of shots and/or districts: **New
+area…** defines one (tick its shots or districts). The table lists every asset of the area with
+what it has (sheets, brief, build, review) and its **next step as a button**. Work down the
+list, largest frame share first:
 
-```
-ap area define my-project my-area --shots med-a med-b
-ap area status my-project my-area        # one line per asset: what it has, its next step
-```
+1. **Decide** (undecided entries): the button opens Library › Asset review at the entry.
+   **Manage entry…** on its card: decision (good source, description, reference frame,
+   exclude), route (procedural or TRELLIS), description (yours / auto). See section 7 for new,
+   duplicated and renamed entries.
+2. **Sheets.** The area's **Sheets for missing…** makes two sheets for every decided,
+   unapproved entry that has none (about 55 s each; it shows the count first). For another try:
+   Library › Reference sheets › **+2 more** on the asset.
+   - **Guidance** steers a reroll: type it in the field next to +2 more, e.g. "slatted timber
+     counter boxes under one shared timber pergola, no stone" (Enter also rerolls). It goes into
+     that asset's prompt for that batch only and is saved with those sheets, which show it as a
+     caption. The field starts from the last batch's guidance; edit or clear it before the next
+     reroll.
+3. **Star the best sheet.** The asset's row then shows its next step:
+   - **Brief & build** (procedural: buildings and structures). Choose the view to measure
+     (*Auto* picks the most frontal one; curved buildings such as vaults need you to pick the
+     left, middle or right view), then the vision model writes the brief and Blender builds
+     and renders it. With a brief already there it asks: *Re-brief from this sheet* or *Just
+     rebuild*. Then **Open in Asset review**.
+   - **Cut views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
+     3D**: click the view to use and **Make 3D** there.
+4. **Review.** Library › Asset review › the asset: match the sheet with the brief fields
+   (section 4) and press **Save & Rebuild** (a quick preview in seconds, Cycles about 15 s
+   later). Approve with **A**, or **C** (Needs changes) with a note, then **Save review**. A new
+   brief or a brief edit sets an Approved asset back to Needs review. TRELLIS results are
+   approved in Views and 3D (**Approve** / **Needs changes**).
+5. **Batches** for the area (panel buttons; each shows what it will do first): **Build all…**
+   after brief edits or a tool update, **TRELLIS all…** for every prop with a chosen view,
+   **Instances…** for every building at its own footprint and storeys.
+6. **Vegetation.** Planters, garden strips and beds are tagged as vegetation zones on every
+   build; review renders show proxies. Street and plaza tree slots: World › **Vegetation
+   slots…** (with a preview shot; settings in City › Rules › Street trees). The plants come from
+   a PCG graph in Unreal later.
+7. **Close the day.** **Write checklist** in the area panel refreshes `areas/my-area.md` in the
+   project (text outside the table is kept). Then File › **Commit project…** commits the
+   project's own private repo (the list shows what changes; its .gitignore keeps media out).
 
-`ap area status` prints each asset's next step as a place in the UI or one command. Work
-down the list, largest frame share first:
+Every batch skips approved assets and builds whose brief hasn't changed, reports a failure and
+goes on. After a crash, or after restarting ComfyUI, run the same batch again: finished items
+are skipped.
 
-1. **Decide the source** of undecided entries: Library › Entries (good source, description,
-   reference, kit, exclude).
-2. **Sheets.** `ap library sheets my-project --area my-area` makes two sheets for every
-   decided, unapproved entry that has none (about 55 s each). For another try, use
-   Library › Reference sheets › **+2 more** on the asset (or `--more`, or `--unit my-asset`). Add
-   `--view three-quarter` for deep buildings.
-   - To steer a reroll, type **guidance** in the field next to +2 more, e.g. "slatted timber
-     counter boxes under one shared timber pergola, no stone" (Enter also rerolls). It is added
-     to that asset's prompt for that batch only and saved with those sheets: each one shows it
-     as a caption. The field starts from the last batch's guidance; edit or clear it before the
-     next reroll. CLI: `ap library sheets my-project --unit my-asset --guidance "..."`.
-3. **Buildings and structures (procedural route).**
-   - A new asset needs a brief from its best sheet view:
-     `ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front`.
-   - Then Library › Asset review › the asset: match the sheet with the brief fields
-     (section 4) and press **Save & Rebuild**. A quick preview appears in seconds, the Cycles
-     renders about 15 s later.
-   - Approve with **A**, or **C** (Needs changes) with a note.
-   - Batch rebuild after edits, or after a tool update:
-     `ap library build my-project --area my-area` (add `--renders` for the review images).
-4. **Props (TRELLIS route).**
-   - Star a sheet, then Review › Cut views, and click the view to use.
-   - Make 3D there, or for all props at once: `ap library trellis my-project --area my-area`.
-   - Approve each result in Review (**Approve** / **Needs changes**).
-5. **Per-building instances** (every building at its own footprint and storeys):
-   `ap library instances my-project --area my-area`.
-6. **Vegetation.** Planters, garden strips, roof-edge planters and beds are tagged as
-   vegetation zones on every build, and review renders show proxies on them. Street and
-   plaza tree slots: `ap site vegetation my-project --preview med-a` (settings: City tab ›
-   Rules › Street trees). The plants themselves come from a PCG graph in Unreal later.
-7. **Close the day:** `ap area checklist my-project my-area` refreshes the table in
-   `areas/my-area.md` in the project. Text you write outside the table is kept. Commit the
-   project repo.
-
-Every batch command skips approved assets, skips builds whose brief hasn't changed (`--force`
-rebuilds them), reports a failure and goes on, and ends with a summary. After a crash, or after
-restarting ComfyUI, run the same command again: finished items are skipped.
+The review round: Library › **Review round: task list…** lists every Needs changes and Needs
+new feature note (what Claude Code works from); **Review round: mark done…** marks the handled
+assets Ready for review and opens the next round.
 
 ## 4. Matching a sheet with brief fields
 
@@ -122,40 +120,77 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| "ComfyUI is not answering" | ComfyUI not started, or it stopped | Status › Start ComfyUI (or `ap comfy start`), then run the same command again |
-| The app shows an older UI (old name, no Start ComfyUI button) | The browser kept old scripts (fixed 2026-10-17: the page and its scripts are now versioned), or `ap ui` still runs old code | Restart `ap ui` once (it prints the code path and git commit it serves), then reload the page; afterwards a yellow bar offers Reload whenever the app is updated |
-| Start ComfyUI fails | The launcher exited or didn't answer in time; the Jobs panel shows the log's error lines | Read `$AP_ROOT/logs/comfyui.log`; check `ap comfy status` (launch command, GPU) |
-| "no brief for …" | No brief yet | `ap library brief my-project my-asset <sheet> front` |
-| "no view chosen" (TRELLIS) | No view clicked in Review | Review › click a view of the asset |
-| "not decided yet" (sheets) | No source decision | Library › Entries |
-| "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the app's job list |
-| A wall or strip renders black | Two faces in one plane | The builder pulls these apart; if one remains, note it (Needs new feature) |
-| A dark slot beside a projecting bay | Fixed 2026-10-16; old builds | Rebuild the asset |
+| "ComfyUI is not running" | ComfyUI not started, or it stopped | Status › Start ComfyUI, or **Start ComfyUI and run** in the dialog |
+| Start ComfyUI fails | The launcher exited or didn't answer in time; the job shows the log's error lines | Tools › Preflight…; the log is `$AP_ROOT/logs/comfyui.log`; the launch command is config `[comfyui.service]` |
+| A yellow bar "The app was updated" | New code since the page loaded | **Reload** |
+| Brief & build: "no near-front view" | No view on the sheet is frontal enough (curved buildings) | Brief & build again and choose the left, middle or right view |
+| "no view chosen" (TRELLIS) | No view clicked | Views and 3D › click a view of the asset |
+| "not decided yet" (sheets) | No source decision | Manage entry… › Decision |
+| "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the Jobs panel |
+| A wall or strip renders black | Two faces in one plane | The builder pulls these apart; if one remains, review it as Needs new feature |
 | Planters look bare | Plants come from PCG; reviews show proxies | Nothing to do |
 | The build doesn't change after Save | The field is overridden lower down (a facade's own value) | Look for the **brief** badge on a nested part |
-| `ap area status` names no shots | The shots' id passes are missing | `ap shots render my-project med-a` |
+| The area panel names no shots | The shots' id passes are missing | World › Shots… › tick them › Render passes |
 
 ## 6. Starting a new district
 
-1. Check that the district's shots exist and are rendered: `ap shots list my-project`.
-2. `ap area define my-project north --districts north` (or `--shots ...` for the shots that
-   cover it), then `ap area status my-project north`.
-3. Run section 3 on it. Types already approved in another area are skipped; new materials
-   of an approved type need only their own brief (copy the closest brief's fields in the form).
-4. `ap library instances my-project --area north` for the per-building builds.
+1. World › **Shots…** lists the shots, with **Render passes for checked** for those without
+   passes. World › **Add shot…** adds one.
+2. Library › Areas… › **New area…**: tick the district (or the shots that cover it).
+3. Run section 3 on it. Types already approved in another area are skipped; a new material of
+   an approved type needs only its own brief (copy the closest brief's fields in the form).
+4. **Instances…** in the area panel for the per-building builds.
 
-## 7. What you can do yourself, and what needs Claude Code
+## 7. Entries: new, duplicate, rename
 
-You can do, from the app or one command:
-- sheets, rerolls, views, the choice of view;
-- briefs from a sheet, every brief and material field, rebuilds, approvals;
-- TRELLIS for props, instances, street-tree slots and previews;
-- area status and checklists, project commits.
+- Library › Asset review › **New entry…**: id, name, description, kind (building or prop),
+  route, size. It gets sheets like any other entry.
+- **Manage entry… › Duplicate…** copies an entry with its sheets, views, brief, builds and
+  TRELLIS results to a new id (not its review status). Use it to keep a model while rerolling
+  the original: e.g. duplicate a market stand to `stone-counter`, then reroll the stand.
+- **Manage entry… › Rename…**: entries of your own get a new id (their files move); entries
+  from the library plan keep their id and change only their display name.
 
-Needs Claude Code (code changes):
-- a new builder part or form (a feature no field covers: mark it **Needs new feature** with
-  a note, and `ap library review apply my-project` lists them);
-- new generators for a catalog form;
-- fixes to the builder (geometry errors that a rebuild doesn't solve);
-- anything in Unreal (imports, look scenes, PCG) until that work resumes;
-- changes to ComfyUI, new models, paid APIs.
+## 8. Frames, Unreal and the rest
+
+- **Frames:** World › Generate frames… (pick shots), Lock a shot… (or its greybox).
+- **Terrain:** World › Terrain: analyse locked skylines, build, rebuild the outer ring, apply
+  to the layout (asks first), Unreal landscape tiles, terrain into the Unreal project (asks).
+- **Unreal:** Unreal › Create UE project, **Import…** (reset layout, only stale, prune; reset
+  and prune need a backup first and ask before discarding), Stale report…, Render shots…,
+  Look scene…, Pull layout. Backups: the Unreal tab or Pipeline › Back up Unreal project.
+- **Other library tools:** Library › Pending slots…, Silhouette check….
+- **Demo:** Help › Run demo… (the starter project, or one area end to end).
+
+## 9. What needs Claude Code
+
+- A new builder part or form: a feature no field covers. Review it as **Needs new feature**
+  with a note; the review round's task list collects them.
+- New generators for a catalog form; fixes to the builder (geometry errors a rebuild doesn't
+  solve).
+- Unreal work beyond the menu items (look-scene presets, PCG).
+- Changes to ComfyUI, new models, paid APIs.
+
+## Appendix: command-line equivalents
+
+Everything above also runs from a terminal (`ap --help`, USAGE.md):
+
+| In the app | Command |
+|---|---|
+| Open Terraformer (launcher) | `ap ui` (`ap launcher install` to add the launcher) |
+| Status › Start / Stop / Restart ComfyUI | `ap comfy start` / `stop` / `restart` / `status` |
+| Tools › Preflight… | `ap preflight [--ue]` |
+| Library › Areas… (define, status, checklist) | `ap area define my-project my-area --shots med-a med-b`; `ap area status my-project my-area`; `ap area checklist my-project my-area` |
+| Sheets for missing… / +2 more (with guidance) | `ap library sheets my-project --area my-area`; `--unit my-asset --guidance "..."`; `--view three-quarter` |
+| Brief & build | `ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front` (or a view number 0 / 1 / 2), then `ap library build my-project my-asset --renders` |
+| Build all… / TRELLIS all… / Instances… | `ap library build|trellis|instances my-project --area my-area` |
+| Manage entry… (decision, route) | `ap library decide my-project ENTRY ...`; `ap library route my-project ENTRY procedural|trellis` |
+| Review round task list / mark done | `ap library review apply my-project [--done ASSET ...]` |
+| Pending slots… / Silhouette check… | `ap library pending my-project --shot SHOT`; `ap library silhouette my-project my-asset --shot SHOT` |
+| World › Generate frames… / Lock a shot… | `ap frames generate my-project SHOT -n 4`; `ap frames lock my-project SHOT [--greybox]` |
+| World › Shots… / Add shot… | `ap shots list|add|render my-project ...` |
+| World › Vegetation slots… / Plan overlap… | `ap site vegetation my-project [--preview SHOT]`; `ap site overlap my-project SHOT` |
+| World › Terrain: … | `ap terrain analyse|build|outer|apply|landscape|ue my-project` |
+| Unreal › … | `ap ue init|import|stale|render|pull-layout|look|backup my-project ...` |
+| Help › Run demo… | `scripts/demo.sh starter|area` |
+| File › Commit project… | `git -C $AP_ROOT/projects/my-project commit -am "..."` |

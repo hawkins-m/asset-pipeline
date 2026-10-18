@@ -116,7 +116,7 @@ function demoDialog() {
   body.innerHTML = `<label for="demo-mode">Demo:</label><select id="demo-mode">
       <option value="starter">Starter: new project, greybox, shot passes, two frames</option>
       <option value="area">Area: frames, builds, export, Unreal import and a look scene (needs Unreal)</option></select>
-    <label for="demo-slug">Project:</label><input id="demo-slug" value="my-project" pattern="[a-z0-9][a-z0-9_-]*">
+    <label for="demo-slug">Project:</label><input id="demo-slug" value="my-project" pattern="[a-z0-9](?:[a-z0-9_]|-)*">
     <label for="demo-shot" class="demo-area">Shot:</label><select id="demo-shot" class="demo-area">${shots.map(s => `<option>${esc(s)}</option>`).join("")}</select>
     <label for="demo-entries" class="demo-area">Entries:</label><input id="demo-entries" class="demo-area" placeholder="entry ids, separated by spaces">
     <p class="hint" style="grid-column:1/-1">Runs <code>scripts/demo.sh</code>; its output shows in the job. Run Preflight first.
@@ -135,10 +135,35 @@ function demoDialog() {
   d.win.id = "demo-dialog";
 }
 
+// --- File › Commit project: the end-of-day commit of the project's own git repo ----------------
+async function commitDialog() {
+  const body = document.createElement("div"); body.className = "commit-dlg";
+  body.innerHTML = "<p>Checking…</p>";
+  const d = dialog({title: "Commit project", body, buttons: []});
+  d.win.id = "commit-dialog";
+  let g;
+  try { g = await api(`/api/projects/${slug}/git`, undefined, "GET"); } catch (err) { body.innerHTML = `<p class="error">${esc(errorText(err))}</p>`; return; }
+  if (!g.repo) { body.innerHTML = `<p>This project folder is not a git repository yet.</p>`; return; }
+  body.innerHTML = `<p>${g.changes.length ? `${g.changes.length} changed file(s) in <code>${esc(slug)}</code>
+      (the project's own private repo; its .gitignore keeps generated media out):` : "Nothing to commit."}</p>
+    ${g.changes.length ? `<pre class="commit-list">${esc(g.changes.join("\n"))}</pre>
+      <div class="form"><label for="commit-msg">Message:</label><input id="commit-msg" value="${esc(new Date().toISOString().slice(0, 10))}: area work"></div>
+      <div class="row end"><button type="button" class="default" id="commit-go">Commit</button></div>` : ""}
+    <p class="hint">Last commit: ${esc(g.last || "none")}</p>`;
+  const go = $("#commit-go", body);
+  if (go) go.onclick = async () => {
+    go.disabled = true;
+    try { const r = await api(`/api/projects/${slug}/git/commit`, {message: $("#commit-msg", body).value});
+          body.innerHTML = `<p class="status-ok">Committed ${esc(r.committed)}.</p>`; }
+    catch (err) { go.disabled = false; alert(errorText(err)); }
+  };
+}
+
 // --- menu wiring ---------------------------------------------------------------------------------
 Object.assign(ACTIONS, {
   preflight: {run: preflightDialog},
   launcher: {run: launcherDialog},
+  commitProject: {run: commitDialog, enabled: () => !!slug},
   demo: {run: demoDialog},
   vlmUp: {run: () => vlmControl("up")},
   vlmDown: {run: () => confirmDialog({title: "Stop the vision LLM", button: "Stop it", id: "vlm-down-dialog",
@@ -151,6 +176,8 @@ Object.assign(ACTIONS, {
   tools.splice(tools.findIndex(x => x[1] === "vlmStatus") + 1, 0, ["Start vision LLM", "vlmUp"], ["Stop vision LLM…", "vlmDown"]);
   tools.push("-", ["Install desktop launcher…", "launcher"]);
   MENUS.find(m => m[0] === "Help")[2].splice(0, 0, ["Run demo…", "demo"], "-");
+  const file = MENUS.find(m => m[0] === "File")[2];
+  file.splice(file.findIndex(x => x[1] === "refresh"), 0, ["Commit project…", "commitProject"], "-");
 }
 
 // job kinds started from these menus (names in the Jobs panel, titles in the progress dialog)

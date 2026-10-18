@@ -311,3 +311,18 @@ def test_menu_actions_and_scripts_are_wired():
                  "Render shots…", "Look scene…", "Pull layout", "Generate frames…", "Lock a shot…", "Vegetation slots…", "Plan overlap…"):
         assert f'"{item}"' in world, item
     assert '"Areas…"' in world and '"Preflight…"' in (STATIC / "tools.js").read_text()
+
+
+def test_commit_project_commits_in_the_projects_own_repo(client, store):  # noqa: F811
+    import subprocess
+    assert client.get(f"{U}/git").json() == {"repo": False, "changes": []}
+    assert client.post(f"{U}/git/commit", json={"message": "x"}).status_code == 400      # not a repo of its own
+    git = lambda *a: subprocess.run(["git", "-C", str(store.root), *a], capture_output=True, text=True)  # noqa: E731
+    git("init", "-q"); git("config", "user.email", "t@example.com"); git("config", "user.name", "t")
+    git("config", "core.hooksPath", "/dev/null")
+    g = client.get(f"{U}/git").json()
+    assert g["repo"] and any("project.json" in c for c in g["changes"])
+    assert client.post(f"{U}/git/commit", json={"message": "  "}).status_code == 400
+    r = client.post(f"{U}/git/commit", json={"message": "day one"}).json()
+    assert r["committed"].endswith("day one") and client.get(f"{U}/git").json()["changes"] == []
+    assert client.post(f"{U}/git/commit", json={"message": "again"}).status_code == 409       # nothing to commit

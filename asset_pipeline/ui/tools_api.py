@@ -314,12 +314,16 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
                 sheets = s2_refs.sheets(store, units[0]) if units else []
                 if not sheets:
                     raise HTTPException(400, f"{asset} has no sheets: make sheets first")
-                req = req.model_copy(update={"sheet": sheets[0]})
+                # the newest starred sheet, as Library › Reference sheets' Brief & build uses; else the first
+                stars = review.load(store)["stars"]
+                starred = [k for k in sheets if stars.get(k)]
+                req = req.model_copy(update={"sheet": (starred or sheets[:1])[-1]})
 
         def run():
             from .. import library_review as lr
             if not have or req.force_brief:
                 make_brief(store, asset, req)
+                lr.brief_edited(store, asset)                # a new brief: an Approved asset needs review again
             check_canceled()
             return lr.rebuild(store, asset, log=lambda s: None)
         return jobs.submit("library.brief", slug, run, lane="gpu0", tag={"asset": asset}).public()
@@ -607,3 +611,38 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     @app.post("/api/launcher/remove")
     def launcher_remove():
         return {"removed": launcher.remove()}
+
+    # --- project repo: the end-of-day commit (each project folder is its own private git repo) ---
+
+    def _git(store, *args, timeout=60):
+        return subprocess.run(["git", "-C", str(store.root), *args], capture_output=True, text=True, timeout=timeout)
+
+    @app.get("/api/projects/{slug}/git")
+    def project_git(slug: str):
+        """What a commit of the project repo would take: changed files (its .gitignore keeps media out)."""
+        store = store_of(slug)
+        if _git(store, "rev-parse", "--is-inside-work-tree").returncode != 0:
+            return {"repo": False, "changes": []}
+        st = _git(store, "status", "--porcelain=v1", "-uall")
+        last = _git(store, "log", "-1", "--format=%h %s (%cr)")
+        return {"repo": True, "changes": [ln for ln in st.stdout.splitlines() if ln.strip()][:500],
+                "last": last.stdout.strip()}
+
+    class CommitReq(BaseModel):
+        message: str
+
+    @app.post("/api/projects/{slug}/git/commit")
+    def project_git_commit(slug: str, req: CommitReq):
+        """git add -A and commit in the project's own repo (never the tool repo)."""
+        store = store_of(slug)
+        msg = " ".join(req.message.split())
+        if not msg:
+            raise HTTPException(400, "write a commit message")
+        if _git(store, "rev-parse", "--show-toplevel").stdout.strip() != str(store.root.resolve()):
+            raise HTTPException(400, f"{store.root} is not a git repo of its own: run git init there first")
+        _git(store, "add", "-A")
+        r = _git(store, "commit", "-m", msg)
+        if r.returncode != 0:
+            out = (r.stdout + r.stderr).strip()
+            raise HTTPException(409 if "nothing to commit" in out else 400, out[-600:] or "git commit failed")
+        return {"committed": _git(store, "log", "-1", "--format=%h %s").stdout.strip()}

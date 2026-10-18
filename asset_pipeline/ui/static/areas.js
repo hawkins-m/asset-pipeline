@@ -85,7 +85,7 @@ function areaDefineForm(d, reload) {
   const a = areaState.data, box = $("#area-define", d.win);
   box.hidden = false;
   box.innerHTML = `<fieldset><legend>New area</legend>
-    <div class="row"><label for="area-name">Name:</label><input id="area-name" placeholder="market-street" pattern="[a-z0-9][a-z0-9-]*"></div>
+    <div class="row"><label for="area-name">Name:</label><input id="area-name" placeholder="market-street" pattern="[a-z0-9](?:[a-z0-9]|-)*"></div>
     <div class="row"><b>Shots:</b> ${a.shots.length ? a.shots.map(s => `<label class="check"><input type="checkbox" name="area-shot" value="${esc(s)}"> ${esc(s)}</label>`).join(" ")
       : `<span class="hint">no shots yet</span>`}</div>
     <div class="row"><b>Districts:</b> ${a.districts.length ? a.districts.map(s => `<label class="check"><input type="checkbox" name="area-district" value="${esc(s)}"> ${esc(s)}</label>`).join(" ")

@@ -317,12 +317,12 @@ def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", 
     dims = dims or (e or {}).get("size_m")
     if not form and e:
         form = e.get("form")
-        if not form and not e.get("custom"):
+        if not form and e.get("typology"):        # plan entries and their duplicates keep their catalog form
             layout = sw_site.load_layout(store)
             typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get(e["typology"])
             form = FORM_OF.get(typ.form) if typ else None
             form = "basilica" if e["typology"] == "basilica" else form
-        elif not form:
+        if not form and e.get("custom"):
             form = "cube"
     if not form or not dims:
         raise ValueError("give --form and --dims (no catalog form with a generator, or no size)")

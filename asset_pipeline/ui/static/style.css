@@ -457,3 +457,6 @@ details summary { cursor: default; }
 
 .unit-head .next-step { display: inline-flex; gap: 6px; align-items: center; flex-basis: 100%; }
 .asset-manage { margin: 4px 0; }
+
+.commit-dlg { min-width: 420px; max-width: 640px; }
+.commit-list { max-height: 220px; overflow: auto; background: var(--field); border: 1px solid var(--border-dark); padding: 4px 6px; font-size: 12px; }
