@@ -140,8 +140,15 @@ async function storageDialog() {
     let s;
     try { s = await api(`/api/projects/${slug}/storage`, undefined, "GET"); }
     catch (err) { body.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
+    const f = s.files || {};
     body.innerHTML = `<p id="st-total"><b>${fmtBytes(s.total)}</b> in asset builds and versions: ${fmtBytes(s.current_bytes)} current build files,
         ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} unpinned versions of each asset are kept (Tools › Settings…).</p>
+      <fieldset id="st-shared"><legend>Shared file store</legend>
+        <p style="margin:0 0 4px">Sheets, cut views and 3D models are stored once and referenced by every entry and version that uses them:
+          <b>${fmtBytes(f.bytes || 0)}</b> on disk for ${(f.references || 0).toLocaleString("en")} references to ${(f.objects || 0).toLocaleString("en")} files,
+          <b id="st-saved">${fmtBytes(f.saved || 0)} saved</b> by sharing (copies would take ${fmtBytes(f.referenced_bytes || 0)}).</p>
+        <div class="row"><button type="button" id="st-clean"${f.unreferenced ? "" : " disabled"}>Clean unreferenced files (${f.unreferenced || 0}, ${fmtBytes(f.unreferenced_bytes || 0)})</button>
+          <span class="hint" style="margin:0">Stored files no sheet, view, build or version refers to any more.</span></div></fieldset>
       ${s.assets.length ? `<table class="grid-table"><thead><tr><th>Asset</th><th>Versions</th><th>Versions size</th><th>Build files</th><th>Total</th><th></th></tr></thead><tbody>
         ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}</td><td>${r.versions}${r.pinned ? ` (${r.pinned} pinned)` : ""}</td>
           <td>${fmtBytes(r.versions_bytes)}</td><td>${fmtBytes(r.current_bytes)}</td><td>${fmtBytes(r.total)}</td>
@@ -163,6 +170,14 @@ async function storageDialog() {
       $(".st-prune-asset", tr).onclick = () => prune(r.asset, r.removable, r.removable_bytes);
     });
     $("#st-prune-all", body).onclick = () => prune(null, s.removable, s.removable_bytes);
+    $("#st-clean", body).onclick = async () => {
+      const ok = await confirmDialog({title: "Clean unreferenced files", button: "Clean", danger: true, id: "storage-clean-dialog",
+        body: `<p>Remove ${f.unreferenced} stored file${f.unreferenced === 1 ? "" : "s"} nothing references, freeing ${fmtBytes(f.unreferenced_bytes)}?</p>
+          <p class="hint">Files any sheet, view, build or version still uses are never removed.</p>`});
+      if (!ok) return;
+      try { await api(`/api/projects/${slug}/storage/clean`, {}); } catch (err) { alert(errorText(err)); }
+      draw();
+    };
   };
   draw();
 }

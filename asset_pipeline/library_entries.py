@@ -12,6 +12,8 @@ An entry's files, by asset id (the entry itself, plus `<entry>-<piece>` for a ki
     library/kits/<id>.json        the procedural brief
     site/library/{refs,crops}/<id>.jpg   the entry's crop (source decision)
 plus the stars and chosen view in review.json. Duplicate copies all of it; rename moves it.
+Sheets, views and GLBs are file-store references (filestore.py): a duplicate links the same
+stored content, and a later change on either entry replaces only its own reference.
 Build review statuses (site/library_review.json "_reviews") are copied by neither: a duplicate
 starts unreviewed, a rename carries the old id's review over.
 
@@ -26,7 +28,7 @@ import re
 import shutil
 from pathlib import Path
 
-from . import kit_proc, review
+from . import filestore, kit_proc, review
 from .project import ProjectStore, read_json, write_json
 from .stages import s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_library
 
@@ -150,10 +152,10 @@ def _transfer(store: ProjectStore, src: str, dst: str, move: bool, overwrite: bo
             pd[k].parent.mkdir(parents=True, exist_ok=True)
             if move:
                 shutil.move(ps[k], pd[k])
-            elif ps[k].is_dir():
-                shutil.copytree(ps[k], pd[k])
+            elif ps[k].is_dir():                  # sheets, views and GLBs: new references, not copies
+                shutil.copytree(ps[k], pd[k], copy_function=filestore.copy_function(store))
             else:
-                shutil.copy2(ps[k], pd[k])
+                filestore.copy(store, ps[k], pd[k])
             if k not in ("ref_crop", "crop"):
                 _retarget(pd[k], a, b)
             written.append(pd[k].relative_to(store.root).as_posix())

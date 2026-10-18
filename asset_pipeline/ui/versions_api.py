@@ -8,13 +8,18 @@
     POST    .../versions/prune {dry_run}                                 versions beyond the project's "keep"
     GET     /api/projects/{slug}/storage                                 totals per asset and project
     POST    /api/projects/{slug}/storage/prune {asset?, dry_run}         delete unpinned versions
+    POST    /api/projects/{slug}/storage/clean {dry_run}                 shared-store files nothing references
     GET/PUT /api/projects/{slug}/settings                                {versions_keep}
 TRELLIS-route props use the same routes: their versions are the TRELLIS results.
 """
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .. import versions
+from .. import filestore, versions
+
+
+class StorageCleanReq(BaseModel):
+    dry_run: bool = False
 
 
 class PruneReq(BaseModel):
@@ -78,7 +83,12 @@ def register(app: FastAPI, jobs, store_of) -> None:
 
     @app.get("/api/projects/{slug}/storage")
     def storage(slug: str):
-        return versions.storage(store_of(slug))
+        store = store_of(slug)
+        return versions.storage(store) | {"files": filestore.stats(store)}
+
+    @app.post("/api/projects/{slug}/storage/clean")
+    def storage_clean(slug: str, req: StorageCleanReq):
+        return filestore.clean(store_of(slug), dry_run=req.dry_run)
 
     @app.post("/api/projects/{slug}/storage/prune")
     def storage_prune(slug: str, req: StoragePruneReq):

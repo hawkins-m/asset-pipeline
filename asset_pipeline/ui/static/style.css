@@ -189,6 +189,8 @@ table.grid-table td.dirty::after { content: " *"; }
 .card .label { position: absolute; left: 4px; bottom: 4px; padding: 0 4px; background: var(--field); border: 1px solid var(--border); }
 .star { position: absolute; top: 4px; right: 4px; min-width: 0; width: 22px; height: 20px; padding: 0; line-height: 1; }
 .starred .star { color: var(--star); }
+.card .sheet-pick { position: absolute; top: 4px; left: 4px; background: var(--field); padding: 0 2px; line-height: 1; }
+.card .sheet-del { position: absolute; top: 4px; right: 30px; min-width: 0; height: 20px; padding: 0 6px; line-height: 1; }
 .batch { margin: 4px 0 10px; }
 .batch h3 { color: var(--muted); font-weight: 400; }
 .viewport { background: var(--viewer); border: 1px solid var(--border-dark); padding: 6px; display: grid; place-items: center; min-height: 0; }

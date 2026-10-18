@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from asset_pipeline import kit_proc, library_review as lr, library_entries as le, review
+from asset_pipeline import filestore, kit_proc, library_review as lr, library_entries as le, review
 from asset_pipeline.jobs import JobQueue
 from asset_pipeline.project import ProjectStore, read_json, write_json
 from asset_pipeline.stages import s1_plan, s2_refs, sw_library, sw_site
@@ -402,10 +402,15 @@ def test_a_duplicate_is_independent_of_its_source(proj, monkeypatch):
     le.duplicate(proj, "canopy-table", "portico-gate", name="Portico gate")
     before = _tree(proj, "canopy-table")
     copy = _tree(proj, "portico-gate")
-    # nothing shared: no symlink or hard link, and no file of the copy names the source
+    # sheets, views and GLBs are references to read-only shared content; everything else is the
+    # copy's own file, and no file of the copy names the source
     for k in copy:
         f = r / k
-        assert not f.is_symlink() and os.stat(f).st_nlink == 1, k
+        assert not f.is_symlink(), k
+        if filestore.stored_kind(proj, f):
+            assert filestore.is_ref(f) and os.path.samefile(f, r / k.replace("portico-gate", "canopy-table")), k
+        else:
+            assert os.stat(f).st_nlink == 1, k
         if f.suffix == ".json":
             assert "canopy-table" not in f.read_text(), k
     assert all(f.startswith("3d/library/portico-gate/") for v in versions.load(proj, "portico-gate")

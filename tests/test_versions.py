@@ -6,7 +6,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from asset_pipeline import kit_proc, library_review as lr, versions
+from asset_pipeline import filestore, kit_proc, library_review as lr, versions
 from asset_pipeline.jobs import JobQueue
 from asset_pipeline.project import ProjectStore, read_json, write_json
 from asset_pipeline.stages import s5_3d
@@ -26,7 +26,9 @@ def store(tmp_path, monkeypatch):
     def fake_build(store, asset, log=print):
         out = kit_proc.out_dir(store, asset)
         out.mkdir(parents=True, exist_ok=True)
+        filestore.detach(out / "procedural.glb")          # as kit_proc.run_blender does
         (out / "procedural.glb").write_bytes(b"glb" * 1000)
+        filestore.intern(store, out / "procedural.glb")
         res = {"faces": 12}
         from asset_pipeline.areas import brief_sha
         write_json(out / "procedural.json", res | {"brief_sha": brief_sha(store, asset)})
@@ -128,7 +130,9 @@ def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     versions.pin(store, "gate", 1)                                   # current: GLB kept
     _build(store, params={"w": 14.0}, guidance="other")             # v2
     assert read_json(kit_proc.spec_path(store, "gate"))["params"]["w"] == 14.0
-    kit_proc.out_dir(store, "gate").joinpath("procedural.glb").write_bytes(b"newer")
+    glb = kit_proc.out_dir(store, "gate").joinpath("procedural.glb")
+    filestore.detach(glb)                          # what a build does before writing it
+    glb.write_bytes(b"newer")
     r = versions.restore(store, "gate", 1)
     assert r == {"version": 1, "rebuilt": False}                     # pinned GLB: no rebuild
     assert read_json(kit_proc.spec_path(store, "gate"))["guidance"] == "taller arch"

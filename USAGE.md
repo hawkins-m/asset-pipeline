@@ -572,6 +572,18 @@ ap site vegetation my-project [--preview med-a]           # street-tree slots, p
 ap area checklist my-project my-area                      # areas/my-area.md in the project
 ```
 
+**Shared file store.** Reference sheets, cut views and every GLB under `3d/` are stored once per
+project in `files/<aa>/<sha256>.<ext>` (read-only); the usual paths are hard links to them, so a
+duplicate entry or a version references the same file instead of copying it. Tools › Storage…
+shows the space saved and cleans files nothing references; Library › Reference sheets deletes
+sheets (one, or the ticked ones in a row), naming any star, brief or version that still uses them.
+
+```bash
+ap files migrate my-project     # store existing files, sharing identical ones (safe to repeat)
+ap files stats my-project       # objects, references, space saved, unreferenced
+ap files clean my-project       # remove unreferenced files (--dry-run to count)
+```
+
 - Brief fields added 2026-10-17 (RUNBOOK section 4 lists them with the rest):
   `material_scale` (`{"wall": 0.5}`; per band `base` / `wall` / `top`, a multiplier on the
   material's tile size, default 1, stored only when not 1) and, for basilicas,

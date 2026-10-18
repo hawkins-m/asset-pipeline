@@ -175,6 +175,11 @@ class AnalyzeReq(BaseModel):
     force: bool = False
 
 
+class SheetsReq(BaseModel):
+    sheets: list[str]
+    confirm: bool = False         # delete even though a star, brief or version still uses one
+
+
 class RefsReq(BaseModel):
     plan: str | None = None
     unit: str | None = None       # None: every unit without sheets
@@ -732,6 +737,21 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                  # the guidance of the newest batch that had one: the reroll field starts from it
                  "guidance": next((m["guidance"] for m in reversed(list(sm.values())) if m.get("guidance")), "")}
                 for u in s2_refs.units(store)]
+
+    @app.post("/api/projects/{slug}/refs/sheets/uses")
+    def refs_sheet_uses(slug: str, req: SheetsReq):
+        return {"uses": s2_refs.sheet_uses(_store(slug), req.sheets)}
+
+    @app.post("/api/projects/{slug}/refs/sheets/delete")
+    def refs_sheets_delete(slug: str, req: SheetsReq):
+        try:
+            return s2_refs.delete_sheets(_store(slug), req.sheets, confirm=req.confirm)
+        except s2_refs.SheetInUse as e:
+            raise HTTPException(409, f"still in use, confirm to delete: {e}")
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/projects/{slug}/refs/generate")
     def refs_generate(slug: str, req: RefsReq):

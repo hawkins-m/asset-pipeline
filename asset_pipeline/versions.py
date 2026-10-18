@@ -23,7 +23,13 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import filestore
 from .project import ProjectStore, read_json, write_json
+
+
+def result_time(glb: Path) -> float:
+    from .stages.s5_3d import result_time as t
+    return t(glb)
 
 PLAN = "library"
 KEEP_DEFAULT = 3
@@ -237,8 +243,8 @@ def _trellis_current(store, rows, asset, plan=PLAN):
         if r["kind"] != "trellis" or not r["files"]:
             continue
         p = store.root / r["files"][0]
-        if p.is_file() and p.stat().st_mtime > t:
-            best, t = r, p.stat().st_mtime
+        if p.is_file() and result_time(p) > t:
+            best, t = r, result_time(p)
     return best
 
 
@@ -326,10 +332,14 @@ def delete_unpinned(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
 
 
 def _remove(store, asset, r, plan) -> None:
+    """Drop a version's files: its references go, a shared file stays for whoever else links it."""
     if r["kind"] == "trellis":
         for f in r["files"]:
-            (store.root / f).unlink(missing_ok=True)
-    shutil.rmtree(vdir(store, asset, r["n"], plan), ignore_errors=True)
+            filestore.release(store, store.root / f)
+    vd = vdir(store, asset, r["n"], plan)
+    for f in filestore.candidates(store, vd) if vd.is_dir() else []:
+        filestore.release(store, f)
+    shutil.rmtree(vd, ignore_errors=True)
 
 
 def delete(store: ProjectStore, asset: str, n: int, confirm_pinned: bool = False, plan: str = PLAN) -> dict:
@@ -359,7 +369,7 @@ def pin(store: ProjectStore, asset: str, n: int, plan: str = PLAN) -> dict:
         glb = kit_proc.out_dir(store, asset) / "procedural.glb"
         if glb.is_file():
             d = vdir(store, asset, n, plan)
-            shutil.copy2(glb, d / "procedural.glb")
+            filestore.copy(store, glb, d / "procedural.glb")
             z = kit_proc.zones_path(glb)
             if z.is_file():
                 shutil.copy2(z, d / "procedural.zones.json")
@@ -378,7 +388,7 @@ def unpin(store: ProjectStore, asset: str, n: int, plan: str = PLAN) -> dict:
     if r["kind"] == "procedural":
         d = vdir(store, asset, n, plan)
         for f in ("procedural.glb", "procedural.zones.json"):
-            (d / f).unlink(missing_ok=True)
+            filestore.release(store, d / f)
         r["files"] = [f for f in r["files"] if not f.startswith("procedural.")]
         r["bytes"] = _dir_size(d)
     _save(store, asset, rows, plan)
@@ -410,7 +420,8 @@ def restore(store: ProjectStore, asset: str, n: int, log=print, plan: str = PLAN
         glb = store.root / r["files"][0]
         if not glb.is_file():
             raise FileNotFoundError(f"v{n}: its 3D model is gone")
-        os.utime(glb)
+        j = glb.with_suffix(".json")              # the entry's own file: the GLB may be shared
+        os.utime(j if j.is_file() else glb)
         view = (r.get("source") or {}).get("view")
         if view and (store.root / view).is_file():
             from . import review
@@ -430,7 +441,7 @@ def restore(store: ProjectStore, asset: str, n: int, log=print, plan: str = PLAN
         lr.brief_edited(store, asset)
     if (d / "procedural.glb").is_file():
         out = kit_proc.out_dir(store, asset)
-        shutil.copy2(d / "procedural.glb", out / "procedural.glb")
+        filestore.copy(store, d / "procedural.glb", out / "procedural.glb")
         if (d / "procedural.zones.json").is_file():
             shutil.copy2(d / "procedural.zones.json", kit_proc.zones_path(out / "procedural.glb"))
         rep = (read_json(d / "build.json", default={}) or {}).get("report") or {}
@@ -520,7 +531,7 @@ def storage_prune(store: ProjectStore, asset: str | None = None, plan: str = PLA
 
 def trellis_results(store, asset, plan=PLAN) -> list[Path]:
     d = asset_dir(store, asset, plan)
-    return sorted((g for g in d.glob("*.glb") if TRELLIS_STEM.search(g.stem)), key=lambda p: p.stat().st_mtime) \
+    return sorted((g for g in d.glob("*.glb") if TRELLIS_STEM.search(g.stem)), key=result_time) \
         if d.is_dir() else []
 
 
@@ -534,7 +545,7 @@ def migrate_asset(store: ProjectStore, asset: str, plan: str = PLAN) -> int:
     out = asset_dir(store, asset, plan)
     items = []          # (mtime, kind, payload)
     for g in trellis_results(store, asset, plan):
-        items.append((g.stat().st_mtime, "trellis", g))
+        items.append((result_time(g), "trellis", g))
     pglb = out / "procedural.glb"
     if plan == PLAN and _brief(store, asset) is not None and (pglb.is_file() or (out / "procedural.json").is_file()):
         items.append(((pglb if pglb.is_file() else out / "procedural.json").stat().st_mtime, "procedural", None))

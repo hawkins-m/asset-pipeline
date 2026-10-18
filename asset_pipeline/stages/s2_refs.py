@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import filestore
 from ..imagegen.base import GenRequest
 from ..imagegen.registry import backend_for
 from ..project import ProjectStore, read_json, write_json
@@ -156,7 +157,11 @@ def _with_refs(anchor: StyleAnchor | None, a: PlanAsset, root: Path | None = Non
 
 
 def _next_index(d: Path) -> int:
-    nums = [int(m.group(1)) for p in d.glob("sheet_*.png") if (m := re.fullmatch(r"sheet_(\d+)", p.stem))]
+    """The next sheet number: never one a deleted sheet had (meta.json "deleted"), so a brief or
+    version that named it can't come to mean a new sheet."""
+    names = [p.stem for p in d.glob("sheet_*.png")] + [Path(f).stem for f in
+                                                      (read_json(d / "meta.json", default=None) or {}).get("deleted", [])]
+    nums = [int(m.group(1)) for n in names if (m := re.fullmatch(r"sheet_(\d+)", n))]
     return max(nums, default=-1) + 1
 
 
@@ -187,7 +192,9 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
     out, i = [], _next_index(d)
     for r in backend.generate(req, d, prefix="tmp"):
         final = d / f"sheet_{i:03d}.png"
-        r.path.rename(final)
+        filestore.detach(final)
+        r.path.replace(final)
+        filestore.intern(store, final)
         out.append(final)
         meta["sheets"].append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index"),
                                "prompt": r.meta.get("prompt", prompt), "size": [w, h], "view": view,
@@ -219,3 +226,78 @@ def generate_missing(store: ProjectStore, n: int = 2, plan: str | None = None,
             log(f"{u.plan}/{u.key} ({u.kind})")
             out += generate(store, u, n=n)
     return out
+
+
+# --- deleting sheets ---------------------------------------------------------------------
+
+def _strings(o):
+    if isinstance(o, str):
+        yield o
+    elif isinstance(o, dict):
+        for v in o.values():
+            yield from _strings(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from _strings(v)
+
+
+def sheet_uses(store: ProjectStore, keys: list[str]) -> dict[str, list[str]]:
+    """{sheet: what still uses it}: its star, briefs that name it (library/kits/*.json, at any
+    depth), and kept versions made from it (any plan's version bank)."""
+    from .. import review
+    keys = list(dict.fromkeys(keys))
+    want = set(keys)
+    out = {k: [] for k in keys}
+    stars = review.load(store)["stars"]
+    for k in keys:
+        if stars.get(k):
+            out[k].append("starred")
+    for bp in sorted((store.root / "library" / "kits").glob("*.json")):
+        b = read_json(bp, default=None)
+        for s in set(_strings(b)) & want:
+            out[s].append(f"the brief of {bp.stem} (library/kits/{bp.name})")
+    for idx in sorted((store.root / "3d").glob("*/*/versions/versions.json")):
+        asset = idx.parent.parent.name
+        for r in read_json(idx, default=[]) or []:
+            vb = read_json(idx.parent / f"v{r.get('n')}" / "brief.json", default=None)
+            for s in sorted((set(_strings(r)) | set(_strings(vb))) & want):
+                tag = ", ".join(t for t, on in (("pinned", r.get("pinned")), ("approved", r.get("approved"))) if on)
+                out[s].append(f"version v{r.get('n')} of {asset} ({r.get('kind')}{', ' + tag if tag else ''})")
+    return out
+
+
+def delete_sheets(store: ProjectStore, keys: list[str], confirm: bool = False) -> dict:
+    """Delete sheets: each loses its reference (the stored file goes only when nothing else, e.g.
+    a duplicate entry, references it), its meta.json line and its star. Views cut from it stay.
+    A sheet still in use (starred, a brief's or a version's source) needs confirm=True; else
+    SheetInUse names the uses."""
+    from .. import filestore, review
+    keys = list(dict.fromkeys(keys))
+    for k in keys:
+        p = Path(k)
+        if p.is_absolute() or ".." in p.parts or len(p.parts) != 4 or p.parts[0] != REFS or not p.name.startswith("sheet_"):
+            raise ValueError(f"not a reference sheet: {k}")
+        if not (store.root / p).is_file():
+            raise FileNotFoundError(f"no sheet {k}")
+    uses = {k: u for k, u in sheet_uses(store, keys).items() if u}
+    if uses and not confirm:
+        raise SheetInUse(uses)
+    freed = 0
+    for k in keys:
+        p = store.root / k
+        freed += filestore.release(store, p)
+        mp = p.parent / "meta.json"
+        meta = read_json(mp, default=None)
+        meta = meta or {"plan": p.parent.parent.name, "unit": p.parent.name, "sheets": []}
+        meta["sheets"] = [s for s in meta.get("sheets", []) if s.get("file") != p.name]
+        meta["deleted"] = sorted(set(meta.get("deleted", [])) | {p.name})
+        write_json(mp, meta)
+    review.forget(store, keys)
+    store.log_run({"stage": "refs.delete", "sheets": keys, "freed": freed, "in_use": uses})
+    return {"deleted": keys, "freed": freed, "was_used": uses}
+
+
+class SheetInUse(ValueError):
+    def __init__(self, uses: dict[str, list[str]]):
+        self.uses = uses
+        super().__init__("; ".join(f"{k.split('/')[-1]}: {', '.join(v)}" for k, v in uses.items()))

@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from .. import review, segment
+from .. import filestore, review, segment
 from ..comfy.client import ComfyClient, connect
 from ..jobs import check_canceled
 from ..project import ProjectStore, read_json, write_json
@@ -115,14 +115,16 @@ def cut(store: ProjectStore, sheet: str, client: ComfyClient | None = None) -> l
     stale = [v for v in meta["views"] if v["sheet"] == key]
     review.forget(store, [(out / v["file"]).relative_to(store.root).as_posix() for v in stale])
     for v in stale:
-        (out / v["file"]).unlink(missing_ok=True)
+        filestore.release(store, out / v["file"])
     meta["views"] = [v for v in meta["views"] if v["sheet"] != key]
 
     views = []
     sheet_img = Image.open(path).convert("RGB")
     for i, (d, crop) in enumerate(zip(dets, band_crops(sheet_img, dets))):
         f = out / f"{Path(key).stem}_v{i + 1}.png"
+        filestore.detach(f)
         crop.save(f)
+        filestore.intern(store, f)
         if unit.kind == "kit":
             asset = unit.assets[i].id if len(dets) == expected else None
             asked = None

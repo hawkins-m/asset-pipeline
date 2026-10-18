@@ -18,7 +18,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import blender, building_gen, kit_proc
+from . import blender, building_gen, filestore, kit_proc
 from .building_parts import merged
 from .project import ProjectStore, read_json, write_json
 from .stages import sw_library, sw_shots, sw_site
@@ -171,7 +171,7 @@ def rebuild(store: ProjectStore, asset: str, log=print) -> dict:
     res = kit_proc.build_any(store, asset, log=log)
     vn = res.get("version")
     glb = kit_proc.out_dir(store, asset) / "procedural.glb"
-    shutil.copy2(glb, d / "procedural.glb")
+    filestore.copy(store, glb, d / "procedural.glb")
     form = (read_json(kit_proc.spec_path(store, asset), default={}) or {}).get("form")
     step(2, f"quick preview · {res.get('faces', 0):,} faces")
     render(store, asset, glb, d, "quick", form)

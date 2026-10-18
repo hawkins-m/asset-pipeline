@@ -19,7 +19,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .. import config, review
+from .. import config, filestore, review
 from ..jobs import Canceled, current_job
 from ..project import ProjectStore
 
@@ -63,6 +63,9 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     versions.migrate_asset(store, asset_id, plan)       # results from before the bank become versions first
     cmd = [str(TRELLIS), str(store.root / key),
            "--type", mode, "--seed", str(seed), "--out-dir", str(out)]
+    stem = f"{Path(key).stem[:24]}_{mode}_s{seed}"
+    for f in out.glob(f"{stem}*"):                      # a rerun writes these names: own files, not shared ones
+        filestore.detach(f)
     t = time.time()
     with (out / "trellis.log").open("a") as log:
         log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
@@ -81,7 +84,6 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         release()
     if job and job.cancel_event.is_set():
         raise Canceled(f"TRELLIS on {key} canceled")
-    stem = f"{Path(key).stem[:24]}_{mode}_s{seed}"
     stats_file = out / f"{stem}.json"
     if proc.returncode != 0 or not stats_file.is_file():
         tail = (out / "trellis.log").read_text().splitlines()[-15:]
@@ -93,16 +95,24 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     record = {"view": key, "mode": mode, "seed": seed, "glb": f"{OUT}/{plan}/{asset_id}/{stem}.glb",
               "input": f"{OUT}/{plan}/{asset_id}/{stem}_input.png", "stats": stem + ".json",
               "seconds": round(time.time() - t, 1)}
+    filestore.intern(store, out / f"{stem}.glb")
     versions.record_trellis(store, plan, asset_id, record)          # every run is a version
     store.log_run({"stage": "3d.trellis", "plan": plan, "asset": asset_id, **record})
     return record
+
+
+def result_time(glb: Path) -> float:
+    """When a result was made (or restored): its stats JSON's mtime. The GLB may be a shared
+    file-store reference whose mtime belongs to every entry linking it; the JSON is the entry's."""
+    j = glb.with_suffix(".json")
+    return (j if j.is_file() else glb).stat().st_mtime
 
 
 def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
     """Finished GLBs for an asset, newest first."""
     out = out_dir(store, plan, asset_id)
     rows = []
-    for glb in sorted(out.glob("*.glb"), key=lambda p: -p.stat().st_mtime):
+    for glb in sorted(out.glob("*.glb"), key=lambda p: -result_time(p)):
         stats = json.loads(glb.with_suffix(".json").read_text()) if glb.with_suffix(".json").is_file() else {}
         rows.append({"glb": glb.relative_to(store.root).as_posix(),
                      "input": (glb.parent / f"{glb.stem}_input.png").relative_to(store.root).as_posix(),

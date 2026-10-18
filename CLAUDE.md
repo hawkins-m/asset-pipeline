@@ -893,3 +893,18 @@ Until the deadline, all work follows these rules:
   library asset from `sw_library.asset_names` (served as `names` with /library).
 - Rename carries the id into variant sets and areas/*.md; Unreal assets made under the old id
   (Preview/<id>, LookTest, look-scene builds, pulled actor labels) come back as `not_updated`.
+
+## Shared file store (2026-10-18)
+- `asset_pipeline/filestore.py`: sheets, views and all GLBs under 3d/ live in `files/` by hash
+  (0444); entry and version paths are **hard links**, not symlinks: `review.rel` and ~10 other
+  places call `.resolve()`, which would turn a symlinked sheet into its store path and break
+  star / chosen keys. Readers are unchanged.
+- **Any writer that replaces a stored path must `filestore.detach(path)` first** (and `intern` after):
+  run_blender, s5_3d.run, s3_views.cut, s2_refs.generate do. A missed one gets PermissionError on
+  the read-only inode instead of silently changing another entry's file. Copies go through
+  `filestore.copy` (links stored kinds).
+- A shared inode shares its mtime: "newest TRELLIS result" now comes from the result's own stats
+  JSON (`s5_3d.result_time`), and restore touches that JSON, not the GLB.
+- Deleted sheet numbers go into meta.json `deleted` and are never reused (a brief or version
+  naming the old file must not come to mean a new sheet).
+- Migration 2026-10-18 on a city project: 971 files -> 917 objects, 272.8 MB freed (duplicates and review-round copies).

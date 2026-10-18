@@ -836,6 +836,22 @@ def cmd_library_trellis(a) -> None:
     _batch(todo, lambda x: print(f"{x}: {s5_3d.run(store, sw_library.PLAN_NAME, x, mode=a.mode)}"), "TRELLIS")
 
 
+def cmd_files(a) -> None:
+    """The project's shared file store (filestore.py): migrate, stats, clean."""
+    from . import filestore
+    store = ProjectStore.open(a.project)
+    if a.action == "migrate":
+        filestore.migrate(store)
+    elif a.action == "clean":
+        r = filestore.clean(store, dry_run=a.dry_run)
+        print(f"{'would remove' if a.dry_run else 'removed'} {r['removed']} unreferenced file(s), {r['bytes'] / 1e6:.1f} MB")
+    else:
+        s = filestore.stats(store)
+        print(f"{s['objects']} stored files, {s['bytes'] / 1e6:.1f} MB on disk, {s['references']} references "
+              f"({s['referenced_bytes'] / 1e6:.1f} MB as copies): {s['saved'] / 1e6:.1f} MB saved; "
+              f"{s['unreferenced']} unreferenced ({s['unreferenced_bytes'] / 1e6:.1f} MB)")
+
+
 def cmd_area(a) -> None:
     from . import areas
     store = ProjectStore.open(a.project)
@@ -1635,6 +1651,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)
+
+    p = sub.add_parser("files", help="shared file store: sheets, views and GLBs stored once by content hash")
+    p.add_argument("action", choices=["migrate", "stats", "clean"],
+                   help="migrate: store the project's files, sharing identical ones; clean: remove unreferenced files")
+    p.add_argument("project")
+    p.add_argument("--dry-run", action="store_true", help="clean: only count")
+    p.set_defaults(fn=cmd_files)
 
     p = sub.add_parser("area", help="areas for the daily asset loop: define, status (next step per asset), checklist")
     p.add_argument("action", choices=["define", "list", "status", "checklist"])

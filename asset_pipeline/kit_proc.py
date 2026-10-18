@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import blender
+from . import blender, filestore
 from .project import ProjectStore, read_json, write_json
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/blender_kit.py"
@@ -242,7 +242,9 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
     write_json(jp, job)
     log_path = maps / "blender.log"
     log_path.unlink(missing_ok=True)
+    filestore.detach(Path(glb))                       # a new build: never write into a shared file
     blender.run(SCRIPT, [jp], log_path, f"procedural {asset}")
+    filestore.intern(store, Path(glb))
     lines = [ln for ln in log_path.read_text().splitlines() if ln.startswith('{"out"')]
     if not lines:
         raise RuntimeError("blender_kit wrote no report:\n" + "\n".join(log_path.read_text().splitlines()[-20:]))

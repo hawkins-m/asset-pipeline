@@ -3,6 +3,8 @@ const fmtDims = d => `${d.width}×${d.depth}×${d.height} m`;
 // Reroll guidance being typed, per unit ("plan/key"): kept across re-renders (the list redraws
 // while jobs run) until the reroll sends it; the field starts from the last batch's guidance.
 const refsGuidance = {};
+// sheets ticked for "Delete selected", by sheet key (kept across re-renders)
+const refsSel = {};
 
 function renderRefs() {
   const list = $("#refs-list");
@@ -33,6 +35,7 @@ function renderRefs() {
           <input type="text" class="guidance" maxlength="500" aria-label="Guidance for ${esc(u.title)}'s next sheets"
             placeholder="guidance for the next sheets (optional)" title="Added to this asset's prompt for the next batch only, and saved with those sheets">
           <button type="button" class="secondary more">+ ${+$("#refs-n").value || 2} more</button>
+          <button type="button" class="small sheets-del-sel" hidden>Delete selected</button>
         </div>`;
       const ukey = `${u.plan}/${u.key}`, gIn = $(".guidance", el);
       gIn.dataset.unit = ukey;
@@ -49,11 +52,24 @@ function renderRefs() {
       refsNextStep(u, el);
       const g = document.createElement("div"); g.className = "grid sheets";
       if (!u.sheets.length) g.innerHTML = `<span class="empty">No sheets yet.</span>`;
+      const delSel = $(".sheets-del-sel", el);
+      const selOf = () => u.sheets.filter(k => refsSel[k]);
+      const showSel = () => { const n = selOf().length; delSel.hidden = !n; delSel.textContent = `Delete selected (${n})`; };
       u.sheets.forEach(k => {
         const m = (u.sheet_meta || {})[k] || {};
         const c = card(k, {label: m.guidance ? `<span class="guided" title="${esc(m.guidance)}">“${esc(m.guidance)}”</span>` : ""});
+        const name = k.split("/").pop();
+        const pick = document.createElement("label"); pick.className = "sheet-pick";
+        pick.innerHTML = `<input type="checkbox" aria-label="Select ${esc(name)}"${refsSel[k] ? " checked" : ""}>`;
+        $("input", pick).onchange = e => { if (e.target.checked) refsSel[k] = true; else delete refsSel[k]; showSel(); };
+        const del = document.createElement("button"); del.type = "button"; del.className = "sheet-del"; del.textContent = "Delete";
+        del.title = `Delete ${name}`;
+        del.onclick = () => deleteSheets([k]);
+        c.append(pick, del);
         g.append(c);
       });
+      delSel.onclick = () => deleteSheets(selOf());
+      showSel();
       el.append(g);
       $(".more", el).onclick = async () => {
         const guidance = gIn.value.trim();
@@ -67,6 +83,27 @@ function renderRefs() {
     const inp = [...list.querySelectorAll("input.guidance")].find(x => x.dataset.unit === focused.key);
     if (inp && !inp.disabled) { inp.focus(); inp.setSelectionRange(focused.a, focused.b); }
   }
+}
+
+// Delete sheets after a confirmation that names what still uses them (star, brief, version).
+async function deleteSheets(keys) {
+  if (!keys.length) return;
+  let uses;
+  try { uses = (await api(`/api/projects/${slug}/refs/sheets/uses`, {sheets: keys})).uses; }
+  catch (err) { alert(errorText(err)); return; }
+  const used = keys.filter(k => (uses[k] || []).length);
+  const short = k => k.split("/").slice(-2).join("/");
+  const body = `<p>Delete ${keys.length === 1 ? `<b>${esc(short(keys[0]))}</b>` : `${keys.length} sheets (${keys.map(k => esc(short(k))).join(", ")})`}?
+      Views already cut from ${keys.length === 1 ? "it" : "them"} stay.</p>
+    ${used.length ? `<p><b>Still in use:</b></p><ul id="sheet-uses">${used.map(k => `<li><b>${esc(short(k))}</b>: ${uses[k].map(esc).join("; ")}</li>`).join("")}</ul>
+      <p class="hint">Deleting drops its star. A brief or version that names it keeps its build, but its source sheet is gone.</p>` : ""}
+    <p class="hint">The sheet's reference is removed; the file itself only when nothing else (a duplicate entry) references it.</p>`;
+  if (!await confirmDialog({title: keys.length === 1 ? "Delete sheet" : "Delete sheets", body, danger: true,
+                            button: used.length ? "Delete anyway" : "Delete", id: "sheet-delete-dialog"})) return;
+  try { await api(`/api/projects/${slug}/refs/sheets/delete`, {sheets: keys, confirm: used.length > 0}); }
+  catch (err) { alert(errorText(err)); }
+  keys.forEach(k => delete refsSel[k]);
+  await load();
 }
 
 async function generateRefs(body) {
