@@ -57,7 +57,7 @@ function renderRefs() {
       const showSel = () => { const n = selOf().length; delSel.hidden = !n; delSel.textContent = `Delete selected (${n})`; };
       u.sheets.forEach(k => {
         const m = (u.sheet_meta || {})[k] || {};
-        const c = card(k, {label: m.guidance ? `<span class="guided" title="${esc(m.guidance)}">“${esc(m.guidance)}”</span>` : ""});
+        const c = card(k);                       // what it was drawn from: sheetCaption below
         const name = k.split("/").pop();
         const pick = document.createElement("label"); pick.className = "sheet-pick";
         pick.innerHTML = `<input type="checkbox" aria-label="Select ${esc(name)}"${refsSel[k] ? " checked" : ""}>`;
@@ -65,7 +65,7 @@ function renderRefs() {
         const del = document.createElement("button"); del.type = "button"; del.className = "sheet-del"; del.textContent = "Delete";
         del.title = `Delete ${name}`;
         del.onclick = () => deleteSheets([k]);
-        c.append(pick, del);
+        c.append(pick, del, sheetCaption(m));
         g.append(c);
       });
       delSel.onclick = () => deleteSheets(selOf());
@@ -83,6 +83,18 @@ function renderRefs() {
     const inp = [...list.querySelectorAll("input.guidance")].find(x => x.dataset.unit === focused.key);
     if (inp && !inp.disabled) { inp.focus(); inp.setSelectionRange(focused.a, focused.b); }
   }
+}
+
+// what a sheet was drawn from: the description and guidance it was made with (older sheets
+// recorded only their prompt)
+function sheetCaption(m) {
+  const cap = document.createElement("div"); cap.className = "sheet-cap";
+  const cut = (t, n) => t.length > n ? t.slice(0, n - 1) + "…" : t;
+  cap.innerHTML = m.description
+    ? `<span title="${esc(m.description)}"><b>Description${m.description_from === "prompt" ? " (from its prompt)" : ""}:</b> ${esc(cut(m.description, 110))}</span>`
+    : `<span class="hint" title="${esc(m.prompt || "")}">Description not recorded (older sheet)${m.prompt ? ": hover for its prompt" : ""}</span>`;
+  if (m.guidance) cap.innerHTML += `<span title="${esc(m.guidance)}"><b>Guidance:</b> “${esc(cut(m.guidance, 80))}”</span>`;
+  return cap;
 }
 
 // Delete sheets after a confirmation that names what still uses them (star, brief, version).

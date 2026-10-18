@@ -948,3 +948,10 @@ Until the deadline, all work follows these rules:
   in Library › Areas…, `ap.area.<slug>`, else the first). /library carries `areas` {name: entries}.
 - tests/test_ui_layout.py drives a real `ap ui` on a scratch AP_ROOT with the browser-test env
   (skipped without it). A district-only area no longer needs the greybox (areas.members).
+
+## Sheets and saved descriptions (2026-10-18)
+- **A description saved in Manage entry… never reached the sheets** (forum-statue drew the old
+  placeholder text): sheets were prompted from plans/library.json, which `sw_library.describe`
+  didn't rewrite. Now describe/set_name call `sw_library.refresh_plan`, and `s2_refs.generate`
+  re-reads the entry's fields itself (`s2_refs.current`). Each sheet records its `description`;
+  older ones are recovered from their prompt (`described_from_prompt`, style text after the template).

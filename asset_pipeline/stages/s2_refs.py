@@ -170,6 +170,24 @@ def sheets(store: ProjectStore, unit: Unit) -> list[str]:
     return sorted(p.relative_to(store.root).as_posix() for p in d.glob("sheet_*.png"))
 
 
+def current(store: ProjectStore, unit: Unit) -> Unit:
+    """A library unit with its assets' names and descriptions as the entries stand now (a saved
+    description reaches the next sheets even if plans/library.json is behind)."""
+    if unit.plan != "library":
+        return unit
+    from . import sw_library
+    cur = sw_library.asset_fields(store)
+    return Unit(unit.plan, unit.key, unit.kind,
+                [a.model_copy(update={k: v for k, v in (cur.get(a.id) or {}).items() if v}) for a in unit.assets])
+
+
+def described(unit: Unit) -> str:
+    """The description a unit's sheets are drawn from (a kit: each piece's)."""
+    if unit.kind == "kit":
+        return "; ".join(f"{a.name}: {a.description}" for a in unit.assets)
+    return unit.assets[0].description
+
+
 def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = None,
              view: str = "turnaround", guidance: str | None = None) -> list[Path]:
     """Add n sheets for a unit (one batch, one seed). guidance steers this batch only and is
@@ -177,6 +195,7 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
     if view not in VIEWS:
         raise ValueError(f"view must be one of {VIEWS}")
     g = clean_guidance(guidance)
+    unit = current(store, unit)
     project = store.load()
     backend = backend_for("references", project)
     prompt, w, h, anchor = request(unit, project.anchor, view, guidance=g)
@@ -198,6 +217,7 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
         out.append(final)
         meta["sheets"].append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index"),
                                "prompt": r.meta.get("prompt", prompt), "size": [w, h], "view": view,
+                               "description": described(unit),
                                "backend": backend.name,
                                "anchor": bool(anchor and anchor.images)} | ({"guidance": g} if g else {}))
         i += 1
@@ -208,13 +228,40 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
     return out
 
 
+def described_from_prompt(prompt: str, guidance: str | None = None) -> str | None:
+    """The description inside an older sheet's prompt (sheets before 2026-10-18 recorded only the
+    prompt), without the batch's guidance; None when no template matches."""
+    for tpl, field in ((OBJECT_PROMPT, "description"), (THREE_QUARTER_PROMPT, "description"),
+                       (MATERIAL_PROMPT, "description"), (KIT_PROMPT, "pieces")):
+        rx = re.escape(tpl)
+        for k in ("name", "kit", "n"):
+            rx = rx.replace(re.escape("{" + k + "}"), ".+?")
+        rx = rx.replace(re.escape("{" + field + "}"), "(?P<d>.+)")
+        m = re.fullmatch(rx + r"(?:\W.*)?", prompt or "", re.S)       # the style text follows the template
+        if m:
+            d = m["d"]
+            if guidance and d.endswith(f". {guidance}"):
+                d = d[: -len(guidance) - 2]
+            return d
+    return None
+
+
 def sheet_meta(store: ProjectStore, unit: Unit) -> dict[str, dict]:
     """{sheet path: what produced it (view, seed, guidance)} from the unit's meta.json."""
     d = unit.dir(store)
     meta = read_json(d / "meta.json", default=None) or {}
     rel = d.relative_to(store.root).as_posix()
-    return {f"{rel}/{m['file']}": {k: m[k] for k in ("view", "seed", "guidance") if m.get(k) is not None}
-            for m in meta.get("sheets", []) if m.get("file")}
+    out = {}
+    for m in meta.get("sheets", []):
+        if not m.get("file"):
+            continue
+        r = {k: m[k] for k in ("view", "seed", "guidance", "description", "prompt") if m.get(k) is not None}
+        if "description" not in r and r.get("prompt"):
+            d = described_from_prompt(r["prompt"], r.get("guidance"))
+            if d:
+                r |= {"description": d, "description_from": "prompt"}
+        out[f"{rel}/{m['file']}"] = r
+    return out
 
 
 def generate_missing(store: ProjectStore, n: int = 2, plan: str | None = None,

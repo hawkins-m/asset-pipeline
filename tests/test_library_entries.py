@@ -503,3 +503,48 @@ def test_rename_carries_variant_sets_and_checklists_and_lists_what_unreal_keeps(
     client = TestClient(ui_app.create_app(JobQueue()))
     res = client.post("/api/projects/p/library/entries/stall-oak/rename", json={"to": "stall-elm"}).json()
     assert res["id"] == "stall-elm" and res["not_updated"] == [] and "areas/market.md" in res["updated"]
+
+
+def test_sheets_use_the_entrys_saved_description_and_record_it(proj, monkeypatch):
+    """The bug: a description saved in Manage entry… never reached plans/library.json, and the
+    sheets were drawn from the old (placeholder) text."""
+    from PIL import Image
+    from asset_pipeline.imagegen.base import GenResult
+    le.create(proj, "forum-statue", name="Forum statue", description="A robed bronze figure on a plinth.")
+    prompts = []
+
+    class FakeBackend:
+        name = "fake"
+
+        def generate(self, req, d, prefix="tmp"):
+            prompts.append(req.prompt)
+            for i in range(req.n):
+                p = d / f"{prefix}_{i}.png"
+                Image.new("RGB", (8, 8), "white").save(p)
+                yield GenResult(path=p, seed=3, backend="fake", meta={})
+    monkeypatch.setattr(s2_refs, "backend_for", lambda *a, **k: FakeBackend())
+    new = "Gilded gold Hermes with caduceus, winged helmet and sandals"
+    client = TestClient(ui_app.create_app(JobQueue()))
+    assert client.post("/api/projects/p/library/entries/forum-statue/description", json={"description": new}).status_code == 200
+    plan_desc = next(a.description for a in s1_plan.load(proj, "library").assets if a.id == "forum-statue")
+    assert plan_desc == new                                              # saved through to the plan
+    unit = next(u for u in s2_refs.units(proj, "library") if u.key == "forum-statue")
+    s2_refs.generate(proj, unit, n=1, guidance="arm raised")
+    assert new in prompts[-1] and "robed" not in prompts[-1] and "arm raised" in prompts[-1]
+    meta = s2_refs.sheet_meta(proj, unit)
+    rec = next(iter(meta.values()))
+    assert rec["description"] == new and rec["guidance"] == "arm raised"
+    # even with plans/library.json behind (an older unit object), generation reads the entry now
+    sw_library.describe(proj, "forum-statue", "A marble Athena")
+    s2_refs.generate(proj, unit, n=1)                                    # `unit` still holds the Hermes text
+    assert "A marble Athena" in prompts[-1]
+    assert list(s2_refs.sheet_meta(proj, unit).values())[-1]["description"] == "A marble Athena"
+
+
+def test_older_sheets_get_their_description_back_from_the_prompt():
+    d = "A robed bronze figure on a plinth"
+    prompt = s2_refs.OBJECT_PROMPT.format(name="Forum statue", description=f"{d}. arm raised") + ", the project's style words"
+    assert s2_refs.described_from_prompt(prompt, "arm raised") == d
+    tq = s2_refs.THREE_QUARTER_PROMPT.format(name="gate", description="A gate")
+    assert s2_refs.described_from_prompt(tq) == "A gate"
+    assert s2_refs.described_from_prompt("something else entirely") is None

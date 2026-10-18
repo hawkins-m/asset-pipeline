@@ -611,6 +611,7 @@ def describe(store: ProjectStore, entry: str, text: str | None) -> dict:
         if not d[entry]:
             d.pop(entry)
     write_json(decisions_path(store), d)
+    refresh_plan(store)                 # the next sheets are drawn from it (plans/library.json)
     return d
 
 
@@ -739,7 +740,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
         assets.append(PlanAsset(
             id=eid, name=entry_name(e, d), noun=e["part"].replace("_", " "),
             category=CATEGORY.get(e["kind"], "structure"),
-            description=d.get("description") or e.get("description") or e["description_auto"],
+            description=entry_description(e, d),
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
             placement=f"{e['tier']} · {e.get('district') or '-'}", include=inc,
             refs=[r for r in refs if r], ref_strength=ref_strength(d["decision"], e["tier"]),
@@ -752,6 +753,26 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
 def entry_name(e: dict, d: dict | None) -> str:
     """An entry's current display name: the user's (decisions), else the entry's, else its id."""
     return (d or {}).get("name") or e.get("name") or e["id"].replace("-", " ")
+
+
+def entry_description(e: dict, d: dict | None) -> str:
+    """An entry's current description: the user's (decisions), else the entry's, else the auto one."""
+    return (d or {}).get("description") or e.get("description") or e["description_auto"]
+
+
+def asset_fields(store: ProjectStore) -> dict[str, dict]:
+    """{asset id: {name, description}} as the entries stand now (kit modules: their piece's
+    description). What sheets are drawn from, whatever plans/library.json last recorded."""
+    data = load(store) or {}
+    dec = decisions(store)
+    out = {}
+    for e in data.get("entries", []) + data.get("unseen", []):
+        d = dec.get(e["id"]) or {}
+        n = entry_name(e, d)
+        out[e["id"]] = {"name": n, "description": entry_description(e, d)}
+        for piece, pc in (d.get("pieces") or {}).items():
+            out[f"{e['id']}-{piece}"] = {"name": f"{n} {piece}", "description": pc.get("description")}
+    return out
 
 
 def asset_names(store: ProjectStore) -> dict[str, str]:
@@ -768,20 +789,26 @@ def asset_names(store: ProjectStore) -> dict[str, str]:
     return out
 
 
-def refresh_plan_names(store: ProjectStore) -> int:
-    """Write the entries' current names into plans/library.json (Reference sheets, Views and 3D
-    read them there) without re-planning. Returns how many changed."""
+def refresh_plan(store: ProjectStore) -> int:
+    """Write the entries' current names and descriptions into plans/library.json (Reference
+    sheets, Views and 3D read them there) without re-planning. Returns how many assets changed."""
     from . import s1_plan
     plan = s1_plan.load(store, PLAN_NAME)
     if plan is None:
         return 0
-    names, n = asset_names(store), 0
+    cur, n = asset_fields(store), 0
     for a in plan.assets:
-        if names.get(a.id) and a.name != names[a.id]:
-            a.name, n = names[a.id], n + 1
+        f = cur.get(a.id) or {}
+        upd = {k: v for k, v in f.items() if v and getattr(a, k) != v}
+        for k, v in upd.items():
+            setattr(a, k, v)
+        n += bool(upd)
     if n:
         s1_plan.save(store, PLAN_NAME, plan)
     return n
+
+
+refresh_plan_names = refresh_plan
 
 
 def _description(e: dict, catalog: dict, mats: dict) -> str:

@@ -512,3 +512,5 @@ details summary { cursor: default; }
 .jump-flash { outline: 2px solid var(--select); outline-offset: 2px; transition: outline-color 1.2s; }
 .jump-link { color: inherit; text-decoration: none; }
 .jump-link:hover { text-decoration: underline; }
+.sheet-cap { display: grid; gap: 1px; padding: 3px 2px 1px; font-size: 10px; line-height: 1.3; color: var(--muted); }
+.sheet-cap b { color: var(--text); font-weight: 600; }
