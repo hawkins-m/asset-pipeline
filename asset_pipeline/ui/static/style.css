@@ -156,6 +156,10 @@ table.grid-table td.dirty::after { content: " *"; }
 .applybar .msg { flex: 1; }
 
 /* --- side panel bits ----------------------------------------------------------------- */
+.update-bar { display: flex; align-items: center; gap: 8px; padding: 3px 8px; background: #ffffe1; border-bottom: 1px solid var(--border-dark); }
+.comfy-dlg { min-width: 340px; }
+.comfy-dlg-btns { display: flex; gap: 6px; margin-top: 10px; }
+.comfy-dlg-btns:empty { display: none; }
 #side-status .comfy-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
 #side-status .comfy-ctl:empty { display: none; }
 #side-status .line { background: var(--field); border: 1px solid var(--border-dark); padding: 3px 6px; }

@@ -163,7 +163,17 @@ function render() {
   setStop("#derive-stop", activeJobs("style.derive"));
 }
 
+// The build this page was served with (index.html meta) vs the code on disk now: after an
+// update the page offers a reload instead of running stale scripts against a new server.
+const PAGE_BUILD = (document.querySelector('meta[name="ap-build"]') || {}).content || "";
+async function checkBuild() {
+  const v = await api("/api/version", undefined, "GET").catch(() => null);
+  $("#update-bar").hidden = !(v && PAGE_BUILD && v.build !== PAGE_BUILD);
+}
+$("#update-reload").onclick = () => location.reload();
+
 async function load() {
+  checkBuild();
   if (!slug) { $("#empty").hidden = false; renderShell(); return; }
   [data, plans, refs, reviewData, siteData, framesData, catalogData, statusData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),

@@ -698,6 +698,13 @@ Until the deadline, all work follows these rules:
   in 3d/library/<asset>/review/round_N (a Workbench preview in about 6 s, Cycles about 12 s
   later), statuses and history in site/library_review.json under "_reviews",
   `ap library review apply`. Deep link: `/?project=<slug>&review=<asset>`.
+- **The UI's static files are versioned (2026-10-17).** index.html is served no-store with
+  `?v=<content hash>` on every /static/ URL; unversioned static is `no-cache`. Before that, a
+  browser kept the pre-rename shell.js across server restarts and hard refreshes. Python
+  changes still need an `ap ui` restart (it prints the code path, git commit and build id);
+  static changes show on reload, and an open page shows a Reload bar (`/api/version`).
+  Headless UI checks: Playwright with the system Chrome (`channel="chrome"`), its own venv
+  `$AP_ROOT/envs/browser-test`.
 - UI scripts share one global scope: a second top-level `const clone` silently broke a whole
   script. Check with `cat asset_pipeline/ui/static/*.js > all.js && node --check all.js`.
 - Overlapping coplanar faces (a step's top in the plinth's plane) render black in Cycles: offset

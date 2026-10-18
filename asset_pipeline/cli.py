@@ -1060,9 +1060,18 @@ def cmd_terrain(a) -> None:
 
 
 def cmd_ui(a) -> None:
+    import subprocess
     import uvicorn
-    from .ui.app import create_app
+    from .ui.app import STATIC, build_id, create_app
+    code = Path(__file__).resolve().parents[1]
+    try:
+        rev = subprocess.run(["git", "-C", str(code), "describe", "--always", "--dirty"], capture_output=True,
+                             text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        rev = ""
     print(f"Terraformer UI: http://127.0.0.1:{a.port}")
+    print(f"  code: {code}" + (f" (git {rev})" if rev else " (not a git checkout: an installed copy, not the repo)"))
+    print(f"  static: {STATIC} · build {build_id()} (files are read on each request; reload the page after an update)")
     uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 

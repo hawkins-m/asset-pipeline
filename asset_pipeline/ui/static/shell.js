@@ -255,13 +255,33 @@ for (const [sel, act] of Object.entries(TOOLBAR)) $(sel).onclick = () => ACTIONS
 
 // --- info dialogs ----------------------------------------------------------------------------
 async function comfyDialog() {
-  const d = dialog({title: "ComfyUI status", body: `<p>Checking…</p>`});
-  const s = await api("/api/comfy").catch(e => ({up: false, error: e.message}));
-  $(".wbody", d.win).innerHTML = s.up
-    ? `<div class="form"><span class="lbl">URL:</span><code>${esc(s.url)}</code><span class="lbl">State:</span><span class="status-ok">connected</span>
-       ${s.device ? `<span class="lbl">Device:</span><span>${esc(s.device)}</span>` : ""}</div>`
-    : `<p class="error">${esc(s.error || "not reachable")}</p><p class="hint">Start it from the Status box (Start ComfyUI)
-       or with <code>ap comfy start</code>.</p>`;
+  const d = dialog({title: "ComfyUI status", body: `<div class="comfy-dlg"><p>Checking…</p></div>`, className: "comfy-window"});
+  const body = $(".comfy-dlg", d.win);
+  let timer = null;
+  const refresh = async () => {
+    if (!document.body.contains(d.win)) { clearInterval(timer); return; }
+    const s = await api("/api/comfy", undefined, "GET").catch(e => ({up: false, error: e.message}));
+    const svc = s.service;
+    const state = svc ? `${(JOB_LABELS[svc.kind] || svc.kind).replace(/^./, c => c.toUpperCase())}…`
+      : s.up ? "connected" : s.starting ? "starting…" : "not running";
+    body.innerHTML = `<div class="form"><span class="lbl">URL:</span><code>${esc(s.url || "")}</code>
+        <span class="lbl">State:</span><span class="${s.up ? "status-ok" : svc ? "" : "error"}" id="comfy-dlg-state">${esc(state)}</span>
+        ${s.device ? `<span class="lbl">Device:</span><span>${esc(s.device)}</span>` : ""}
+        ${svc && svc.note ? `<span class="lbl">Log:</span><span class="mono">${esc(svc.note)}</span>` : ""}</div>
+      ${!s.up && !svc && s.start_error ? `<p class="error">Last start failed: ${esc(s.start_error)}</p>` : ""}
+      ${!s.up && !svc && !s.start_error && s.error ? `<p class="hint">${esc(s.error)}</p>` : ""}
+      <div class="comfy-dlg-btns"></div>`;
+    const btns = $(".comfy-dlg-btns", body);
+    const btn = (label, fn) => { const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+      b.onclick = async () => { b.disabled = true; await fn(); refresh(); }; btns.append(b); };
+    if (svc) return;
+    if (s.up) {
+      btn("Stop", () => new Promise(res => confirmComfy("Stop", () => comfyAction("stop").then(res))));
+      btn("Restart", () => new Promise(res => confirmComfy("Restart", () => comfyAction("restart").then(res))));
+    } else btn("Start ComfyUI", () => comfyAction("start"));
+  };
+  await refresh();
+  timer = setInterval(refresh, 1500);
 }
 
 // --- ComfyUI service: Start / Stop / Restart in the Status box ---------------------------------
@@ -533,8 +553,9 @@ function renderShell() {
     (r && r.buildings ? `${r.buildings.toLocaleString("en")} buildings · ${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}` : "");
   const comfy = statusData && statusData.comfy;
   const right = statusRight[currentTab] && statusRight[currentTab]();
-  $("#sb-right").textContent = right || (comfy == null ? "" : comfy ? "ComfyUI: connected" : "ComfyUI: not running");
-  $("#sb-right").className = !right && comfy === false ? "error" : "";
+  const comfyStarting = comfy === false && statusData.comfy_service === "starting";
+  $("#sb-right").textContent = right || (comfy == null ? "" : comfy ? "ComfyUI: connected" : comfyStarting ? "ComfyUI: starting…" : "ComfyUI: not running");
+  $("#sb-right").className = !right && comfy === false && !comfyStarting ? "error" : "";
   if (comfy != null) $("#status-line").textContent += comfy ? " · ComfyUI connected"
     : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
   renderComfyControls();

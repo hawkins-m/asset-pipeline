@@ -3,6 +3,7 @@
 All state is on disk (project.json, review.json); the server holds only job status.
 """
 import copy
+import hashlib
 import re
 import time
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Literal
 
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi import Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
@@ -24,6 +25,43 @@ from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, S
 from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_library, sw_shots, sw_site
 
 STATIC = Path(__file__).parent / "static"
+STATIC_REF = re.compile(r'((?:src|href)=")/static/([^"?#]+)(")')
+
+
+def _asset_hash(name: str) -> str:
+    """Content hash of a static file (8 hex), the ?v= that busts browser caches."""
+    p = STATIC / name
+    return hashlib.sha1(p.read_bytes()).hexdigest()[:8] if p.is_file() else "0"
+
+
+def build_id() -> str:
+    """One id for the UI code being served: changes when any static file changes. Read from
+    disk on every call, so an open page sees an update without restarting the server."""
+    h = hashlib.sha1()
+    for p in sorted(STATIC.rglob("*")):
+        if p.is_file() and p.suffix in (".js", ".css", ".html"):
+            h.update(p.name.encode() + p.read_bytes())
+    return h.hexdigest()[:10]
+
+
+def index_html() -> str:
+    """index.html with every /static/ URL versioned by content hash and the build id, read
+    from the repo on every request (served no-store)."""
+    html = STATIC_REF.sub(lambda m: f"{m.group(1)}/static/{m.group(2)}?v={_asset_hash(m.group(2))}{m.group(3)}",
+                          (STATIC / "index.html").read_text())
+    return html.replace("<head>", f'<head>\n  <meta name="ap-build" content="{build_id()}">', 1)
+
+
+class VersionedStatic(StaticFiles):
+    """Static files: a URL with ?v= (from index_html) is that exact content, cached for good;
+    anything else is revalidated on every use (ETag), so no browser keeps stale code."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if resp.status_code in (200, 304):
+            versioned = b"v=" in (scope.get("query_string") or b"")
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if versioned else "no-cache"
+        return resp
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -400,7 +438,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        return HTMLResponse(index_html(), headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/version")
+    def version():
+        """The build id of the UI code on disk: a page that loaded another one offers a reload."""
+        return {"build": build_id(), "code": str(Path(__file__).resolve().parents[2])}
 
     @app.get("/api/comfy")
     def comfy_status():
@@ -1165,5 +1208,5 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return Response(status_code=304, headers=headers)
         return FileResponse(target, headers=headers)
 
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/static", VersionedStatic(directory=STATIC), name="static")
     return app

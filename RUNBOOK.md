@@ -118,6 +118,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 | Symptom | Cause | Fix |
 |---|---|---|
 | "ComfyUI is not answering" | ComfyUI not started, or it stopped | Status › Start ComfyUI (or `ap comfy start`), then run the same command again |
+| The app shows an older UI (old name, no Start ComfyUI button) | The browser kept old scripts (fixed 2026-10-17: the page and its scripts are now versioned), or `ap ui` still runs old code | Restart `ap ui` once (it prints the code path and git commit it serves), then reload the page; afterwards a yellow bar offers Reload whenever the app is updated |
 | Start ComfyUI fails | The launcher exited or didn't answer in time; the Jobs panel shows the log's error lines | Read `$AP_ROOT/logs/comfyui.log`; check `ap comfy status` (launch command, GPU) |
 | "no brief for …" | No brief yet | `ap library brief my-project my-asset <sheet> front` |
 | "no view chosen" (TRELLIS) | No view clicked in Review | Review › click a view of the asset |
