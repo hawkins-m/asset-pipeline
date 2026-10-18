@@ -305,27 +305,149 @@ def set_name(store: ProjectStore, eid: str, name: str) -> dict:
 
 # --- next step after a sheet is starred ---------------------------------------------------------
 
+FORM_WORDS = [            # first match wins: an entry's id, name, part and description, lower case
+    ("arcade_range", ("portico", "colonnade", "colonnaded", "stoa", "range")),
+    ("campanile", ("campanile", "bell tower", "belfry")),
+    ("basilica", ("basilica", "law court")),
+    ("hall_vault", ("vault", "barrel")),
+    ("podium_tower", ("tower",)),
+    ("perimeter", ("perimeter", "courtyard", "insula", "court", "wings around")),
+    ("row", ("townhouse", "row of", "terrace")),
+    ("arcade_hall", ("arcade",)),
+    ("civic_block", ("civic", "block")),
+]
+
+
+class FormNeeded(ValueError):
+    """An entry can't be briefed: no building form, or no size. The message names the app's fields."""
+
+
+def catalog_form(store: ProjectStore, e: dict) -> str | None:
+    """The generator form of an entry's catalog typology, if it has one."""
+    from .building_proc import FORM_OF
+    from .stages import sw_site
+    if not e.get("typology"):
+        return None
+    try:
+        layout = sw_site.load_layout(store)
+    except FileNotFoundError:                     # no site layout: no catalog
+        return None
+    typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get(e["typology"])
+    form = FORM_OF.get(typ.form) if typ else None
+    return "basilica" if e["typology"] == "basilica" else form
+
+
+def suggest_form(e: dict) -> str:
+    """The form choice an entry's words point to (shown pre-selected, never applied silently)."""
+    text = " ".join(str(e.get(k) or "") for k in ("id", "name", "part", "typology", "description", "description_auto")).lower()
+    text = text.replace("-", " ").replace("_", " ")
+    return next((fid for fid, words in FORM_WORDS if any(w in text for w in words)), "cube")
+
+
+def _entry_of(store: ProjectStore, asset: str) -> tuple[dict | None, bool]:
+    """(the entry, is it the asset itself): a kit module (entry-piece) maps to its parent entry."""
+    ents = _all_entries(store)
+    if asset in ents:
+        return ents[asset], True
+    for eid, e in ents.items():
+        if asset in asset_ids(store, eid):
+            return e, False
+    return None, False
+
+
+def form_info(store: ProjectStore, eid: str) -> dict:
+    """What Brief & build will use: {form (a FORM_CHOICES id or None), source (yours / catalog /
+    entry / None), suggested, size_m (or None), size_source}."""
+    from .building_gen import FORM_CHOICE
+    ent, own = _entry_of(store, eid)
+    e = (ent or {}) if own else {}               # a module has no catalog form or size of its own
+    d = sw_library.decisions(store).get(eid) or {}
+    form, src = d.get("form"), "yours"
+    if not form:
+        form, src = _brief_form(store, eid), "brief"
+    if not form:
+        form, src = e.get("form"), "entry"
+    if not form:
+        form, src = catalog_form(store, e), "catalog"
+    if form and form not in FORM_CHOICE:
+        form = next((c["id"] for c in _plain_choices(form)), form)
+    size = d.get("size_m") or e.get("size_m")
+    return {"form": form or None, "source": src if form else None, "suggested": suggest_form(e or ent or {"id": eid}),
+            "size_m": [float(x) for x in size] if size else None,
+            "size_source": ("yours" if d.get("size_m") else "plan") if size else None}
+
+
+def _brief_form(store: ProjectStore, eid: str) -> str | None:
+    """The form choice an existing building brief uses (a kit piece's brief has none)."""
+    sp = kit_proc.spec_path(store, eid)
+    b = read_json(sp, default=None) if sp.is_file() else None
+    if not b or b.get("kind") != "building" or not b.get("form"):
+        return None
+    if b["form"] == "arcade_hall" and (b.get("features") or {}).get("range"):
+        return "arcade_range"
+    return b["form"]
+
+
+def _plain_choices(form: str) -> list[dict]:
+    from .building_gen import FORM_CHOICES
+    return [c for c in FORM_CHOICES if c["form"] == form and not c.get("features")]
+
+
+def set_form(store: ProjectStore, eid: str, form: str | None = None, size_m=None) -> dict:
+    """Manage entry… › Form and Size: the user's form choice and size for the brief (None or
+    empty restores the catalog form / the plan's size)."""
+    from .building_gen import FORM_CHOICE
+    if _entry_of(store, eid)[0] is None:
+        raise KeyError(f"no library entry {eid}")
+    if form and form not in FORM_CHOICE:
+        raise ValueError(f"unknown form {form!r}")
+    size = _size(size_m) if size_m not in (None, "", []) else None
+    if size is not None and (len(size) != 3 or min(size) <= 0):
+        raise ValueError("size: width, depth and height, all above 0 m")
+    d = sw_library.decisions(store)
+    rec = d.setdefault(eid, {})
+    for k, v in (("form", form or None), ("size_m", size)):
+        if v:
+            rec[k] = v
+        else:
+            rec.pop(k, None)
+    if not rec:
+        d.pop(eid)
+    write_json(sw_library.decisions_path(store), d)
+    return form_info(store, eid)
+
+
 def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", form: str | None = None,
                      dims=None, params=None) -> dict:
     """The procedural brief of an entry from one sheet (`ap library brief`): the form comes from
     the entry's catalog typology (or the entry's own `form`, else a cube), the size from the
     plan. Raises ValueError with the CLI's messages."""
     import json as _json
-    from .building_proc import FORM_OF, brief, front_view
-    from .stages import sw_site
-    e = _all_entries(store).get(entry)
-    dims = dims or (e or {}).get("size_m")
-    if not form and e:
-        form = e.get("form")
-        if not form and e.get("typology"):        # plan entries and their duplicates keep their catalog form
-            layout = sw_site.load_layout(store)
-            typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get(e["typology"])
-            form = FORM_OF.get(typ.form) if typ else None
-            form = "basilica" if e["typology"] == "basilica" else form
-        if not form and e.get("custom"):
-            form = "cube"
-    if not form or not dims:
-        raise ValueError("give --form and --dims (no catalog form with a generator, or no size)")
+    from .building_gen import FORM_CHOICE
+    from .building_proc import brief, front_view
+    e = _all_entries(store).get(entry) or {}
+    info = form_info(store, entry)                 # yours (Manage entry…) > the entry's > the catalog's
+    dims = dims or info["size_m"]
+    form = form or info["form"] or ("cube" if e.get("custom") else None)
+    if not form:
+        raise FormNeeded(f"{entry} has no building form: choose one under Form in the Brief & build dialog "
+                         f"(or Manage entry… › Form), e.g. {FORM_CHOICE[info['suggested']]['label']}.")
+    if not dims:
+        raise FormNeeded(f"{entry} has no size: fill in Size (width × depth × height, m) in the Brief & build "
+                         f"dialog or in Manage entry….")
+    feats = preset = None
+    choice_id = form if form in FORM_CHOICE else None
+    if choice_id:                                  # a form choice: its generator plus its feature preset
+        from .building_gen import preset_for
+        form, preset = FORM_CHOICE[choice_id]["form"], preset_for(choice_id, dims)
+        if preset:
+            sp = kit_proc.spec_path(store, entry)
+            old = _json.loads(sp.read_text()) if sp.is_file() else {}
+            # keep only the artist's edits: values the last preset wrote and nobody changed go
+            ref = old.get("preset") or (FORM_CHOICE[choice_id].get("features") or {}
+                                        if old.get("form") == form else {})   # briefs from before the record
+            mine = _drop_equal(old.get("features") or {}, ref)
+            feats = _merge_feats(preset, mine)
     if view == "front":
         fv = front_view(store, [sheet], entry)
         if not fv["best"]:
@@ -334,7 +456,37 @@ def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", 
         view = fv["best"][1]
     elif view != "all":
         view = int(view)
-    return brief(store, entry, sheet, view, form, dims, _json.loads(params) if isinstance(params, str) else params)
+    b = brief(store, entry, sheet, view, form, dims, _json.loads(params) if isinstance(params, str) else params,
+              feats=feats)
+    sp = kit_proc.spec_path(store, entry)
+    if choice_id and sp.is_file():                 # what the next re-brief may replace without losing edits
+        rec = _json.loads(sp.read_text())
+        rec["form_choice"], rec["preset"] = choice_id, preset or {}
+        sp.write_text(_json.dumps(rec, indent=2))
+        b = rec
+    return b
+
+
+def _drop_equal(mine: dict, preset: dict) -> dict:
+    """mine without the values equal to preset's (nested): what the artist changed."""
+    out = {}
+    for k, v in mine.items():
+        p = preset.get(k)
+        if isinstance(v, dict) and isinstance(p, dict):
+            sub = _drop_equal(v, p)
+            if sub:
+                out[k] = sub
+        elif v != p:
+            out[k] = v
+    return out
+
+
+def _merge_feats(preset: dict, mine: dict) -> dict:
+    """The form's preset under the brief's own feature edits (the artist's values win)."""
+    out = dict(preset)
+    for k, v in mine.items():
+        out[k] = _merge_feats(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
 
 
 def next_step(store: ProjectStore, plan: str, key: str) -> dict | None:
@@ -342,12 +494,15 @@ def next_step(store: ProjectStore, plan: str, key: str) -> dict | None:
     views (TRELLIS). None for other plans / units."""
     if plan != PLAN:
         return None
-    e = _all_entries(store).get(key)
+    e, own = _entry_of(store, key)                # a kit module follows its parent entry's route
     if e is None:
         return None
-    r = sw_library.route(e, sw_library.decisions(store).get(key))
+    r = sw_library.route(e, sw_library.decisions(store).get(key if own else e["id"]))
     if r is None:
         return None
-    return {"route": r, "has_brief": kit_proc.spec_path(store, key).is_file(),
-            "has_build": (kit_proc.out_dir(store, key) / "procedural.glb").is_file(),
-            "views": len(s3_views.views(store, plan, key))}
+    out = {"route": r, "has_brief": kit_proc.spec_path(store, key).is_file(),
+           "has_build": (kit_proc.out_dir(store, key) / "procedural.glb").is_file(),
+           "views": len(s3_views.views(store, plan, key))}
+    if r == "procedural":
+        out["form"] = form_info(store, key)
+    return out

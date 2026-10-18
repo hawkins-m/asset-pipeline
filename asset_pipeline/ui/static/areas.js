@@ -2,10 +2,10 @@
 // An area is a set of shots and/or districts; the table shows what each asset of it has and its
 // next step, with a button that performs the step. Server side: tools_api.py (/areas...).
 const AREA_BATCHES = {
-  sheets: ["Sheets for missing", "ap library sheets --area", "Reference sheets are made on GPU 1 (ComfyUI)."],
-  build: ["Build all", "ap library build --area", "Blender on the CPU; approved assets and unchanged briefs are skipped."],
-  trellis: ["TRELLIS all", "ap library trellis --area", "GPU 0; the vision LLM is stopped while TRELLIS runs. Assets need a chosen view."],
-  instances: ["Instances", "ap library instances --area", "Blender on the CPU; one build per building footprint."],
+  sheets: ["Sheets for missing", "Two reference sheets for every decided asset without any", "Reference sheets are made on GPU 1 (ComfyUI)."],
+  build: ["Build all", "Build every procedural asset with a brief", "Blender on the CPU; approved assets and unchanged briefs are skipped."],
+  trellis: ["TRELLIS all", "3D for every prop with a chosen view", "GPU 0; the vision LLM is stopped while TRELLIS runs. Assets need a chosen view."],
+  instances: ["Instances", "Every building at its own footprint and storeys", "Blender on the CPU; one build per building footprint."],
 };
 const areaState = {sel: null, data: null, rows: []};
 
@@ -14,6 +14,7 @@ function areaStep(r) {
   if (!r.decision && !r.brief) return {kind: "decide", label: "Decide…"};
   if (!r.sheets && !(r.route === "procedural" && r.brief)) return {kind: "sheets", label: "Make sheets"};
   if (r.route === "procedural") {
+    if (!r.brief && (r.missing || []).length) return {kind: "form", label: "Set form…"};
     if (!r.brief) return {kind: "brief", label: "Brief + build"};
     if (!r.built || !r.fresh) return {kind: "build", label: "Build"};
     return {kind: "review", label: r.status ? "Open review" : "Review…"};
@@ -63,7 +64,8 @@ async function areasDialog() {
       <th>Sheets</th><th>Brief</th><th>Build</th><th>Review</th><th>Next</th></tr></thead><tbody>${areaState.rows.map((r, i) => {
         const st = areaStep(r);
         return `<tr data-asset="${esc(r.asset)}"><td>${esc(r.asset)}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
-          <td>${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td>${r.brief ? "yes" : "–"}</td><td>${areaBuildText(r)}</td>
+          <td>${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td>${r.brief ? "yes" : (r.missing || []).length
+            ? `<span class="error" title="Brief & build needs a building form and a size: set them in Manage entry… (or in the Brief & build dialog)">no ${esc(r.missing.join(", no "))}</span>` : "–"}</td><td>${areaBuildText(r)}</td>
           <td>${esc(r.status || "not reviewed")}</td><td><button type="button" class="small area-step" data-i="${i}" data-step="${st.kind}"
             title="${esc(r.next)}" ${st.kind === "done" ? "disabled" : ""}>${esc(st.label)}</button></td></tr>`; }).join("")}</tbody></table>`;
     box.querySelectorAll(".area-step").forEach(b => b.onclick = () => areaDoStep(areaState.rows[+b.dataset.i], d, table));
@@ -111,7 +113,7 @@ async function areaBatch(kind, assets, d, table) {
   try { plan = await api(`/api/projects/${slug}/areas/batch`, {...req, dry_run: true}); }
   catch (err) { alert(errorText(err)); return; }
   const ok = await confirmDialog({title, button: "Run", id: "area-batch-confirm", body: `<p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
-    ${plan.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}<p class="hint">${esc(note)} Same as <code>${esc(cmd)} NAME</code>. Finished items are skipped, so it can be run again.</p>`});
+    ${plan.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}<p class="hint">${esc(note)} Finished items are skipped, so it can be run again.</p>`});
   if (!ok) return;
   try { const j = await api(`/api/projects/${slug}/areas/batch`, req); await load(); await jobDone(j); }
   catch (err) { alert(errorText(err)); }
@@ -125,6 +127,14 @@ async function areaDoStep(r, d, table) {
       d.close(); showTab("library"); showSub("assets");
       const card = document.querySelector(`#assets-list [data-entry="${CSS.escape(r.entry)}"]`);
       if (card) { card.scrollIntoView({block: "center"}); card.classList.add("flash"); }
+      return;
+    }
+    if (step === "form") {
+      d.close(); showTab("library");
+      if (r.asset === r.entry) { showSub("assets"); await manageEntry(r.asset); return; }
+      showSub("refs");                          // a kit module: its Brief & build dialog asks for form and size
+      const row = document.querySelector(`#refs-list .next-step[data-unit="${CSS.escape(r.asset)}"]`);
+      if (row) row.scrollIntoView({block: "center"});
       return;
     }
     if (step === "review") { window.open(`/?project=${encodeURIComponent(slug)}&review=${encodeURIComponent(r.asset)}`, "_blank"); return; }

@@ -17,6 +17,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from .. import config, library_entries, review, silhouette, ue, vlm
 from ..comfy import service as comfy_service
+from . import messages
 from ..comfy.client import ComfyError, connect
 from ..jobs import JobQueue
 from ..project import ProjectStore, read_json
@@ -121,6 +122,13 @@ class BriefBuildReq(BaseModel):
     sheet: str                     # the starred sheet to brief from
     rebrief: bool = False          # replace an existing brief with one from this sheet
     view: str = "front"
+    form: str | None = None        # a building_gen.FORM_CHOICES id (else yours / the catalog's)
+    dims: list[float] | None = None    # width, depth, height m (else yours / the plan's)
+
+
+class EntryFormReq(BaseModel):
+    form: str | None = None        # None / "": back to the catalog form
+    size_m: list[float] | None = None
 
 
 class AssetBriefReq(BaseModel):
@@ -182,6 +190,7 @@ class CleanupReq(BaseModel):
 
 class SiteReq(BaseModel):
     force: bool = False
+    city: bool = False            # site/init: the starter city instead of the starter precinct
 
 
 class ShotsReq(BaseModel):
@@ -421,6 +430,14 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         comfy_gate = comfy_gate or comfy_service.Gate()
         jobs = JobQueue(gates={"comfy": comfy_gate})
     gate = comfy_gate or jobs.gates.get("comfy") or comfy_service.Gate()
+    jobs.error_text = messages.app_text             # job failures in app terms, never CLI flags
+
+    @app.exception_handler(HTTPException)
+    def http_error(request: Request, exc: HTTPException):
+        """Every API error's text in app terms (the pipeline's messages are shared with the CLI)."""
+        d = exc.detail
+        d = messages.app_text(d) if isinstance(d, str) else d
+        return JSONResponse(status_code=exc.status_code, content={"detail": d}, headers=getattr(exc, "headers", None))
 
     @app.exception_handler(comfy_service.ComfyDown)
     def comfy_down(request: Request, exc: comfy_service.ComfyDown):
@@ -821,7 +838,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def site_init(slug: str, req: SiteReq):
         store = _store(slug)
         try:
-            layout = sw_site.init(store, force=req.force)
+            layout = sw_site.init(store, force=req.force, city_mode=req.city)
         except FileExistsError as e:
             raise HTTPException(409, str(e))
         return {"plots": len(layout.plots), "shots": len(layout.shots)}
@@ -1208,6 +1225,23 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _entry_call(sw_library.describe, store, entry, req.description)
         return library_entries.view(store, entry)
 
+    @app.get("/api/forms")
+    def forms():
+        """The building forms an artist picks from, with a line each (Brief & build, Manage entry…)."""
+        from ..building_gen import FORM_CHOICES
+        return [{k: c[k] for k in ("id", "label", "desc")} for c in FORM_CHOICES]
+
+    @app.get("/api/projects/{slug}/library/entries/{entry}/form")
+    def library_entry_form(slug: str, entry: str):
+        store = _store(slug)
+        if library_entries._entry_of(store, entry)[0] is None:
+            raise HTTPException(404, f"no library entry {entry}")
+        return library_entries.form_info(store, entry)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/form")
+    def library_entry_set_form(slug: str, entry: str, req: EntryFormReq):
+        return _entry_call(library_entries.set_form, _store(slug), entry, req.form, req.size_m)
+
     @app.post("/api/projects/{slug}/library/asset/{asset}/brief_build")
     def library_brief_build(slug: str, asset: str, req: BriefBuildReq):
         """Brief & build: the brief from a starred sheet (`ap library brief`), then the build and
@@ -1215,11 +1249,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         from .. import kit_proc, library_review as lr
         from ..jobs import current_job
         store = _store(slug)
-        data = sw_library.load(store) or {}
-        e = next((x for x in data.get("entries", []) + data.get("unseen", []) if x["id"] == asset), None)
+        e, own = library_entries._entry_of(store, asset)      # an entry, or a kit module of one
         if e is None:
             raise HTTPException(404, f"no library entry {asset}")
-        if sw_library.route(e, sw_library.decisions(store).get(asset)) != "procedural":
+        if sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
             raise HTTPException(400, f"{asset} is on the TRELLIS route: use Cut views")
         try:
             review.rel(store, req.sheet)
@@ -1236,7 +1269,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             if rebrief:
                 at(1, "VLM brief…")
                 try:
-                    library_entries.brief_from_sheet(store, asset, req.sheet, req.view)
+                    if req.form or req.dims:              # what the dialog chose: kept as the entry's own
+                        library_entries.set_form(store, asset, req.form or library_entries.form_info(store, asset)["form"],
+                                                 req.dims or library_entries.form_info(store, asset)["size_m"])
+                    library_entries.brief_from_sheet(store, asset, req.sheet, req.view, form=req.form, dims=req.dims)
                 except ValueError as ex:
                     msg = str(ex)
                     if "no near-front view" in msg:          # the UI's words, not the CLI's 0 / 1 / 2

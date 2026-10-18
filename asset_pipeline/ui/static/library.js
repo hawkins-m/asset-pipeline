@@ -224,6 +224,40 @@ function idPrompt({title, intro, label, value, button, onGo}) {
     {label: "Cancel"}]});
 }
 
+// --- building form and size (Brief & build and Manage entry…) ------------------------------
+let FORMS_CACHE = null;
+async function buildingForms() {
+  if (!FORMS_CACHE) FORMS_CACHE = await api("/api/forms", undefined, "GET");
+  return FORMS_CACHE;
+}
+// Form dropdown (each generator with a line) and Size (w × d × h m), pre-filled from info
+// (library_entries.form_info). allowAuto: an "as now" first option (Manage entry…).
+async function formFieldsHtml(info, {allowAuto = false} = {}) {
+  const forms = await buildingForms(), cur = info.form || "", sel = cur || info.suggested;
+  const src = {yours: "your choice", brief: "from its brief", entry: "the entry's", catalog: "from the catalog"}[info.source] || "";
+  const opt = f => `<option value="${f.id}"${f.id === sel && !(allowAuto && !info.source) ? " selected" : ""} title="${esc(f.desc)}">${esc(f.label)}${f.id === info.suggested && !cur ? " (suggested)" : ""}</option>`;
+  const size = info.size_m || ["", "", ""];
+  return `${entryField("ff-form", "Form:", `<select id="ff-form">${allowAuto ? `<option value=""${info.source && info.source !== "yours" ? " selected" : ""}>${cur ? `as now (${esc((forms.find(f => f.id === cur) || {label: cur}).label)}, ${src})` : "none yet"}</option>` : ""}${forms.map(opt).join("")}</select>`)}
+    <span></span><span class="hint" id="ff-form-desc" style="margin:0"></span>
+    ${entryField("ff-w", "Size (m):", `<span class="ff-size"><input id="ff-w" type="number" min="0.1" step="0.01" value="${size[0]}" aria-label="Width (m)"> ×
+      <input id="ff-d" type="number" min="0.1" step="0.01" value="${size[1]}" aria-label="Depth (m)"> ×
+      <input id="ff-h" type="number" min="0.1" step="0.01" value="${size[2]}" aria-label="Height (m)"></span>`)}
+    <span></span><span class="hint" style="margin:0">width × depth × height${info.size_source ? ` (${info.size_source === "yours" ? "your size" : "from the plan"})` : ", needed for the brief"}</span>`;
+}
+function formFieldsWire(body) {
+  const sel = $("#ff-form", body), desc = $("#ff-form-desc", body);
+  const show = () => { const f = (FORMS_CACHE || []).find(x => x.id === sel.value); desc.textContent = f ? f.desc : ""; };
+  sel.onchange = show; show();
+}
+// {form, dims} from the fields; dims null when untouched-empty; an Error for half-filled sizes
+function formFieldsRead(body) {
+  const v = ["#ff-w", "#ff-d", "#ff-h"].map(s => $(s, body).value.trim());
+  if (v.every(x => x === "")) return {form: $("#ff-form", body).value || null, dims: null};
+  const dims = v.map(Number);
+  if (dims.some(x => !(x > 0))) throw new Error("Size: fill in width, depth and height, all above 0 m.");
+  return {form: $("#ff-form", body).value || null, dims};
+}
+
 async function manageEntry(id) {
   const ent = libEntries().find(x => x.id === id); if (!ent) return;
   const dec = libraryData.decisions[id] || {};
@@ -237,7 +271,14 @@ async function manageEntry(id) {
     ${entryField("en-route", "3D route:", `<select id="en-route"><option value="">auto (${LIB_ROUTES[ent.route_auto] || "none"})</option>
       <option value="procedural"${dec.route === "procedural" ? " selected" : ""}>procedural</option><option value="trellis"${dec.route === "trellis" ? " selected" : ""}>TRELLIS</option></select>`)}
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
-      .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}`;
+      .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}
+    <div class="ff-box" id="en-form-box" style="display:contents"></div>`;
+  let finfo = null;
+  if ((ent.route || ent.route_auto) === "procedural" || dec.route === "procedural") {
+    try { finfo = await api(`/api/projects/${slug}/library/entries/${id}/form`, undefined, "GET");
+          $("#en-form-box", body).innerHTML = await formFieldsHtml(finfo, {allowAuto: true}); formFieldsWire(body); }
+    catch (err) { $("#en-form-box", body).innerHTML = `<p class="error">${esc(errorText(err))}</p>`; }
+  }
   const reload = async () => { await entriesReload(); };
   $("#en-desc-reset", body).onclick = async () => {
     try { await api(`/api/projects/${slug}/library/entries/${id}/description`, {description: null}); } catch (err) { alert(errorText(err)); return; }
@@ -251,6 +292,14 @@ async function manageEntry(id) {
         if (name !== nm && name) await api(`/api/projects/${slug}/library/entries/${id}/rename`, {name});
         const route = $("#en-route", body).value || null;
         if (route !== (dec.route || null)) await api(`/api/projects/${slug}/library/route`, {entry: id, route});
+        if (finfo) {
+          const ff = formFieldsRead(body);
+          const same = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
+          const mySize = finfo.size_source === "yours" ? finfo.size_m : null;
+          if (ff.form || !same(ff.dims, mySize) && !same(ff.dims, finfo.size_m))
+            await api(`/api/projects/${slug}/library/entries/${id}/form`, {form: ff.form || (finfo.source === "yours" ? finfo.form : null),
+                                                                          size_m: ff.dims && !same(ff.dims, finfo.size_m) ? ff.dims : mySize});
+        }
         const decision = $("#en-decision", body).value || null;
         if (decision !== (dec.decision || null)) {
           if (decision === "reference") { alert("Pick the reference frame with the card's 'Description + reference frame' button."); }

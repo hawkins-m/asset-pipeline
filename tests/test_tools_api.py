@@ -110,7 +110,7 @@ def test_brief_build_runs_brief_when_missing_then_builds(client, store, monkeypa
     assert client.post(f"{U}/library/asset/stall/brief-build", json={}).status_code == 400   # no brief, no sheets
     from asset_pipeline import building_proc
     monkeypatch.setattr(building_proc, "front_view", lambda st, sh, a: {"best": (sh[0], 1, 0.9), "scores": []})
-    monkeypatch.setattr(building_proc, "brief", lambda *a: calls.append(("brief", a[1], a[2], a[3], a[4], a[5])) or {})
+    monkeypatch.setattr(building_proc, "brief", lambda *a, **k: calls.append(("brief", a[1], a[2], a[3], a[4], a[5])) or {})
     r = client.post(f"{U}/library/asset/hall/brief-build",
                     json={"sheet": "s.png", "force_brief": True, "form": "cube", "dims": [10, 10, 10]}).json()
     assert _wait(client, r)["status"] == "done"

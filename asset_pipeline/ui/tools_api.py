@@ -329,27 +329,10 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         return jobs.submit("library.brief", slug, run, lane="gpu0", tag={"asset": asset}).public()
 
     def make_brief(store, asset, req):
-        """The body of `ap library brief`: entry -> form and dims -> measured brief from a sheet."""
-        from ..building_proc import FORM_OF, brief, front_view
-        data = sw_library.load(store)
-        e = next((x for x in data["entries"] + data["unseen"] if x["id"] == asset), None)
-        dims = req.dims or (e or {}).get("size_m")
-        form = req.form
-        if not form and e:
-            typ = {t.id: t for t in sw_site.load_layout(store).city.typologies}.get(e["typology"])
-            form = FORM_OF.get(typ.form) if typ else None
-            form = "basilica" if e["typology"] == "basilica" else form
-        if not form or not dims:
-            raise ValueError("give a form and dimensions (no catalog form with a generator, or no size)")
-        view = req.view
-        if view == "front":
-            fv = front_view(store, [req.sheet], asset)
-            if not fv["best"]:
-                raise ValueError(f"no near-front view on {req.sheet}: pick one (0 / 1 / 2 / all)")
-            view = fv["best"][1]
-        elif view != "all":
-            view = int(view)
-        return brief(store, asset, req.sheet, view, form, dims, None)
+        """The body of `ap library brief` (library_entries.brief_from_sheet: one form logic for
+        every button), with the form and size the user chose, else theirs or the catalog's."""
+        from .. import library_entries
+        library_entries.brief_from_sheet(store, asset, req.sheet, req.view, form=req.form, dims=req.dims)
 
     # --- preflight -------------------------------------------------------------------------
 

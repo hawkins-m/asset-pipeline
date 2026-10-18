@@ -96,7 +96,7 @@ async function launcherDialog() {
   const d = dialog({title: "Desktop launcher", className: "tool-window", body: `<p id="launcher-state">${esc(show(st))}</p>
     <p class="hint">Adds a Terraformer entry to the applications menu. It opens this page, starting the UI first when it is not
     running. Files go to <code>~/.local/share/applications</code>, <code>~/.local/share/icons</code> and
-    <code>~/.local/bin</code>. Same as <code>ap launcher install|remove</code>.</p>`, buttons: [
+    <code>~/.local/bin</code>.</p>`, buttons: [
     {label: "Install", default: true, onClick: async () => {
       try { await api("/api/launcher/install", {}); $("#launcher-state", d.win).textContent = "Installed."; }
       catch (err) { alert(errorText(err)); }

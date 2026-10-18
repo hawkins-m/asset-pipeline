@@ -58,6 +58,7 @@ async function siteAction(path, body = {}) {
 }
 
 $("#site-init").onclick = () => siteAction("site/init");
+$("#city-init").onclick = () => siteAction("site/init", {city: true});
 $("#site-build").onclick = () => siteAction("site/build");
 $("#site-extract").onclick = () => siteAction("site/extract");
 $("#site-preview").onclick = () => siteAction("site/preview");

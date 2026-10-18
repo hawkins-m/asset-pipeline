@@ -85,8 +85,9 @@ def check_canceled() -> None:
 class JobQueue:
     LANES = ("comfy", "gpu0", "cpu", "service")
 
-    def __init__(self, lanes: tuple[str, ...] = LANES, gates: dict | None = None):
+    def __init__(self, lanes: tuple[str, ...] = LANES, gates: dict | None = None, error_text=None):
         self.gates = dict(gates or {})    # lane -> object with check_submit() and wait(job)
+        self.error_text = error_text      # job error -> the text the UI shows (ui.messages.app_text)
         self._ids = itertools.count(1)
         self._jobs: dict[int, Job] = {}
         self._queues: dict[str, queue.Queue] = {}
@@ -157,6 +158,8 @@ class JobQueue:
                 else:
                     job.status = "error"
                     job.error = f"{type(e).__name__}: {e}"
+                    if self.error_text:
+                        job.error = self.error_text(job.error)
                     traceback.print_exc()
             finally:
                 _local.job = None

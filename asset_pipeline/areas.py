@@ -129,7 +129,12 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
             inst = read_json(kit_proc.out_dir(store, a) / "instances" / "index.json", default=None) or []
             trellis = s5_3d.results(store, sw_library.PLAN_NAME, a) if route == "trellis" else []
             st = (revs.get(a) or {}).get("status")
-            row = {"asset": a, "entry": eid, "tier": e.get("tier"), "kind": e.get("kind"), "share": round(share, 4),
+            missing = []
+            if route == "procedural" and not brief and e.get("kind") != "kit":
+                from . import library_entries
+                fi = library_entries.form_info(store, a)
+                missing = [k for k, v in (("form", fi["form"]), ("size", fi["size_m"])) if not v]
+            row = {"asset": a, "entry": eid, "tier": e.get("tier"), "kind": e.get("kind"), "share": round(share, 4), "missing": missing,
                    "decision": d.get("decision"), "route": route, "sheets": nsheets, "brief": brief,
                    "built": built, "fresh": fresh, "instances": len(inst), "trellis": len(trellis),
                    "status": st, "note": (revs.get(a) or {}).get("note", "")}
@@ -148,6 +153,9 @@ def next_step(store: ProjectStore, r: dict, area: str | None, district: str | No
     if not r["sheets"] and not (r["route"] == "procedural" and r["brief"]):
         return f"make sheets: References tab, or ap library sheets {p} {sel}"
     if r["route"] == "procedural":
+        if r.get("missing"):
+            return (f"set its {' and '.join(r['missing'])}: Manage entry… › Form / Size in Library › Asset review "
+                    f"(the Brief & build dialog asks too)")
         if not r["brief"]:
             return f"brief from the best sheet view: ap library brief {p} {r['asset']} <sheet> front"
         if not r["built"] or not r["fresh"]:

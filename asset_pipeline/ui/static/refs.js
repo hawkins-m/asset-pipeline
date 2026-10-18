@@ -128,14 +128,29 @@ async function refsBriefBuild(u, sheet, nx) {
       : `Brief <b>${esc(u.title)}</b> from <code>${esc(sheet.split("/").pop())}</code> with the vision model, then build it.`}</p>
     <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">
       <option value="front">Auto (the most frontal view)</option><option value="0">Left view</option>
-      <option value="1">Middle view</option><option value="2">Right view</option><option value="all">The whole sheet</option></select></div>`;
+      <option value="1">Middle view</option><option value="2">Right view</option><option value="all">The whole sheet</option></select>
+      <div id="bb-form" style="display:contents"></div></div>`;
+  const info = nx.form || {form: null, suggested: "cube", size_m: null};
+  try { $("#bb-form", body).innerHTML = await formFieldsHtml(info); formFieldsWire(body); }
+  catch (err) { $("#bb-form", body).innerHTML = `<p class="error">${esc(errorText(err))}</p>`; }
+  if (!info.form || !info.size_m) body.insertAdjacentHTML("afterbegin",
+    `<p class="hint">${esc(u.title)} has no ${!info.form && !info.size_m ? "building form or size" : !info.form ? "building form" : "size"} yet:
+      choose ${!info.form ? "the form" : "the size"} below. It is saved with the entry (Manage entry… › Form).</p>`);
   const go = async rebrief => {
     const view = $("#bb-view", body).value;
-    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`, {sheet, rebrief, view}); await load(); }
+    let ff = {form: null, dims: null};
+    if (rebrief) {
+      try { ff = formFieldsRead(body); } catch (err) { alert(errorText(err)); return false; }
+      if (!ff.dims && !info.size_m) { alert("Size: fill in width, depth and height (m) for the brief."); return false; }
+      if (ff.form === info.form) ff.form = null;                  // unchanged: theirs stays theirs
+      if (ff.dims && JSON.stringify(ff.dims) === JSON.stringify(info.size_m)) ff.dims = null;
+    }
+    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`,
+                    {sheet, rebrief, view, form: ff.form, dims: ff.dims}); await load(); }
     catch (err) { alert(errorText(err)); }
   };
   dialog({title: "Brief & build", body, buttons: nx.has_brief ? [
-    {label: "Re-brief from this sheet", default: true, onClick: () => { go(true); }},
-    {label: "Just rebuild", onClick: () => { go(false); }},
-    {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => { go(true); }}, {label: "Cancel"}]});
+    {label: "Re-brief from this sheet", default: true, onClick: () => go(true)},
+    {label: "Just rebuild", onClick: () => go(false)},
+    {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => go(true)}, {label: "Cancel"}]});
 }

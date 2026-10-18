@@ -174,7 +174,7 @@ function lrRenderUsage() {
 
 function lrSilhouette() {    // silhouette checks against locked frames (ap library silhouette / ap ue look)
   const sh = lr.data.silhouette || {}, ids = Object.keys(sh);
-  if (!ids.length) return `<p class="hint" style="margin:4px 0 0">No silhouette check yet (<code>ap library silhouette</code>).</p>`;
+  if (!ids.length) return `<p class="hint" style="margin:4px 0 0">No silhouette check yet.</p>`;
   return `<p style="margin:6px 0 2px"><b>Silhouette vs locked frame</b></p><ul class="list lr-shots">${ids.map(id => {
     const r = sh[id], ok = r.score >= 0.85, ook = (r.openings_iou ?? 0) >= 0.7;
     return `<li><span>${esc(id)} <span class="mark ${ok ? "m-ok" : "m-chg"}">silhouette ${r.score.toFixed(2)}</span>

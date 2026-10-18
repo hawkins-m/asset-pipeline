@@ -210,7 +210,7 @@ def test_a_duplicate_briefs_with_its_catalog_form_not_a_cube(proj, monkeypatch):
     monkeypatch.setattr(sw_site, "load_layout", lambda s: SimpleNamespace(city=SimpleNamespace(typologies=[typ])))
     monkeypatch.setitem(building_proc.FORM_OF, "vault_hall", "hall_vault")
     got = {}
-    monkeypatch.setattr(building_proc, "brief", lambda store, e, sheet, view, form, dims, params: got.update(form=form) or {})
+    monkeypatch.setattr(building_proc, "brief", lambda store, e, sheet, view, form, dims, params, feats=None: got.update(form=form) or {})
     le.brief_from_sheet(proj, "hall-copy", "refs/library/hall-copy/sheet_000.png", view="0")
     assert got["form"] == "hall_vault"
     le.create(proj, "plain-box", kind="building")
@@ -233,3 +233,87 @@ def test_brief_and_build_sets_an_approved_asset_back_to_needs_review(proj, monke
             break
     assert j["status"] == "done", j
     assert lr.get(proj, "hall-a")["status"] == "needs_review"
+
+
+def test_entry_without_a_catalog_form_asks_for_one_in_app_terms(proj, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(sw_site, "load_layout", lambda s: SimpleNamespace(city=SimpleNamespace(typologies=[])))
+    le.create(proj, "forum-portico", name="forum portico", kind="building", route="procedural",
+              description="One range of an enclosed forum: two storeys of colonnades", size_m=[73, 25, 14])
+    d = sw_library.decisions(proj)
+    d["forum-portico"].pop("form", None)
+    write_json(sw_library.decisions_path(proj), d)
+    custom = read_json(sw_site.site_dir(proj) / "library_custom.json")
+    for group in ("entries", "unseen"):
+        g = custom.get(group) or {}
+        for e in (g.values() if isinstance(g, dict) else g):
+            e.pop("custom", None)                     # behave like a plan entry: no cube fallback
+    write_json(sw_site.site_dir(proj) / "library_custom.json", custom)
+    info = le.form_info(proj, "forum-portico")
+    assert info["form"] is None and info["suggested"] == "arcade_range" and info["size_m"] == [73.0, 25.0, 14.0]
+    with pytest.raises(le.FormNeeded) as e:
+        le.brief_from_sheet(proj, "forum-portico", "refs/library/forum-portico/sheet_000.png", view="0")
+    assert "--" not in str(e.value) and "Form" in str(e.value) and "One-storey colonnade range" in str(e.value)
+    got = {}
+    from asset_pipeline import building_proc
+    monkeypatch.setattr(building_proc, "brief", lambda store, a, sheet, view, form, dims, params=None, feats=None:
+                        got.update(form=form, dims=dims, feats=feats) or {})
+    le.set_form(proj, "forum-portico", "arcade_range")
+    assert le.form_info(proj, "forum-portico")["source"] == "yours"
+    le.brief_from_sheet(proj, "forum-portico", "refs/library/forum-portico/sheet_000.png", view="0")
+    assert got["form"] == "arcade_hall" and got["feats"]["range"]["h"] > 0 and got["dims"] == [73.0, 25.0, 14.0]
+    with pytest.raises(ValueError):
+        le.set_form(proj, "forum-portico", "nonsense")
+    with pytest.raises(ValueError, match="above 0"):
+        le.set_form(proj, "forum-portico", "arcade_range", [10, 0, 5])
+
+
+def test_forms_api_and_brief_build_keep_the_dialogs_choice(proj, monkeypatch):
+    _populate(proj, "hall-a")
+    sw_library.set_route(proj, "hall-a", "procedural")
+    kit_proc.spec_path(proj, "hall-a").unlink()
+    seen = {}
+    monkeypatch.setattr(le, "brief_from_sheet", lambda store, a, sheet, view="front", form=None, dims=None, **k: seen.update(form=form, dims=dims))
+    monkeypatch.setattr(lr, "rebuild", lambda store, asset, log=None: {"round": 1})
+    c = TestClient(ui_app.create_app(JobQueue()))
+    forms = c.get("/api/forms").json()
+    assert any(f["id"] == "arcade_range" and f["desc"] for f in forms) and all(f["label"] for f in forms)
+    assert c.get("/api/projects/p/library/entries/hall-a/form").json()["suggested"]
+    assert c.post("/api/projects/p/library/entries/hall-a/form", json={"form": "civic_block", "size_m": [20, 10, 9]}).json()["source"] == "yours"
+    job = c.post("/api/projects/p/library/asset/hall-a/brief_build",
+                 json={"sheet": "refs/library/hall-a/sheet_000.png", "form": "arcade_range", "dims": [70, 24, 14]}).json()
+    for _ in range(300):
+        j = c.get(f"/api/jobs/{job['id']}").json()
+        if j["status"] in ("done", "error"):
+            break
+    assert j["status"] == "done", j
+    assert seen == {"form": "arcade_range", "dims": [70.0, 24.0, 14.0]}
+    assert le.form_info(proj, "hall-a")["form"] == "arcade_range" and le.form_info(proj, "hall-a")["size_m"] == [70.0, 24.0, 14.0]
+    assert c.get("/api/projects/p/library/entries/nope/form").status_code == 404
+    nx = le.next_step(proj, "library", "hall-a")
+    assert nx["form"]["form"] == "arcade_range"
+
+
+def test_colonnade_preset_fits_the_size_and_a_rebrief_keeps_only_your_edits(proj, monkeypatch):
+    from asset_pipeline import building_gen, building_proc
+    f = building_gen.preset_for("arcade_range", [73, 25, 14.3])
+    assert f["bays"] == 16 and f["range"]["h"] == 14.3 and f["range"]["arch_h"] == round(0.75 * 14.3, 2)
+    assert building_gen.FORM_CHOICE["arcade_range"]["features"]["range"]["h"] == 7.0     # the table itself unchanged
+    _populate(proj, "hall-a")
+    writes = []
+
+    def fake_brief(store, a, sheet, view, form, dims, params=None, feats=None):
+        rec = {"kind": "building", "form": form, "dims": dims, "features": feats or {}}
+        write_json(kit_proc.spec_path(store, a), rec)
+        writes.append(rec)
+        return rec
+    monkeypatch.setattr(building_proc, "brief", fake_brief)
+    le.brief_from_sheet(proj, "hall-a", "refs/library/hall-a/sheet_000.png", view="0", form="arcade_range", dims=[73, 25, 14.3])
+    rec = read_json(kit_proc.spec_path(proj, "hall-a"))
+    assert rec["form_choice"] == "arcade_range" and rec["features"]["bays"] == 16
+    rec["features"]["range"]["parapet"] = 1.4                       # the artist's edit in the form
+    write_json(kit_proc.spec_path(proj, "hall-a"), rec)
+    le.brief_from_sheet(proj, "hall-a", "refs/library/hall-a/sheet_000.png", view="0", form="arcade_range", dims=[40, 20, 9])
+    f2 = writes[-1]["features"]
+    assert f2["bays"] == 9 and f2["range"]["h"] == 9.0             # untouched preset values follow the new size
+    assert f2["range"]["parapet"] == 1.4                            # the edit stays

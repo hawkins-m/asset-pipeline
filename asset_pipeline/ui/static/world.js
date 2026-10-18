@@ -45,7 +45,7 @@ function pendingDialog() {
   const {d, form} = formDialog({title: "Pending slots", id: "pending-dialog",
     html: `<label for="pd-shot">Shot:</label><select id="pd-shot">${optionList(shotIds())}</select>
       <label class="check" style="grid-column:1/-1"><input type="checkbox" id="pd-nodraft"> No drafted briefs</label>
-      <p class="hint" style="grid-column:1/-1">Slots the shot shows without an approved build, by frame share (<code>ap library pending</code>).</p>`,
+      <p class="hint" style="grid-column:1/-1">Slots the shot shows without an approved build, by frame share.</p>`,
     buttons: [{label: "Run", default: true, onClick: async () => {
       const j = await runTool("library/pending", {shot: $("#pd-shot", form).value, no_draft: $("#pd-nodraft", form).checked}, "", {show: false});
       if (j) textDialog("Pending slots", (j.result || []).map(r => `${(r.frame_share * 100).toFixed(2).padStart(6)}%  ${r.slot}: ${(r.state || []).join("; ")}`).join("\n") || "None.", "pending-result");
@@ -57,7 +57,7 @@ function silhouetteDialog() {
   formDialog({title: "Silhouette check", id: "silhouette-dialog",
     html: `<label for="sc-shot">Shot:</label><select id="sc-shot">${optionList(shotIds())}</select>
       <label for="sc-entries">Entries:</label><input id="sc-entries" placeholder="entry ids, separated by spaces">
-      <p class="hint" style="grid-column:1/-1">Builds against their building's mask in the shot's locked frame (IoU, aspect): <code>ap library silhouette</code>.</p>`,
+      <p class="hint" style="grid-column:1/-1">Builds against their building's mask in the shot's locked frame (IoU, aspect).</p>`,
     buttons: [{label: "Run", default: true, onClick: async () => {
       const f = $("#silhouette-dialog form");
       await runTool("library/silhouette", {shot: $("#sc-shot", f).value, entries: $("#sc-entries", f).value.split(/[\s,]+/).filter(Boolean)}, "Silhouette check", {id: "silhouette-result"});
@@ -74,7 +74,7 @@ function reviewDoneDialog() {
   if (noProject()) return;
   formDialog({title: "Mark Ready for review", id: "review-done-dialog",
     html: `<label for="rd-assets">Assets:</label><input id="rd-assets" placeholder="assets you changed, separated by spaces">
-      <p class="hint" style="grid-column:1/-1">Marks them Ready for review and opens the next round (<code>ap library review apply --done</code>).</p>`,
+      <p class="hint" style="grid-column:1/-1">Marks them Ready for review and opens the next round.</p>`,
     buttons: [{label: "Mark done", default: true, onClick: async () => {
       const f = $("#review-done-dialog form");
       try { const r = await api(P("library/review/done"), {assets: $("#rd-assets", f).value.split(/[\s,]+/).filter(Boolean)}); alert(`Round ${r.round} is open.`); }
@@ -90,7 +90,7 @@ function framesGenerateDialog() {
     html: `<fieldset style="grid-column:1/-1"><legend>Shots</legend>${shotIds().map(s => `<label class="check"><input type="checkbox" name="gf-shot" value="${esc(s)}"
       ${locked.has(s) ? "disabled" : ""}> ${esc(s)}${locked.has(s) ? " (locked)" : ""}</label>`).join(" ")}</fieldset>
       <label for="gf-n">Frames per shot:</label><input id="gf-n" type="number" min="1" max="12" value="${typeof framesPerShot === "function" ? framesPerShot() : 4}">
-      <p class="hint" style="grid-column:1/-1">Needs ComfyUI and fresh shot passes (<code>ap frames generate PROJECT SHOT -n N</code>). Adds a batch; earlier ones are kept.</p>`,
+      <p class="hint" style="grid-column:1/-1">Needs ComfyUI and fresh shot passes. Adds a batch; earlier ones are kept.</p>`,
     buttons: [{label: "Generate", default: true, onClick: async () => {
       const picked = [...form.querySelectorAll("[name=gf-shot]:checked")].map(x => x.value);
       if (!picked.length) { alert("Pick at least one shot."); return false; }
@@ -107,7 +107,7 @@ function frameLockDialog() {
     html: `<label for="fl-shot">Shot:</label><select id="fl-shot">${optionList(shots.map(s => s.id))}</select>
       <label for="fl-frame">Frame:</label><select id="fl-frame"></select>
       <p class="hint" id="fl-state" style="grid-column:1/-1"></p>
-      <p class="hint" style="grid-column:1/-1">A locked shot is never regenerated or re-placed (<code>ap frames lock</code>).</p>`,
+      <p class="hint" style="grid-column:1/-1">A locked shot is never regenerated or re-placed.</p>`,
     buttons: [
       {label: "Lock", default: true, onClick: () => doLock({frame: $("#fl-frame", form).value})},
       {label: "Lock on greybox", onClick: () => doLock({greybox: true})},
@@ -171,7 +171,7 @@ function vegetationDialog() {
   if (noProject()) return;
   const shots = shotIds();
   formDialog({title: "Vegetation slots", id: "vegetation-dialog",
-    html: `<p class="hint" style="grid-column:1/-1">Street-tree slots on streets and plazas (data for Unreal PCG); the city plan is unchanged (<code>ap site vegetation</code>).</p>
+    html: `<p class="hint" style="grid-column:1/-1">Street-tree slots on streets and plazas (data for Unreal PCG); the city plan is unchanged.</p>
       <label for="vg-shot">Preview shot:</label><select id="vg-shot"><option value="">(none)</option>${optionList(shots)}</select>`,
     buttons: [{label: "Run", default: true, onClick: async () => {
       const f = $("#vegetation-dialog form"), s = $("#vg-shot", f).value;
@@ -183,7 +183,7 @@ function overlapDialog() {
   if (needShots()) return;
   formDialog({title: "Plan overlap", id: "overlap-dialog",
     html: `<label for="ov-shot">Shot:</label><select id="ov-shot">${optionList(shotIds())}</select>
-      <p class="hint" style="grid-column:1/-1">Ground classes of the greybox against a locked frame's plan (<code>ap site overlap</code>; needs site/reconcile/SHOT).</p>`,
+      <p class="hint" style="grid-column:1/-1">Ground classes of the greybox against a locked frame's plan (needs site/reconcile/SHOT).</p>`,
     buttons: [{label: "Run", default: true, onClick: async () => {
       await runTool("site/overlap", {shot: $("#ov-shot", $("#overlap-dialog form")).value}, "Plan overlap", {id: "overlap-result"});
     }}, {label: "Close"}]});
@@ -211,7 +211,7 @@ async function ueImportDialog() {
   try { u = await api(P("unreal"), undefined, "GET"); } catch (err) { alert(errorText(err)); return; }
   const backups = u.backups.length;
   const {d, form} = formDialog({title: "Unreal import", id: "ue-import-dialog",
-    html: `<p class="hint" style="grid-column:1/-1">Imports export/manifest.json into the UE level (<code>ap ue import</code>). Runs the editor headless.
+    html: `<p class="hint" style="grid-column:1/-1">Imports export/manifest.json into the UE level. Runs the editor headless.
         ${u.editor_open ? `<span class="error">An Unreal Editor has the project open: close it first.</span>` : ""}</p>
       <label class="check" style="grid-column:1/-1"><input type="checkbox" id="ui-reset"> Reset layout: move every actor back to the manifest (discards layout edits made in UE)</label>
       <label class="check" style="grid-column:1/-1"><input type="checkbox" id="ui-stale" disabled> Only stale slots (keeps slots you moved by hand)</label>
@@ -257,7 +257,7 @@ function ueRenderDialog() {
   if (needShots()) return;
   const {d, form} = formDialog({title: "Render shots in Unreal", id: "ue-render-dialog",
     html: `<fieldset style="grid-column:1/-1"><legend>Shots (none checked: all)</legend>${shotIds().map(s => `<label class="check"><input type="checkbox" name="ur-shot" value="${esc(s)}"> ${esc(s)}</label>`).join(" ")}</fieldset>
-      <p class="hint" style="grid-column:1/-1">Runs the full editor offscreen on a GPU with little VRAM in use (it checks both). Shaders compile on the first run, which takes a while (<code>ap ue render</code>).</p>`,
+      <p class="hint" style="grid-column:1/-1">Runs the full editor offscreen on a GPU with little VRAM in use (it checks both). Shaders compile on the first run, which takes a while.</p>`,
     buttons: [{label: "Render", default: true, onClick: async () => {
       await runTool("ue/render", {shots: [...form.querySelectorAll("[name=ur-shot]:checked")].map(x => x.value)}, "Unreal renders", {id: "ue-render-result"});
     }}, {label: "Cancel"}]});
@@ -270,7 +270,7 @@ async function ueLookDialog() {
   if (!looks.length) { alert("No look presets in site/look_tests/ yet."); return; }
   formDialog({title: "Look scene", id: "ue-look-dialog",
     html: `<label for="ul-name">Preset:</label><select id="ul-name">${optionList(looks)}</select>
-      <p class="hint" style="grid-column:1/-1">Rebuilds the preset's shot in a level of its own and renders it (<code>ap ue look PROJECT NAME</code>). Runs Unreal; takes minutes.</p>`,
+      <p class="hint" style="grid-column:1/-1">Rebuilds the preset's shot in a level of its own and renders it. Runs Unreal; takes minutes.</p>`,
     buttons: [{label: "Render", default: true, onClick: async () => {
       await runTool("ue/look", {name: $("#ul-name", $("#ue-look-dialog form")).value}, "Look scene", {id: "ue-look-result"});
     }}, {label: "Cancel"}]});

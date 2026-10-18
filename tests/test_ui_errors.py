@@ -130,3 +130,91 @@ def test_server_error_details_are_text_or_carry_a_message():
     app = (STATIC.parent / "app.py").read_text()
     assert not re.search(r"HTTPException\(\s*\d+\s*,\s*\{", app)          # dict details only via the handler,
     assert '"message":' in app.split("def comfy_down")[1].split("def ")[0]   # which always has a message
+
+
+# --- no CLI flags in what the UI shows: job errors and API errors pass through ui.messages ---
+
+def _flagged_literals():
+    """Every string in the pipeline's code (not the CLI's argparse) that names a --flag: the
+    raw material of error messages that the CLI and the UI share."""
+    import ast
+    root = STATIC.parents[1]
+    out = []
+    for f in root.rglob("*.py"):
+        if f.name == "cli.py" or "ui/messages.py" in f.as_posix():
+            continue
+        for node in ast.walk(ast.parse(f.read_text())):
+            parts = [node.value] if isinstance(node, ast.Constant) and isinstance(node.value, str) else \
+                [v.value for v in node.values if isinstance(v, ast.Constant)] if isinstance(node, ast.JoinedStr) else []
+            out += [(f.name, p) for p in parts if re.search(r"(?<![\w-])--[a-z]", p)]
+    return out
+
+
+def test_no_error_text_keeps_a_cli_flag():
+    from asset_pipeline.ui.messages import app_text
+    lits = _flagged_literals()
+    assert len(lits) > 5                                           # the scan finds the CLI hints
+    bad = [(f, s, app_text(s)) for f, s in lits if "--" in app_text(s)]
+    assert not bad, bad
+    samples = {
+        "give --form and --dims (no catalog form with a generator, or no size)": ("Form", "Size"),
+        "give an area (--area NAME) or a district (--district ID)": ("Library › Areas…",),
+        "no area 'x': define it with ap area define p x --shots ...": ("New area… in Library › Areas…",),
+        "street trees need a city layout (ap site init --city)": ("City tab",),
+        "files exist; use --force to rebuild": ("Rebuild unchanged",),
+    }
+    for msg, want in samples.items():
+        t = app_text(msg)
+        assert "--" not in t and all(w in t for w in want), (msg, t)
+
+
+def test_job_and_api_errors_reach_the_ui_without_cli_flags():
+    import time
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.ui import app as ui_app
+    q = JobQueue()
+    client = TestClient(ui_app.create_app(q))
+
+    def boom():
+        raise ValueError("give --form and --dims (no catalog form with a generator, or no size)")
+    job = q.submit("x", "", boom, lane="cpu")
+    for _ in range(200):
+        if q.get(job.id).status == "error":
+            break
+        time.sleep(0.01)
+    err = q.get(job.id).error
+    assert "--" not in err and "Form" in err and "Size" in err
+
+    @client.app.get("/api/test/cli-error")
+    def cli_error():
+        raise HTTPException(400, "nothing to build: run ap library brief p a s front, or use --force")
+    r = client.get("/api/test/cli-error")
+    assert r.status_code == 400 and "--" not in r.json()["detail"] and "Brief & build" in r.json()["detail"]
+
+
+def test_ui_scripts_show_no_cli_flags():
+    bad = []
+    for f in sorted(STATIC.glob("*.js")):
+        for kind, arg, line in _calls(f.read_text()):
+            if re.search(r"(?<![\w-])--[a-z]", arg):
+                bad.append(f"{f.name}:{line}: {kind}(... {arg.strip()[:80]})")
+    assert not bad, "\n".join(bad)
+
+
+def test_ui_text_names_no_cli_commands_or_flags():
+    """What the app shows (hints, titles, empty states) names menu items and fields, never `ap`
+    commands or --flags; comments and CSS custom properties are not shown text."""
+    cmd = re.compile(r"\bap (?:library|ue|site|frames|area|shots|comfy|preflight|vlm|launcher|terrain|refs|plan|style)\b")
+    flag = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
+    bad = []
+    for f in sorted(list(STATIC.glob("*.js")) + list(STATIC.glob("*.html"))):
+        src = f.read_text()
+        src = re.sub(r"/\*.*?\*/|<!--.*?-->", "", src, flags=re.S)
+        for n, ln in enumerate(src.splitlines(), 1):
+            code = re.sub(r"(^|\s)//.*$", "", ln)                    # line comments
+            code = re.sub(r"var\(--[\w-]+\)|--[\w-]+\s*:", "", code)  # CSS custom properties
+            if cmd.search(code) or flag.search(code):
+                bad.append(f"{f.name}:{n}: {ln.strip()[:100]}")
+    assert not bad, "\n".join(bad)

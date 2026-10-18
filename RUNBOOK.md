@@ -36,7 +36,9 @@ list, largest frame share first:
 
 1. **Decide** (undecided entries): the button opens Library › Asset review at the entry.
    **Manage entry…** on its card: decision (good source, description, reference frame,
-   exclude), route (procedural or TRELLIS), description (yours / auto). See section 7 for new,
+   exclude), route (procedural or TRELLIS), description (yours / auto), and for procedural
+   entries **Form** and **Size**. The area panel marks entries with *no form* or *no size*
+   (its **Set form…** button opens this) so they're fixed before Brief & build. See section 7 for new,
    duplicated and renamed entries.
 2. **Sheets.** The area's **Sheets for missing…** makes two sheets for every decided,
    unapproved entry that has none (about 55 s each; it shows the count first). For another try:
@@ -49,8 +51,11 @@ list, largest frame share first:
 3. **Star the best sheet.** The asset's row then shows its next step:
    - **Brief & build** (procedural: buildings and structures). Choose the view to measure
      (*Auto* picks the most frontal one; curved buildings such as vaults need you to pick the
-     left, middle or right view), then the vision model writes the brief and Blender builds
-     and renders it. With a brief already there it asks: *Re-brief from this sheet* or *Just
+     left, middle or right view), the **Form** (the building generator; pre-selected from the
+     catalog, the brief, or a suggestion from the entry's description, e.g. *One-storey colonnade
+     range* for a portico) and the **Size** (width × depth × height, from the plan). The vision
+     model then writes the brief and Blender builds and renders it. The form and size you choose
+     are kept with the entry. With a brief already there it asks: *Re-brief from this sheet* or *Just
      rebuild*. Then **Open in Asset review**.
    - **Cut views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
      3D**: click the view to use and **Make 3D** there.
@@ -124,6 +129,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 | Start ComfyUI fails | The launcher exited or didn't answer in time; the job shows the log's error lines | Tools › Preflight…; the log is `$AP_ROOT/logs/comfyui.log`; the launch command is config `[comfyui.service]` |
 | A yellow bar "The app was updated" | New code since the page loaded | **Reload** |
 | Brief & build: "no near-front view" | No view on the sheet is frontal enough (curved buildings) | Brief & build again and choose the left, middle or right view |
+| Brief & build: "has no building form" / "has no size" | The entry's catalog type has no generator, or no size | Choose Form / Size in the Brief & build dialog, or Manage entry… › Form, Size |
 | "no view chosen" (TRELLIS) | No view clicked | Views and 3D › click a view of the asset |
 | "not decided yet" (sheets) | No source decision | Manage entry… › Decision |
 | "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the Jobs panel |

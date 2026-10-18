@@ -101,7 +101,7 @@ const TIPS = {
     both_sides_w: "From this street width (metres) a row on each side; narrower streets get one row, alternating sides.",
     plaza_inset_m: "How far inside the plaza's edge the ring of trees stands, metres.",
     clear_m: "Clearance from buildings, other ways and existing trees, metres.",
-    seed: "The street trees' own random stream (crown sizes, the ring's start angle). Run ap site vegetation after a change.",
+    seed: "The street trees' own random stream (crown sizes, the ring's start angle). Run World › Vegetation slots… after a change.",
   },
   variation: {
     storeys_jitter: "City-wide: random storeys added or removed per building (plus or minus this many).",

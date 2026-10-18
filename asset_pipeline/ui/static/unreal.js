@@ -21,7 +21,7 @@ function renderUnreal() {
   setStop("#ue-export-stop", exporting);
 
   $("#ue-project").textContent = u.uproject;
-  $("#ue-backup-state").innerHTML = !u.project ? `No UE project yet (<code>ap ue init PROJECT</code>).` :
+  $("#ue-backup-state").innerHTML = !u.project ? `No UE project yet (Unreal › Create UE project).` :
     (u.backups.length ? `${u.backups.length} snapshot${u.backups.length === 1 ? "" : "s"}, newest ${esc(u.backups.at(-1))}`
       : "No snapshots yet.") + ` · ${esc(u.backup_dir)}` +
     (u.editor_open ? `<br><span class="error">An Unreal Editor has the project open: save and close it before backing up.</span>` : "");

@@ -147,7 +147,7 @@
       <!-- City catalog -->
       <section class="tabpanel" data-tab="city" id="city-tab" hidden>
         <div class="applybar-slot"></div>
-        <p id="city-none" class="hint">This project has no city spec (start one with <code>ap site init --city</code>).</p>
+        <p id="city-none" class="hint">This project has no city layout yet. <button type="button" id="city-init" class="small">Start from the starter city</button></p>
         <div id="catalog" class="city" hidden>
           <div class="row city-top">
             <label>Edit: <select id="city-section" aria-label="Catalog section"></select></label>
@@ -289,14 +289,9 @@
           <div class="row"><button type="button" id="ue-backup">Back up now</button><span id="ue-backup-stop"></span>
             <span id="ue-backup-state" class="hint" style="margin:0"></span></div>
         </fieldset>
-        <fieldset><legend>Command line</legend>
-          <p class="hint">Import and renders drive UnrealEditor and run from the command line for now.</p>
-          <div class="form">
-            <span class="lbl">Import:</span><code>ap ue import PROJECT</code>
-            <span class="lbl">Relayout:</span><code>ap ue backup PROJECT &amp;&amp; ap ue import PROJECT --reset-layout --prune</code>
-            <span class="lbl">Renders:</span><code>ap ue render PROJECT</code>
-            <span class="lbl">Pull layout:</span><code>ap ue pull-layout PROJECT</code>
-          </div>
+        <fieldset><legend>Import, renders, layout</legend>
+          <p class="hint">In the <b>Unreal</b> menu: Import… (a wholesale relayout is Import with Reset layout and Prune, after a
+            backup), Render shots…, Pull layout, Stale report…, Look scene….</p>
         </fieldset>
       </section>
     </div>

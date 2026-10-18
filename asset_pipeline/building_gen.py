@@ -877,6 +877,48 @@ def campanile(dims, p, f) -> list[dict]:
     return parts
 
 
+# The forms an artist picks from (Brief & build, Manage entry…): a generator plus, for some, a
+# feature preset. "arcade_range" is arcade_hall's single-storey range (colonnades, porticoes).
+FORM_CHOICES = [
+    {"id": "arcade_range", "form": "arcade_hall", "label": "One-storey colonnade range",
+     "desc": "a long single-storey arcade or colonnade with flat-roofed blocks set back behind it (porticoes, stoas, market ranges)",
+     "features": {"range": {"h": 7.0, "d": 8.0, "arch_h": 5.6, "parapet": 0.9},
+                  "front": {"ground": {"kind": "pilotis", "column": "round"}}},
+     "sized": "range"},                    # preset_for() fits bays and range height to the entry's size
+    {"id": "arcade_hall", "form": "arcade_hall", "label": "Arcaded civic hall",
+     "desc": "a round-arched arcade across the front, tall upper storeys with arched windows, a low hipped roof"},
+    {"id": "civic_block", "form": "civic_block", "label": "Civic block",
+     "desc": "a deep colonnade across the front with the wall set back, a centred loggia, a parapet"},
+    {"id": "hall_vault", "form": "hall_vault", "label": "Barrel-vaulted hall",
+     "desc": "a vaulted shell on a low plinth with open or screened ends (market halls)"},
+    {"id": "basilica", "form": "basilica", "label": "Basilica",
+     "desc": "a long nave with clerestory and aisles, a pylon front and an apse"},
+    {"id": "perimeter", "form": "perimeter", "label": "Perimeter block",
+     "desc": "four wings around a courtyard, street facades with storeys, loggias and an attic"},
+    {"id": "row", "form": "row", "label": "Row of houses",
+     "desc": "narrow attached houses along the street, each its own height and front"},
+    {"id": "podium_tower", "form": "podium_tower", "label": "Tower on a podium",
+     "desc": "a slender tower on a recessed, glazed base"},
+    {"id": "campanile", "form": "campanile", "label": "Bell tower",
+     "desc": "a square shaft with slit windows and an open belfry under a cap"},
+    {"id": "cube", "form": "cube", "label": "Monolithic cube",
+     "desc": "deep walls with panel joints and one great opening per face (anything else)"},
+]
+FORM_CHOICE = {c["id"]: c for c in FORM_CHOICES}
+
+
+def preset_for(choice_id: str, dims) -> dict | None:
+    """A form choice's feature preset fitted to the building's size: a colonnade range gets
+    ~4.5 m bays and the full height (arches at three quarters), not a fixed 5 bays and 7 m."""
+    import copy
+    c = FORM_CHOICE[choice_id]
+    f = copy.deepcopy(c.get("features"))
+    if f and c.get("sized") == "range" and dims:
+        w, d, h = (float(x) for x in dims)
+        f["bays"] = max(3, round(w / 4.5))
+        f["range"].update({"h": round(h, 2), "arch_h": round(0.75 * h, 2), "d": round(min(8.0, d), 2)})
+    return f
+
 GENERATORS = {"hall_vault": hall_vault, "cube": cube, "basilica": basilica, "podium_tower": podium_tower,
               "perimeter": perimeter, "row": row, "civic_block": civic_block, "arcade_hall": arcade_hall,
               "campanile": campanile}

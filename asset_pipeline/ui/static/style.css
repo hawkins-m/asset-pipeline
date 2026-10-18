@@ -460,3 +460,5 @@ details summary { cursor: default; }
 
 .commit-dlg { min-width: 420px; max-width: 640px; }
 .commit-list { max-height: 220px; overflow: auto; background: var(--field); border: 1px solid var(--border-dark); padding: 4px 6px; font-size: 12px; }
+.ff-size { display: inline-flex; align-items: center; gap: 4px; }
+.ff-size input { width: 6em; }
