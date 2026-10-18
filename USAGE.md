@@ -128,6 +128,13 @@ silent NaNs, and the script refuses to start if it is set.
 `ap ui` serves it at http://127.0.0.1:8700 (`--port` for another). It looks like a classic
 desktop app:
 
+- **More menus** (Alt+L, W, U): *Library* (Areas…, batch sheets / build / TRELLIS / instances, pending
+  slots, silhouette check, review round), *World* (generate frames, lock a shot, shots, vegetation,
+  plan overlap, terrain) and *Unreal* (import with its options, stale report, render, look scene,
+  pull layout). *Tools › Preflight…* (`ap preflight`), *Start/Stop vision LLM* (`ap vlm up|down`),
+  *Install desktop launcher…* (`ap launcher install|remove`: a Terraformer entry in the applications
+  menu that starts `ap ui` if needed and opens the page) and *Help › Run demo…* (`scripts/demo.sh`).
+
 - **Menu bar** (Alt+F, E, V, P, T, H; arrows and Enter inside), with *Help › Keyboard
   shortcuts*. The *Pipeline* menu holds every long action, including *Export to Unreal*
   (`ap export`, Ctrl+E) and *Back up Unreal project* (`ap ue backup`; it asks before

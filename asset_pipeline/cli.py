@@ -1059,6 +1059,20 @@ def cmd_ui(a) -> None:
     uvicorn.run(create_app(), host="127.0.0.1", port=a.port, log_level="warning")
 
 
+def cmd_launcher(a) -> None:
+    from . import launcher
+    if a.action == "install":
+        for k, v in launcher.install(port=a.port).items():
+            print(f"{k}: {v}")
+    elif a.action == "remove":
+        gone = launcher.remove()
+        print("\n".join(f"removed {g}" for g in gone) or "nothing installed")
+    else:
+        st = launcher.status()
+        for k in ("desktop", "icon", "script"):
+            print(f"{k}: {st[k]['path']} ({'present' if st[k]['exists'] else 'missing'})")
+
+
 def cmd_vlm(a) -> None:
     from . import vlm
     if a.action == "status":
@@ -1552,6 +1566,11 @@ def main(argv: list[str] | None = None) -> None:
                         "project")
     p.add_argument("project")
     p.set_defaults(fn=cmd_terrain)
+
+    p = sub.add_parser("launcher", help="desktop launcher: a Terraformer entry in the applications menu that opens the UI")
+    p.add_argument("action", choices=["install", "remove", "status"])
+    p.add_argument("--port", type=int, default=8700, help="install: the UI's port (default 8700)")
+    p.set_defaults(fn=cmd_launcher)
 
     p = sub.add_parser("ui", help="start the local review UI (127.0.0.1 only)")
     p.add_argument("--port", type=int, default=8700)
