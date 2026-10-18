@@ -955,3 +955,13 @@ Until the deadline, all work follows these rules:
   didn't rewrite. Now describe/set_name call `sw_library.refresh_plan`, and `s2_refs.generate`
   re-reads the entry's fields itself (`s2_refs.current`). Each sheet records its `description`;
   older ones are recovered from their prompt (`described_from_prompt`, style text after the template).
+
+## Polling redraws (2026-10-18)
+- While jobs run, `load()` re-renders every ~2 s. Views and 3D, Asset review and Reference sheets
+  now redraw through `keyed.js`: rows keyed by asset with a data signature; unchanged rows keep
+  their DOM, changed rows take over the old row's img / model-viewer elements (a file whose `?v=`
+  changed is swapped in once loaded). Put everything a row shows into its `sig`, or it goes stale.
+- Two CSS rules shared `.asset-review`: the Views row (grid) and the build-review buttons on
+  Asset review cards (flex-wrap, later in the file, so it won). The Views row wrapped its parts
+  freely and the version strip jumped beside / below the cards. The card div is `.asset-builds`.
+- The version strip caches its data per asset (VER_CACHE) and redraws only on a change.

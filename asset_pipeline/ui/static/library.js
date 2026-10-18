@@ -89,7 +89,7 @@ function libCard(e) {
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
       ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
         <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
-      ${typeof lrAssetsOf === "function" && lrAssetsOf(e.id).length ? `<div class="asset-review">${lrAssetsOf(e.id).map(a => {
+      ${typeof lrAssetsOf === "function" && lrAssetsOf(e.id).length ? `<div class="asset-builds">${lrAssetsOf(e.id).map(a => {
           const st = ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status;
           return `<button type="button" class="small" data-review="${esc(a)}" title="Build review: reference vs build, brief, rebuild">Build review${lrAssetsOf(e.id).length > 1 ? `: ${esc(a.slice(e.id.length + 1))}` : ""}</button>${st ? ` <span class="mark ${LR_STATUS_CLASS[st]}">${esc(lr.list.statuses[st])}</span>` : ""}`;
         }).join(" ")}</div>` : ""}
@@ -130,16 +130,17 @@ function renderLibrary() {
   // one grid per district: assets with a crop first, then by tier and typology
   const byD = {};
   for (const e of shown) (byD[e.district || "-"] ||= []).push(e);
-  box.replaceChildren();
-  for (const d of Object.keys(byD).sort()) {
-    const sec = document.createElement("section"); sec.className = "asset-district";
-    const es = byD[d].sort((a, b) => (!!a.unseen - !!b.unseen) || a.tier.localeCompare(b.tier) ||
-      a.typology.localeCompare(b.typology) || (b.share || 0) - (a.share || 0));
-    sec.innerHTML = `<h3>${esc(d)} <span class="hint" style="margin:0">${es.length} · ${es.filter(e => !e.unseen).length} with a crop</span></h3>`;
-    const g = document.createElement("div"); g.className = "asset-grid";
-    es.forEach(e => g.append(libCard(e)));
-    sec.append(g); box.append(sec);
-  }
+  const groups = Object.keys(byD).sort().map(d => ({key: d, items: byD[d].sort((a, b) => (!!a.unseen - !!b.unseen) ||
+    a.tier.localeCompare(b.tier) || a.typology.localeCompare(b.typology) || (b.share || 0) - (a.share || 0))}));
+  // keyed: a card is rebuilt only when what it shows changed (keyed.js), so crops never reload
+  keyedSections(box, groups, {
+    cls: "asset-district", rowsCls: "asset-grid",
+    heading: g => `<h3>${esc(g.key)} <span class="hint" style="margin:0">${g.items.length} · ${g.items.filter(e => !e.unseen).length} with a crop</span></h3>`,
+    key: e => e.id,
+    sig: e => JSON.stringify([e, libraryData.decisions[e.id], assetName(e.id), fileVersion,
+      (typeof lrAssetsOf === "function" && lr.briefs ? lrAssetsOf(e.id) : []).map(a => ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status)]),
+    build: libCard,
+  });
   if (!shown.length) box.innerHTML = `<p class="hint">No assets match.</p>`;
 }
 

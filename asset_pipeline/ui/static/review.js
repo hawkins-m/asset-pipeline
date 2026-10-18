@@ -15,13 +15,15 @@ function renderReview() {
     `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${reviewData.assets.length} assets have views, ${built} have a 3D model.` :
     "No assets yet: analyse a scene in Library › Scene plans.";
 
-  const list = $("#review-list"); list.replaceChildren();
-  for (const plan of [...new Set(reviewData.assets.map(a => a.plan))]) {
-    const sec = document.createElement("section");
-    sec.innerHTML = `<h3>${esc(plan)}</h3>`;
-    for (const a of reviewData.assets.filter(x => x.plan === plan)) sec.append(assetReview(a));
-    list.append(sec);
-  }
+  // keyed: only rows whose data changed are rebuilt, keeping their loaded images (keyed.js)
+  const plans = [...new Set(reviewData.assets.map(a => a.plan))];
+  keyedSections($("#review-list"), plans.map(p => ({key: p, items: reviewData.assets.filter(x => x.plan === p)})), {
+    heading: g => `<h3>${esc(g.key)}</h3>`,
+    key: a => `${a.plan}/${a.asset.id}`,
+    sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name),
+      ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status))]),
+    build: assetReview,
+  });
 }
 
 function assetReview(a) {
@@ -101,10 +103,16 @@ function assetReview(a) {
     catch (err) { alert(errorText(err)); }
   };
 
-  if (a.plan === "library" && (a.results.length || a.current)) {      // library assets: every build is a version
-    const vs = document.createElement("fieldset"); vs.className = "version-strip"; el.append(vs);
-    versionStrip(vs, x.id, () => load());
+  // fixed layout: the version strip in its own column (reserved even before it loads), the model
+  // cards beside it; nothing wraps differently from one poll to the next
+  const body = document.createElement("div"); body.className = "ar-body" + (a.plan === "library" ? " with-strip" : "");
+  el.append(body);
+  if (a.plan === "library") {
+    const vs = document.createElement("fieldset"); vs.className = "version-strip"; body.append(vs);
+    if (a.results.length || a.current) versionStrip(vs, x.id, () => load());
+    else vs.innerHTML = `<legend>Versions</legend><span class="hint">No builds yet.</span>`;
   }
+  const models = document.createElement("div"); models.className = "ar-models"; body.append(models);
   if (a.results.length) {
     const r = document.createElement("div"); r.className = "results";
     for (const res of a.results) {
@@ -119,7 +127,7 @@ function assetReview(a) {
         <span><a href="${fileUrl(res.glb)}" download>GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a>` : ""}</span>`;
       r.append(c);
     }
-    el.append(r);
+    models.append(r);
   }
   if (a.cleanups.length) {
     const r = document.createElement("div"); r.className = "results";
@@ -134,8 +142,9 @@ function assetReview(a) {
         <span><a href="${fileUrl(c.glb)}" download>GLB</a></span>`;
       r.append(box);
     }
-    el.append(r);
+    models.append(r);
   }
+  if (!a.results.length && !a.cleanups.length) models.innerHTML = `<span class="hint">No 3D model yet.</span>`;
   return el;
 }
 
