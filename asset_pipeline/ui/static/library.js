@@ -3,8 +3,31 @@
 // and the user's call: good source / use description / exclude. Decisions are saved per
 // entry on the server (site/library_review.json) and survive re-planning.
 let libraryData = null;
-const lib = {filter: "all"};
-try { lib.filter = localStorage.getItem("ap.libFilter") || "all"; } catch (_) { /* ignore */ }
+const lib = {filter: null, slug: null};
+// the area the artist works on: the one last picked in Library › Areas…, else the first defined
+function currentArea() {
+  const names = Object.keys((libraryData && libraryData.areas) || {});
+  let a = null;
+  try { a = localStorage.getItem(`ap.area.${slug}`); } catch (_) { /* ignore */ }
+  return names.includes(a) ? a : names[0] || null;
+}
+// Show filter: the choice remembered per project, else the current area, else everything
+function libFilters() {
+  const out = {...LIB_FILTERS};
+  for (const [name, ids] of Object.entries((libraryData && libraryData.areas) || {})) {
+    const set = new Set(ids);
+    out[`area:${name}`] = [`Area: ${name}`, e => set.has(e.id)];
+  }
+  return out;
+}
+function libFilterNow(filters) {
+  if (lib.slug !== slug) {
+    lib.slug = slug; lib.filter = null;
+    try { lib.filter = localStorage.getItem(`ap.libFilter.${slug}`); } catch (_) { /* ignore */ }
+  }
+  if (!lib.filter || !filters[lib.filter]) lib.filter = currentArea() ? `area:${currentArea()}` : "all";
+  return lib.filter;
+}
 const LIB_DECISIONS = [["source", "Good source"], ["description", "Use description"],
   ["reference", "Description + reference frame"], ["exclude", "Exclude"], ["kit", "Facade kit"]];
 const LIB_TIERS = {A: "landmark / kit monument", B: "singular civic", C: "fill typology", D: "prop / vegetation"};
@@ -58,7 +81,7 @@ function libCard(e) {
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
       : `<div class="no-crop">no current shot frame shows it</div>`}
     <div class="asset-body">
-      <div class="asset-name"><b>${esc((libraryData.decisions[e.id] || {}).name || e.name || e.id)}</b>${((libraryData.decisions[e.id] || {}).name || e.name) ? ` <span class="hint" style="margin:0">${esc(e.id)}</span>` : ""} <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span>
+      <div class="asset-name"><a href="#" class="jump-link" data-jump="refs" data-asset="${esc(e.id)}" title="Show its reference sheets"><b>${esc((libraryData.decisions[e.id] || {}).name || e.name || e.id)}</b></a>${((libraryData.decisions[e.id] || {}).name || e.name) ? ` <span class="hint" style="margin:0">${esc(e.id)}</span>` : ""} <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span>
         ${libRoute(e) ? `<button type="button" class="chip route route-${libRoute(e)}" data-route="${libRoute(e)}"
           title="3D route${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
@@ -100,10 +123,10 @@ function renderLibrary() {
     sources: ${Object.values(p.sources).flat().length} current shot frame(s)${out.length ? `, ${out.length} excluded
     <span class="hint" title="${esc(out.map(c => `${c.frame}: ${c.reason}`).join("\n"))}">(old layout or off the greybox: hover)</span>` : ""}
     ${p.checked ? "" : " · <b>not checked yet</b>: run Check crops for the trees / sky flags"}`;
-  const f = $("#lib-filter");
-  f.innerHTML = Object.entries(LIB_FILTERS).map(([k, [label, fn]]) =>
-    `<option value="${k}"${k === lib.filter ? " selected" : ""}>${label} (${all.filter(fn).length})</option>`).join("");
-  const shown = all.filter((LIB_FILTERS[lib.filter] || LIB_FILTERS.all)[1]);
+  const f = $("#lib-filter"), filters = libFilters(), cur = libFilterNow(filters);
+  f.innerHTML = Object.entries(filters).map(([k, [label, fn]]) =>
+    `<option value="${k}"${k === cur ? " selected" : ""}>${esc(label)} (${all.filter(fn).length})</option>`).join("");
+  const shown = all.filter(filters[cur][1]);
   // one grid per district: assets with a crop first, then by tier and typology
   const byD = {};
   for (const e of shown) (byD[e.district || "-"] ||= []).push(e);
@@ -172,7 +195,11 @@ $("#assets-list").addEventListener("click", async e => {
   }
   libDecide(id, b.dataset.decision);
 });
-$("#lib-filter").onchange = e => { lib.filter = e.target.value; try { localStorage.setItem("ap.libFilter", lib.filter); } catch (_) { /* ignore */ } renderLibrary(); };
+$("#lib-filter").onchange = e => {
+  lib.filter = e.target.value;
+  try { localStorage.setItem(`ap.libFilter.${slug}`, lib.filter); } catch (_) { /* ignore */ }
+  renderLibrary();
+};
 $("#lib-plan").onclick = async () => { try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(errorText(err)); } };
 $("#lib-check").onclick = async () => { try { await api(`/api/projects/${slug}/library/check`, {}); } catch (err) { alert(errorText(err)); } };
 

@@ -190,7 +190,7 @@
           <button role="tab" data-sub="plan">Scene plans</button>
           <button role="tab" data-sub="refs">Reference sheets</button>
         </div>
-        <div class="tabpanel" style="flex:none;overflow:visible">
+        <div class="tabpanel lib-body">
           <div data-sub="assets" id="assets-tab">
             <p class="hint">World mode: the assets the locked shot frames show, from their object-id passes. Each card
               crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky,
@@ -202,9 +202,12 @@
               <button id="lib-new" type="button" title="Add an entry of your own (kept through re-plans)">New entry…</button>
               <button id="lib-check" type="button" title="SAM 3.1 on ComfyUI (GPU 1): about 2 minutes for a handful of frames">Check crops (SAM)</button>
               <label>Show: <select id="lib-filter"></select></label>
-              <span id="assets-summary" class="hint" style="margin:0"></span>
+              <label class="jump">Jump to: <input type="search" id="assets-jump" class="jump-box" data-list="assets" list="assets-jump-list"
+                placeholder="asset name or id" autocomplete="off"></label><datalist id="assets-jump-list"></datalist>
+              <span class="hint jump-msg" id="assets-jump-msg" style="margin:0" aria-live="polite"></span>
             </div>
-            <div id="assets-list"></div>
+            <p id="assets-summary" class="hint" style="margin:0 0 4px"></p>
+            <div id="assets-list" class="scroll-list"></div>
           </div>
           <div data-sub="plan" id="plan-tab" hidden>
             <fieldset id="plan-scenes"><legend>Scenes</legend>
@@ -254,8 +257,11 @@
               <button type="button" id="refs-missing-stop" class="stop" hidden>Stop</button>
               <label>Sheets per asset: <input id="refs-n" type="number" min="1" max="8" value="2"></label>
               <span id="refs-summary" class="hint" style="margin:0"></span>
+              <label class="jump">Jump to: <input type="search" id="refs-jump" class="jump-box" data-list="refs" list="refs-jump-list"
+                placeholder="asset name or id" autocomplete="off"></label><datalist id="refs-jump-list"></datalist>
+              <span class="hint jump-msg" id="refs-jump-msg" style="margin:0" aria-live="polite"></span>
             </div>
-            <div id="refs-list"></div>
+            <div id="refs-list" class="scroll-list"></div>
           </div>
         </div>
       </section>
@@ -271,9 +277,12 @@
             <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
             <label>3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
             <span id="review-summary" class="hint" style="margin:0"></span>
+            <label class="jump">Jump to: <input type="search" id="views-jump" class="jump-box" data-list="views" list="views-jump-list"
+                placeholder="asset name or id" autocomplete="off"></label><datalist id="views-jump-list"></datalist>
+              <span class="hint jump-msg" id="views-jump-msg" style="margin:0" aria-live="polite"></span>
           </div>
         </fieldset>
-        <div id="review-list"></div>
+        <div id="review-list" class="scroll-list"></div>
       </section>
 
       <!-- Unreal -->
@@ -323,6 +332,7 @@
 <script src="/static/tools.js"></script>
 <script src="/static/versions.js"></script>
 <script src="/static/areas.js"></script>
+<script src="/static/jump.js"></script>
 <script src="/static/world.js"></script>
 <script>loadProjects();</script>
 </body>

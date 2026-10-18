@@ -35,14 +35,14 @@ function tabKeys(list, attr, show) {   // arrow keys move between tabs, as in a 
   });
   list.addEventListener("click", e => { const b = e.target.closest("[role=tab]"); if (b) show(b.dataset[attr]); });
 }
-tabKeys($("#tabs"), "tab", showTab);
+tabKeys($("#tabs"), "tab", t => showTab(t));      // late-bound: jump.js wraps showTab
 
 function showSub(sub) {
   document.querySelectorAll("#lib-tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.sub === sub));
   document.querySelectorAll("#library-tab [data-sub]:not([role=tab])").forEach(el => { el.hidden = el.dataset.sub !== sub; });
   try { localStorage.setItem("ap.sub", sub); } catch (_) { /* ignore */ }
 }
-tabKeys($("#lib-tabs"), "sub", showSub);
+tabKeys($("#lib-tabs"), "sub", s => showSub(s));
 {
   let t = URL_ARGS.get("tab"), sub = null;
   try { t = t || localStorage.getItem("ap.tab"); sub = localStorage.getItem("ap.sub"); } catch (_) { /* ignore */ }

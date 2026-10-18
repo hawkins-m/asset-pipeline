@@ -32,7 +32,7 @@ const lrAssetsOf = id => [...lr.briefs].filter(a => a === id || a.startsWith(id 
 
 async function openAssetReview(asset) {
   lr.asset = asset; lr.orbit = false; lr.pick = null;
-  $("#assets-list").hidden = true; $("#assets-tab > .row").hidden = true;
+  $("#assets-list").hidden = true; $("#assets-tab > .row").hidden = true; $("#assets-summary").hidden = true;
   let box = $("#asset-detail");
   if (!box) { box = document.createElement("div"); box.id = "asset-detail"; $("#assets-tab").append(box); }
   box.hidden = false;
@@ -42,7 +42,7 @@ async function openAssetReview(asset) {
 function closeAssetReview() {
   lr.asset = null; clearInterval(lr.poll); lr.poll = null;
   const box = $("#asset-detail"); if (box) box.hidden = true;
-  $("#assets-list").hidden = false; $("#assets-tab > .row").hidden = false;
+  $("#assets-list").hidden = false; $("#assets-tab > .row").hidden = false; $("#assets-summary").hidden = false;
   loadAssetReviews().then(renderLibrary);
 }
 

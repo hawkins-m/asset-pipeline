@@ -1132,7 +1132,19 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         store = _store(slug)
         data = sw_library.load(store)
         return {"plan": data, "decisions": sw_library.decisions(store), "names": sw_library.asset_names(store),
+                "areas": _area_members(store) if data else {},
                 "has_greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
+
+    def _area_members(store) -> dict:
+        """{area: its entries} for the Show filter (areas.members; an area that can't be read yet is empty)."""
+        from .. import areas
+        out = {}
+        for name in areas.load(store):
+            try:
+                out[name] = sorted(areas.members(store, area=name))
+            except (FileNotFoundError, KeyError, ValueError):
+                out[name] = []
+        return out
 
     @app.post("/api/projects/{slug}/library/plan")
     def library_plan(slug: str):

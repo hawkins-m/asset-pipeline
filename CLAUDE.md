@@ -935,3 +935,16 @@ Until the deadline, all work follows these rules:
 - Unreal: look scenes add child placements (full matrix with scale, `parent` key); ap_look_test
   attaches them with KEEP_WORLD and shares an outliner folder. Verified in UE 5.8 with a
   commandlet probe (attach, world location kept, scale, folder). Children never clear greybox.
+
+## Library / Views and 3D layout (2026-10-18)
+- Only the lists scroll (`.scroll-list`: #assets-list, #refs-list, #review-list; #asset-detail):
+  #library-tab / #review-tab are flex columns with overflow hidden. jump.js keeps a scroll position
+  per list and project (localStorage `ap.scroll.<slug>`), restored after every re-render and on
+  tab / sub-tab switches: a hidden (display: none) list loses its scrollTop, and a re-render's
+  momentary empty list clamps it to 0.
+- jump.js wraps renderLibrary / renderRefs / renderReview / showSub / showTab by reassigning the
+  globals; the tab bars call them late-bound (`s => showSub(s)`), or clicks would bypass the wrapper.
+- Show filter: per-project choice (`ap.libFilter.<slug>`), default the current area (last picked
+  in Library › Areas…, `ap.area.<slug>`, else the first). /library carries `areas` {name: entries}.
+- tests/test_ui_layout.py drives a real `ap ui` on a scratch AP_ROOT with the browser-test env
+  (skipped without it). A district-only area no longer needs the greybox (areas.members).

@@ -72,7 +72,7 @@ def members(store: ProjectStore, area: str | None = None, district: str | None =
     for e in ents.values():
         for sid in e.get("slot_ids") or []:
             by_slot.setdefault(sid, []).append(e["id"])
-    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
+    slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]} if spec["shots"] else {}   # districts only: no greybox needed
     out = {}
     for shot in spec["shots"]:
         ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None)

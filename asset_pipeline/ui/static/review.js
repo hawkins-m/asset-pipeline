@@ -25,7 +25,7 @@ function renderReview() {
 }
 
 function assetReview(a) {
-  const el = document.createElement("div"); el.className = "asset-review";
+  const el = document.createElement("div"); el.className = "asset-review"; el.dataset.asset = a.asset.id;
   const x = a.asset, d = x.dimensions;
   el.innerHTML = `<div class="head">
       ${a.current ? `<span class="cur-version" title="The version used by the pipeline (cleanup, export)">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}

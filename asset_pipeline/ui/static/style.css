@@ -496,3 +496,19 @@ details summary { cursor: default; }
 #ch-plan .ch-child { fill: color-mix(in srgb, var(--select) 35%, transparent); stroke: var(--select); stroke-width: 0.3; cursor: move; }
 #ch-plan .ch-anchor { fill: var(--danger); }
 #ch-plan .ch-label { fill: var(--text, #000); pointer-events: none; }
+
+/* Library and Views and 3D: tabs, sub-tabs, instructions and toolbar stay put; only the list scrolls */
+#library-tab, #review-tab { display: flex; flex-direction: column; overflow: hidden; }
+#library-tab > .lib-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#library-tab > .lib-body > [data-sub] { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#library-tab > .lib-body > [data-sub] > * { flex: none; }
+#plan-tab { overflow: auto; display: block !important; }
+#plan-tab[hidden] { display: none !important; }
+#review-tab > fieldset { flex: none; }
+.scroll-list, #asset-detail { flex: 1 1 auto !important; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.scroll-list > :first-child h3, .scroll-list > .refs-plan:first-child > h3 { margin-top: 2px; }
+.jump { margin-left: auto; }
+.jump-box { width: 16em; }
+.jump-flash { outline: 2px solid var(--select); outline-offset: 2px; transition: outline-color 1.2s; }
+.jump-link { color: inherit; text-decoration: none; }
+.jump-link:hover { text-decoration: underline; }

@@ -8,6 +8,12 @@ const AREA_BATCHES = {
   instances: ["Instances", "Every building at its own footprint and storeys", "Blender on the CPU; one build per building footprint."],
 };
 const areaState = {sel: null, data: null, rows: [], gaps: []};
+// the area picked here is the "current area" (Asset review's Show filter defaults to it)
+function rememberArea() {
+  if (areaState.sel && areaState.sel.startsWith("a:")) {
+    try { localStorage.setItem(`ap.area.${slug}`, areaState.sel.slice(2)); } catch (_) { /* ignore */ }
+  }
+}
 
 function areaStep(r) {
   if (r.status === "approved") return {kind: "done", label: "Done"};
@@ -72,7 +78,7 @@ async function areasDialog() {
             title="${esc(r.next)}" ${st.kind === "done" ? "disabled" : ""}>${esc(st.label)}</button></td></tr>`; }).join("")}</tbody></table>`;
     box.querySelectorAll(".area-step").forEach(b => b.onclick = () => areaDoStep(areaState.rows[+b.dataset.i], d, table));
   };
-  $("#area-select", d.win).onchange = e => { areaState.sel = e.target.value || null; table(); };
+  $("#area-select", d.win).onchange = e => { areaState.sel = e.target.value || null; rememberArea(); table(); };
   $("#area-refresh", d.win).onclick = () => reload();
   $("#area-new", d.win).onclick = () => areaDefineForm(d, reload);
   $("#area-checklist", d.win).onclick = async () => {
@@ -101,7 +107,7 @@ function areaDefineForm(d, reload) {
     const pick = n => [...box.querySelectorAll(`[name=${n}]:checked`)].map(x => x.value);
     try {
       await api(`/api/projects/${slug}/areas`, {name, shots: pick("area-shot"), districts: pick("area-district")});
-      areaState.sel = "a:" + name; box.hidden = true; box.replaceChildren(); await reload();
+      areaState.sel = "a:" + name; rememberArea(); box.hidden = true; box.replaceChildren(); await reload();
     } catch (err) { alert(errorText(err)); }
   };
   $("#area-name", box).focus();

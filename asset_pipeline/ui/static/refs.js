@@ -26,11 +26,11 @@ function renderRefs() {
     sec.innerHTML = `<h3>${esc(plan)}</h3>`;
     for (const u of refs.filter(x => x.plan === plan)) {
       const a = u.assets[0];
-      const el = document.createElement("div"); el.className = "unit";
+      const el = document.createElement("div"); el.className = "unit"; el.dataset.unit = u.key;
       const what = u.kind === "kit" ? u.assets.map(x => esc(x.name)).join(", ") :
         `×${a.count} · ${fmtDims(a.dimensions)}`;
       el.innerHTML = `<div class="unit-head">
-          <span class="title">${esc(u.title)}</span><span class="chip">${u.kind}</span>
+          <span class="title">${u.plan === "library" ? `<a href="#" class="jump-link" data-jump="assets" data-asset="${esc(u.key)}" title="Show it in Asset review">${esc(u.title)}</a>` : esc(u.title)}</span><span class="chip">${u.kind}</span>
           <span class="hint">${what}</span>
           <input type="text" class="guidance" maxlength="500" aria-label="Guidance for ${esc(u.title)}'s next sheets"
             placeholder="guidance for the next sheets (optional)" title="Added to this asset's prompt for the next batch only, and saved with those sheets">
