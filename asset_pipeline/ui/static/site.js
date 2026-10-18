@@ -50,9 +50,9 @@ function renderSite() {
 async function siteAction(path, body = {}) {
   try { await api(`/api/projects/${slug}/${path}`, body); }
   catch (err) {
-    if (err.message.includes("edited in Blender") && confirm(`${err.message}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`))
+    if (err.message.includes("edited in Blender") && confirm(`${errorText(err)}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`))
       return siteAction(path, {...body, force: true});
-    if (!err.message.includes("edited in Blender")) alert(err.message);
+    if (!err.message.includes("edited in Blender")) alert(errorText(err));
   }
   await load();
 }

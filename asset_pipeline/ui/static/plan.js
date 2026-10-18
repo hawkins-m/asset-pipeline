@@ -26,7 +26,7 @@ async function refreshVlm() {
     el.textContent = `Vision LLM: ${llm} (paid API, blocked unless the UI was started with AP_ALLOW_PAID_APIS=1).`;
     return;
   }
-  const s = await api("/api/vlm").catch(e => ({up: false, error: e.message}));
+  const s = await api("/api/vlm").catch(e => ({up: false, error: errorText(e)}));
   el.textContent = s.up ? `Vision LLM: local Qwen3-VL ${s.model.toUpperCase()} on GPU ${s.gpu}` +
       `${s.busy ? ", working" : ""}.`
     : `Vision LLM: local Qwen3-VL ${String(s.default).toUpperCase()}, not running; it starts on the first analysis (about 30 s).`;
@@ -192,7 +192,7 @@ $("#save-plan").onclick = async () => {
     const saved = await api(`/api/projects/${slug}/plans/${entry.name}`, draft, "PUT");
     entry.plan = saved; draft = clone(saved); draftOf = saved.edited;
     setDirty(false); renderEditor(); renderPlan();
-  } catch (err) { alert(`Not saved: ${err.message}`); }
+  } catch (err) { alert(`Not saved: ${errorText(err)}`); }
 };
 
 $("#analyze-btn").onclick = async () => {
@@ -207,14 +207,14 @@ $("#analyze-btn").onclick = async () => {
     }
     setDirty(false); draft = null;
     await load();
-  } catch (err) { alert(err.message); }
+  } catch (err) { alert(errorText(err)); }
 };
 
 $("#refine-btn").onclick = async () => {
   const entry = planEntry();
   if (dirty) { alert("Save or discard your changes first: refining rewrites the plan's boxes."); return; }
   try { await api(`/api/projects/${slug}/plans/${entry.name}/refine`, {}); await load(); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
 };
 
 $("#scene-upload").onchange = async e => {
@@ -225,7 +225,7 @@ $("#scene-upload").onchange = async e => {
     const r = await api(`/api/projects/${slug}/scenes`, fd);
     if (confirmDiscard()) { planScene = r.scene; setDirty(false); draft = null; }
     await load();
-  } catch (err) { alert(err.message); }
+  } catch (err) { alert(errorText(err)); }
   e.target.value = "";
 };
 

@@ -108,17 +108,32 @@ def _size(cells: int, aspect: float, pixels: int = PIXELS) -> tuple[int, int]:
     return int(round(w / 64)) * 64, max(512, int(round(h / 64)) * 64)
 
 
+GUIDANCE_MAX = 500
+
+
+def clean_guidance(text: str | None) -> str:
+    """A reroll's guidance as it goes into the prompt: one line, trimmed, no trailing period."""
+    g = " ".join((text or "").split()).rstrip(" .")
+    if len(g) > GUIDANCE_MAX:
+        raise ValueError(f"guidance is {len(g)} characters; keep it under {GUIDANCE_MAX}")
+    return g
+
+
 def request(unit: Unit, anchor: StyleAnchor | None,
-            view: str = "turnaround") -> tuple[str, int, int, StyleAnchor | None]:
+            view: str = "turnaround", guidance: str | None = None) -> tuple[str, int, int, StyleAnchor | None]:
     """(prompt, width, height, anchor) for a unit. view: an object's sheet layout (VIEWS);
-    three-quarter views show a deep object's depth, which a front view leaves TRELLIS to guess."""
+    three-quarter views show a deep object's depth, which a front view leaves TRELLIS to guess.
+    guidance: the artist's words for this batch (a reroll), added right after the asset's
+    description, where they steer the drawing most."""
     a = unit.assets[0]
+    g = clean_guidance(guidance)
+    desc = a.description.rstrip(".") + (f". {g}" if g else "")
     if unit.kind == "material":
         style = StyleAnchor(images=[], style_text=anchor.style_text) if anchor else None
-        return MATERIAL_PROMPT.format(name=a.name, description=a.description.rstrip(".")), 1024, 1024, style
+        return MATERIAL_PROMPT.format(name=a.name, description=desc), 1024, 1024, style
     if unit.kind == "kit":
         pieces = "; ".join(f"{i}. {x.name}: {x.description.rstrip('.')}"
-                           for i, x in enumerate(unit.assets, 1))
+                           for i, x in enumerate(unit.assets, 1)) + (f". {g}" if g else "")
         aspect = sum(max(x.dimensions.width, x.dimensions.depth) / x.dimensions.height
                      for x in unit.assets) / len(unit.assets)
         w, h = _size(len(unit.assets), min(max(aspect, 0.5), 1.6))
@@ -128,7 +143,7 @@ def request(unit: Unit, anchor: StyleAnchor | None,
     tpl = THREE_QUARTER_PROMPT if view == "three-quarter" else OBJECT_PROMPT
     if view == "three-quarter":       # a three-quarter view shows width and depth side by side
         w, h = _size(3, min(max((d.width + d.depth) * 0.75 / d.height, 0.5), 1.6))
-    return tpl.format(name=a.name, description=a.description.rstrip(".")), w, h, _with_refs(anchor, a)
+    return tpl.format(name=a.name, description=desc), w, h, _with_refs(anchor, a)
 
 
 def _with_refs(anchor: StyleAnchor | None, a: PlanAsset, root: Path | None = None) -> StyleAnchor | None:
@@ -151,13 +166,15 @@ def sheets(store: ProjectStore, unit: Unit) -> list[str]:
 
 
 def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = None,
-             view: str = "turnaround") -> list[Path]:
-    """Add n sheets for a unit (one batch, one seed)."""
+             view: str = "turnaround", guidance: str | None = None) -> list[Path]:
+    """Add n sheets for a unit (one batch, one seed). guidance steers this batch only and is
+    saved with its sheets (meta.json), so each sheet shows what produced it."""
     if view not in VIEWS:
         raise ValueError(f"view must be one of {VIEWS}")
+    g = clean_guidance(guidance)
     project = store.load()
     backend = backend_for("references", project)
-    prompt, w, h, anchor = request(unit, project.anchor, view)
+    prompt, w, h, anchor = request(unit, project.anchor, view, guidance=g)
     if unit.kind in ("object", "kit") and unit.assets[0].refs:      # project-relative look refs
         anchor = _with_refs(project.anchor, unit.assets[0], store.root)
     d = unit.dir(store)
@@ -175,12 +192,22 @@ def generate(store: ProjectStore, unit: Unit, n: int = 2, seed: int | None = Non
         meta["sheets"].append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index"),
                                "prompt": r.meta.get("prompt", prompt), "size": [w, h], "view": view,
                                "backend": backend.name,
-                               "anchor": bool(anchor and anchor.images)})
+                               "anchor": bool(anchor and anchor.images)} | ({"guidance": g} if g else {}))
         i += 1
     write_json(d / "meta.json", meta)
     store.log_run({"stage": "refs.generate", "plan": unit.plan, "unit": unit.key, "kind": unit.kind,
-                   "n": len(out), "backend": backend.name, "seconds": round(time.time() - t, 1)})
+                   "n": len(out), "backend": backend.name, "seconds": round(time.time() - t, 1)}
+                  | ({"guidance": g} if g else {}))
     return out
+
+
+def sheet_meta(store: ProjectStore, unit: Unit) -> dict[str, dict]:
+    """{sheet path: what produced it (view, seed, guidance)} from the unit's meta.json."""
+    d = unit.dir(store)
+    meta = read_json(d / "meta.json", default=None) or {}
+    rel = d.relative_to(store.root).as_posix()
+    return {f"{rel}/{m['file']}": {k: m[k] for k in ("view", "seed", "guidance") if m.get(k) is not None}
+            for m in meta.get("sheets", []) if m.get("file")}
 
 
 def generate_missing(store: ProjectStore, n: int = 2, plan: str | None = None,

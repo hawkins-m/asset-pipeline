@@ -129,3 +129,59 @@ def test_ui_lists_and_generates(env):
     assert j["status"] == "done" and j["result"] == 2
     assert len(client.get("/api/projects/demo/refs").json()[0]["sheets"]) == 2
     assert client.post("/api/projects/demo/refs/generate", json={"unit": "nope"}).status_code == 404
+
+
+def _wait_job(client, job):
+    for _ in range(300):
+        j = client.get(f"/api/jobs/{job['id']}").json()
+        if j["status"] in ("done", "error"):
+            return j
+    return j
+
+
+def test_guidance_steers_one_batch_and_is_saved_with_its_sheets(env):
+    store, backend = env
+    barrel = s2_refs.units(store)[0]
+    g = "slatted timber counter boxes under one shared timber pergola, no stone."
+    s2_refs.generate(store, barrel, n=2, guidance=g)
+    s2_refs.generate(store, barrel, n=1)                                # the next batch: no guidance
+    p1, p2 = backend.requests[0].prompt, backend.requests[1].prompt
+    assert "a barrel. slatted timber counter boxes under one shared timber pergola, no stone" in p1
+    assert "pergola" not in p2
+    sm = s2_refs.sheet_meta(store, barrel)
+    assert [m.get("guidance") for m in sm.values()] == [g.rstrip("."), g.rstrip("."), None]
+    kit = s2_refs.units(store)[1]
+    assert "no mortar" in s2_refs.request(kit, None, guidance="no mortar")[0]       # kits and
+    assert "wet look" in s2_refs.request(s2_refs.units(store)[3], None, guidance="wet look")[0]   # materials too
+    with pytest.raises(ValueError, match="under 500"):
+        s2_refs.clean_guidance("x" * 501)
+
+
+def test_ui_reroll_with_guidance_and_the_field_starts_from_the_last_one(env):
+    from asset_pipeline.ui import app as ui_app
+    store, backend = env
+    client = TestClient(ui_app.create_app(JobQueue()))
+    job = client.post("/api/projects/demo/refs/generate",
+                      json={"plan": NAME, "unit": "barrel", "n": 1, "guidance": "  oak staves,\n iron hoops "}).json()
+    assert job["tag"]["guidance"] == "oak staves, iron hoops"
+    assert _wait_job(client, job)["status"] == "done"
+    assert "a barrel. oak staves, iron hoops" in backend.requests[-1].prompt
+    u = client.get("/api/projects/demo/refs").json()[0]
+    assert u["guidance"] == "oak staves, iron hoops"
+    assert u["sheet_meta"][u["sheets"][0]]["guidance"] == "oak staves, iron hoops"
+    assert client.post("/api/projects/demo/refs/generate", json={"guidance": "x"}).status_code == 400   # needs a unit
+    assert client.post("/api/projects/demo/refs/generate",
+                       json={"unit": "barrel", "guidance": "x" * 600}).status_code == 400
+
+
+def test_more_sheets_with_comfyui_down_offers_to_start_it(env, monkeypatch):
+    """The "+2 more" path with ComfyUI down: a 409 comfy_down the UI turns into "Start
+    ComfyUI and run" (tests/test_ui_errors.py checks the browser side)."""
+    from asset_pipeline.comfy import service
+    from asset_pipeline.ui import app as ui_app
+    gate = service.Gate(ready_fn=lambda: False)
+    client = TestClient(ui_app.create_app(JobQueue(gates={"comfy": gate}), comfy_gate=gate))
+    r = client.post("/api/projects/demo/refs/generate", json={"plan": NAME, "unit": "barrel", "n": 2})
+    assert r.status_code == 409
+    d = r.json()["detail"]
+    assert d["code"] == "comfy_down" and isinstance(d["message"], str) and "ComfyUI" in d["message"]

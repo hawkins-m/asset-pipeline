@@ -98,7 +98,7 @@ function newProjectDialog() {
       await api("/api/projects", {slug: fd.get("slug"), brief: fd.get("brief")});
       try { localStorage.setItem("ap.project", fd.get("slug")); } catch (_) { /* ignore */ }
       await loadProjects(fd.get("slug"));
-    } catch (err) { alert(err.message); return false; }
+    } catch (err) { alert(errorText(err)); return false; }
   };
   const d = dialog({title: "New project", body: f, buttons: [{label: "Create", default: true, onClick: submit}, {label: "Cancel"}]});
   f.onsubmit = async e => { e.preventDefault(); if ((await submit()) !== false) d.close(); };
@@ -260,7 +260,7 @@ async function comfyDialog() {
   let timer = null;
   const refresh = async () => {
     if (!document.body.contains(d.win)) { clearInterval(timer); return; }
-    const s = await api("/api/comfy", undefined, "GET").catch(e => ({up: false, error: e.message}));
+    const s = await api("/api/comfy", undefined, "GET").catch(e => ({up: false, error: errorText(e)}));
     const svc = s.service;
     const state = svc ? `${(JOB_LABELS[svc.kind] || svc.kind).replace(/^./, c => c.toUpperCase())}…`
       : s.up ? "connected" : s.starting ? "starting…" : "not running";
@@ -286,7 +286,7 @@ async function comfyDialog() {
 
 // --- ComfyUI service: Start / Stop / Restart in the Status box ---------------------------------
 async function comfyAction(what) {
-  try { await api(`/api/comfy/${what}`, {}); } catch (e) { dialog({title: "ComfyUI", body: `<p class="error">${esc(e.message)}</p>`}); }
+  try { await api(`/api/comfy/${what}`, {}); } catch (e) { dialog({title: "ComfyUI", body: `<p class="error">${esc(errorText(e))}</p>`}); }
   load();
 }
 function confirmComfy(what, run) {
@@ -300,12 +300,12 @@ function confirmComfy(what, run) {
 function offerComfyStart(message) {
   return new Promise(resolve => {
     let chosen = false;      // onClose also runs after a button: only an unanswered close declines
-    dialog({title: "ComfyUI is not running", body: `<p>This job needs ComfyUI, which isn't running.</p>
-      <p class="hint">${esc(message || "")}</p>`,
+    dialog({title: "ComfyUI is not running", body: `<p>This job needs ComfyUI, which isn't running. Start it now
+      and the job runs as soon as ComfyUI answers.</p>`,
       buttons: [{label: "Start ComfyUI and run", default: true, onClick: () => {
                   chosen = true;
                   api("/api/comfy/start", {}).then(() => { load(); resolve(true); }, e => {
-                    dialog({title: "ComfyUI", body: `<p class="error">${esc(e.message)}</p>`}); resolve(false); });
+                    dialog({title: "ComfyUI", body: `<p class="error">${esc(errorText(e))}</p>`}); resolve(false); });
                 }},
                 {label: "Cancel", onClick: () => { chosen = true; resolve(false); }}],
       onClose: () => { if (!chosen) resolve(false); }});
@@ -338,7 +338,7 @@ function renderComfyControls() {
 }
 async function vlmDialog() {
   const d = dialog({title: "Vision LLM status", body: `<p>Checking…</p>`});
-  const s = await api("/api/vlm").catch(e => ({up: false, error: e.message}));
+  const s = await api("/api/vlm").catch(e => ({up: false, error: errorText(e)}));
   $(".wbody", d.win).innerHTML = s.up
     ? `<p>Local Qwen3-VL <b>${esc(String(s.model).toUpperCase())}</b> on GPU ${esc(s.gpu)}.</p>`
     : `<p>Not loaded. It starts on demand when a scene is analysed${s.error ? ` (${esc(s.error)})` : ""}.</p>`;
@@ -451,7 +451,7 @@ async function applyChanges() {
       try { job = await api(`/api/projects/${slug}/${path}`, body); }
       catch (err) {
         if (!err.message.includes("edited in Blender")) throw err;
-        if (!confirm(`${err.message}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`)) { applyState.canceled = true; break; }
+        if (!confirm(`${errorText(err)}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`)) { applyState.canceled = true; break; }
         job = await api(`/api/projects/${slug}/${path}`, {...body, force: true});
       }
       applyState.job = job.id;
@@ -464,7 +464,7 @@ async function applyChanges() {
       }
       if (job.status !== "done") { applyState.canceled = job.status === "canceled"; if (job.status === "error") throw new Error(job.error); break; }
     }
-  } catch (err) { alert(`Apply changes stopped: ${err.message}`); }
+  } catch (err) { alert(`Apply changes stopped: ${errorText(err)}`); }
   finally { applyState = null; await load(); }
 }
 

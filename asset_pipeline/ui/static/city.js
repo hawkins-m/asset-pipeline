@@ -216,7 +216,7 @@ function onCityInput(el, i) {
       : kind === "share" ? (el.disabled ? null : +s / 100) : s;
     delete d.errors[`${i}:${key}`]; el.removeAttribute("aria-invalid");
   } catch (err) {
-    d.errors[`${i}:${key}`] = err.message; el.setAttribute("aria-invalid", "true"); el.title = err.message;
+    d.errors[`${i}:${key}`] = errorText(err); el.setAttribute("aria-invalid", "true"); el.title = errorText(err);
     d.dirty.add(`${i}:${key}`); updateCityDirty(); return;
   }
   if (kind === "share") { const o = el.closest(".slider").querySelector("output"); o.textContent = v == null ? "" : `${Math.round(v * 100)}%`; }
@@ -269,13 +269,13 @@ async function citySave() {
         await api(`/api/projects/${slug}/catalog/${_key}`, vals, "PUT");
       }
       delete cityDrafts.rules; noteCatalogSaved();
-    } catch (err) { alert(err.message); return; }
+    } catch (err) { alert(errorText(err)); return; }
     await load(); return;
   } else {
     body = d.rows.map(r => { const x = {...r}; delete x._share; return x; });
   }
   try { await api(`/api/projects/${slug}/catalog/${path}`, body, "PUT"); }
-  catch (err) { alert(err.message); return; }
+  catch (err) { alert(errorText(err)); return; }
   delete cityDrafts[citySection]; noteCatalogSaved();
   await load();
 }

@@ -66,6 +66,12 @@ Until the deadline, all work follows these rules:
 - **Both instances are pinned to GPU 1** (`HIP_VISIBLE_DEVICES=1` in the launchers). GPU 0
   carries the desktop and is where TRELLIS and other local 3D work run.
 - **Never modify these directories or that env.** Talk to ComfyUI only over HTTP.
+- **Never stop or restart a ComfyUI you didn't start yourself, in tests and checks too.**
+  Record its state first (`ap comfy status`). If it was running before a test or check, it must
+  still be running afterwards, untouched: test start/stop only on a stand-in server on a free
+  port (as `tests/test_comfy_service.py` does), or ask first. If you started it yourself for a
+  check, stop it afterwards, so it ends as you found it. (2026-10-17: a browser check stopped
+  the user's running ComfyUI and broke their session.)
 - Starting the main instance is OK whenever it's needed: `ap comfy start` (launches
   `run_comfy.sh` per `[comfyui.service]` in `$AP_ROOT/backends.local.toml`, detached, logs to
   `$AP_ROOT/logs/comfyui.log`); `ap comfy status`, `ap comfy stop`. Verified live 2026-10-17:

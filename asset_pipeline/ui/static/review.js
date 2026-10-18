@@ -42,12 +42,12 @@ function assetReview(a) {
     const b = $(cls, el);
     if (b) b.onclick = async () => {
       try { await api(`/api/projects/${slug}/library/asset/${x.id}/review`, {status, note: ""}); await load(); }
-      catch (err) { alert(err.message); }
+      catch (err) { alert(errorText(err)); }
     };
   }
   el.querySelectorAll(".usage button").forEach(b => b.onclick = async () => {
     try { await api(`/api/projects/${slug}/review/usage`, {plan: a.plan, asset: x.id, usage: b.dataset.u}); await load(); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
   });
 
   const g = document.createElement("div"); g.className = "grid views";
@@ -61,7 +61,7 @@ function assetReview(a) {
       <span class="label">${v.key === a.chosen ? "✓ " : ""}${esc(v.sheet.split("/").pop().replace(".png", "").replace("sheet_", "s"))} v${v.position}</span>`;
     b.onclick = async () => {
       try { await api(`/api/projects/${slug}/review/choose`, {plan: a.plan, asset: x.id, view: v.key === a.chosen ? null : v.key}); await load(); }
-      catch (err) { alert(err.message); }
+      catch (err) { alert(errorText(err)); }
     };
     g.append(b);
   }
@@ -77,7 +77,7 @@ function assetReview(a) {
   }
   make.onclick = async () => {
     try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value}); await load(); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
   };
 
   const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
@@ -90,7 +90,7 @@ function assetReview(a) {
   }
   clean.onclick = async () => {
     try { await api(`/api/projects/${slug}/cleanup`, {plan: a.plan, asset: x.id}); await load(); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
   };
 
   if (a.results.length) {
@@ -126,5 +126,5 @@ function assetReview(a) {
 
 $("#cut-views").onclick = async () => {
   try { await api(`/api/projects/${slug}/views/cut`, {}); await load(); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
 };

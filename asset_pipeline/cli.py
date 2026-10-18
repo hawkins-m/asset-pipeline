@@ -890,11 +890,13 @@ def cmd_library_sheets(a) -> None:
               f"refs {x.refs or '-'} at {x.ref_strength:g}")
     if a.plan_only:
         return
+    if a.guidance and not a.unit:
+        raise SystemExit("--guidance steers one asset's reroll: give it with --unit ASSET")
     todo = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if (not a.unit or u.key in a.unit)
             and u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u))]
     for u in todo:
         try:
-            out = s2_refs.generate(store, u, n=a.n, view=a.view)
+            out = s2_refs.generate(store, u, n=a.n, view=a.view, guidance=a.guidance)
         except Exception as e:                       # noqa: BLE001 - ComfyUI gone mid-batch: say how to resume
             if not _comfy_up():
                 raise SystemExit(f"{u.key}: {type(e).__name__}. " + COMFY_DOWN.format(url=config.backends()["comfyui"]["url"]))
@@ -1516,6 +1518,8 @@ def main(argv: list[str] | None = None) -> None:
                                              "even if they have some; the plan keeps every entry included")
     p.add_argument("--view", choices=["turnaround", "three-quarter"], default="turnaround",
                    help="object sheet layout: front/side/back, or three-quarter views (deep assets)")
+    p.add_argument("--guidance", help="with --unit: words added to the asset's prompt for this batch only, saved "
+                                      "with its sheets (e.g. \"slatted timber counters, no stone\")")
     p.set_defaults(fn=cmd_library_sheets)
     p = libsub.add_parser("trellis", help="TRELLIS route: 3D for the area's props from their chosen views (GPU 0)")
     p.add_argument("project")

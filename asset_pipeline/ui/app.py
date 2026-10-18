@@ -119,6 +119,7 @@ class RefsReq(BaseModel):
     plan: str | None = None
     unit: str | None = None       # None: every unit without sheets
     n: int = 2
+    guidance: str | None = None   # one unit's reroll: words added to its prompt for this batch only
 
 
 class CutReq(BaseModel):
@@ -653,7 +654,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                  "assets": [a.model_dump(mode="json", include={"id", "name", "category", "count",
                                                                 "dimensions", "description"})
                             for a in u.assets],
-                 "sheets": s2_refs.sheets(store, u)} for u in s2_refs.units(store)]
+                 "sheets": s2_refs.sheets(store, u), "sheet_meta": (sm := s2_refs.sheet_meta(store, u)),
+                 # the guidance of the newest batch that had one: the reroll field starts from it
+                 "guidance": next((m["guidance"] for m in reversed(list(sm.values())) if m.get("guidance")), "")}
+                for u in s2_refs.units(store)]
 
     @app.post("/api/projects/{slug}/refs/generate")
     def refs_generate(slug: str, req: RefsReq):
@@ -662,10 +666,17 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             match = [u for u in s2_refs.units(store, req.plan) if u.key == req.unit]
             if not match:
                 raise HTTPException(404, f"no unit {req.unit}")
-            fn = lambda: len(s2_refs.generate(store, match[0], n=req.n))  # noqa: E731
+            try:
+                guidance = s2_refs.clean_guidance(req.guidance)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            fn = lambda: len(s2_refs.generate(store, match[0], n=req.n, guidance=guidance))  # noqa: E731
         else:
+            if (req.guidance or "").strip():
+                raise HTTPException(400, "guidance applies to one asset's reroll: give its unit")
             fn = lambda: len(s2_refs.generate_missing(store, n=req.n, plan=req.plan))  # noqa: E731
-        tag = {"plan": req.plan, "unit": req.unit} if req.unit else {"missing": True}
+        tag = ({"plan": req.plan, "unit": req.unit} | ({"guidance": guidance} if guidance else {})) if req.unit \
+            else {"missing": True}
         tag["n"] = req.n
         tag["units"] = [req.unit] if req.unit else \
             [u.dir(store).relative_to(store.root).as_posix() for u in s2_refs.units(store, req.plan) if not s2_refs.sheets(store, u)]

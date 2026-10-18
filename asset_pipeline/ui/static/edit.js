@@ -162,7 +162,7 @@ function shotEditPanel(r) {
   const clear = prefix => Object.keys(drafts).filter(k => k.startsWith(`${r.id}:${prefix}`)).forEach(k => delete drafts[k]);
   const savePrompt = async (append, override) => {
     try { await api(`/api/projects/${slug}/shots/${r.id}/prompt`, {append, override}, "PUT"); clear("append"); clear("override"); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
     await load();
   };
   $(".save-prompt", el).onclick = () => savePrompt($("[data-draft$=':append']", el).value, $("[data-draft$=':override']", el).value);
@@ -171,13 +171,13 @@ function shotEditPanel(r) {
     const refs = $(`[data-draft="${r.id}:refs"]`, el).value.split("\n").map(s => s.trim()).filter(Boolean);
     try { await api(`/api/projects/${slug}/shots/${r.id}/refs`, {refs, ref_strength: +$(`[data-draft="${r.id}:ref_strength"]`, el).value}, "PUT");
       clear("refs"); clear("ref_strength"); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
     await load();
   };
   const saveCam = async body => {
     try { await api(`/api/projects/${slug}/shots/${r.id}/camera`, body, "PUT");
       ["lens", "tier", "nudge_pos", "nudge_target"].forEach(clear); }
-    catch (err) { alert(err.message); }
+    catch (err) { alert(errorText(err)); }
     await load();
   };
   if (e.in_layout) {

@@ -6,27 +6,7 @@ const URL_ARGS = new URLSearchParams(location.search);
 let slug = null, data = null, statusData = null, plans = [], refs = [], reviewData = null, siteData = null, framesData = null,
   selectedScene = null, polling = null;
 
-async function api(path, body, method = "POST") {
-  const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
-    method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-  const j = await r.json().catch(() => ({}));
-  // a job that needs ComfyUI while it's down: offer to start it, then send the same request
-  // again (the server queues it until ComfyUI answers)
-  if (r.status === 409 && j.detail && j.detail.code === "comfy_down") {
-    if (!(await offerComfyStart(j.detail.message))) throw new Error("ComfyUI is not running");
-    return api(path, body, method);
-  }
-  if (!r.ok) {
-    const d = j.detail;  // FastAPI: a string, an object with a message, or a list of pydantic validation errors
-    if (d && !Array.isArray(d) && typeof d === "object") throw new Error(d.message || r.statusText);
-    throw new Error(Array.isArray(d) ? d.map(e => `${e.loc.filter(x => x !== "body").join(" › ")}: ${e.msg}`).join("\n")
-      : d || r.statusText);
-  }
-  // every job this UI starts gets its progress dialog (loaders.js)
-  if (method === "POST" && j && typeof j.id === "number" && j.kind && j.status && typeof openJobDialog === "function")
-    setTimeout(() => openJobDialog(j.id), 0);
-  return j;
-}
+// api() and errorText() are in net.js (loaded first).
 
 // Every image URL carries a version, so a re-rendered pass, preview or plan always shows:
 // by default the time the last UI job finished (renders, builds, generations all run as
@@ -75,7 +55,7 @@ function activeJobs(kind, match = {}) {
 async function cancelJobs(jobs, button) {
   if (button) { button.disabled = true; button.textContent = "Stopping…"; }
   try { await Promise.all(jobs.map(j => api(`/api/jobs/${j.id}/cancel`, {}))); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
   await load();
 }
 
@@ -206,7 +186,7 @@ $("#explore-form").onsubmit = async e => {
     await api(`/api/projects/${slug}/style/explore`, {brief: f.get("brief") || null,
       n: +f.get("n"), seed: f.get("seed") === "" ? null : +f.get("seed")});
     await load();
-  } catch (err) { alert(err.message); }
+  } catch (err) { alert(errorText(err)); }
 };
 
 $("#derive-form").onsubmit = async e => {
@@ -217,7 +197,7 @@ $("#derive-form").onsubmit = async e => {
       nouns: f.get("nouns").split(",").map(s => s.trim()).filter(Boolean),
       per_noun: +f.get("per_noun"), style_text: $("#anchor-form [name=style_text]").value});
     await load();
-  } catch (err) { alert(err.message); }
+  } catch (err) { alert(errorText(err)); }
 };
 
 const strength = $("#anchor-form [name=strength]");
@@ -231,7 +211,7 @@ $("#anchor-form").onsubmit = async e => {
       style_text: f.get("style_text")});
     delete e.target.style_text.dataset.touched; delete strength.dataset.touched;
     await load();
-  } catch (err) { alert(err.message); }
+  } catch (err) { alert(errorText(err)); }
 };
 
 
@@ -267,16 +247,16 @@ $("#moodboard-form").onsubmit = async e => {
   fd.append("group", e.target.group.value);
   for (const file of e.target.files.files) fd.append("files", file);
   try { await api(`/api/projects/${slug}/moodboard`, fd); e.target.reset(); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
   await load();
 };
 $("#style-draft").onclick = async () => {
-  try { await api(`/api/projects/${slug}/style/draft`, {}); } catch (err) { alert(err.message); }
+  try { await api(`/api/projects/${slug}/style/draft`, {}); } catch (err) { alert(errorText(err)); }
   await load();
 };
 $("#anchor-text-only").onclick = async () => {
   const st = $("#anchor-form [name=style_text]");
   try { await api(`/api/projects/${slug}/style/text`, {text: st.value}); delete st.dataset.touched; }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
   await load();
 };

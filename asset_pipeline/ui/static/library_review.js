@@ -155,7 +155,7 @@ async function lrSaveReview(status) {
   const st = status || ($("input[name=lr-st]:checked") || {}).value || null;
   const note = $("#lr-note") ? $("#lr-note").value : "";
   try { lr.data.review = await api(`/api/projects/${slug}/library/asset/${lr.asset}/review`, {status: st, note}); }
-  catch (err) { alert(err.message); return; }
+  catch (err) { alert(errorText(err)); return; }
   const it = lr.list && lr.list.assets.find(a => a.asset === lr.asset); if (it) it.status = lr.data.review.status;
   $("#lr-review").dataset.asset = "";
   lrRender();
@@ -377,7 +377,7 @@ let lrValTimer = null;
 function lrValidateSoon() { clearTimeout(lrValTimer); lrValTimer = setTimeout(lrValidate, 350); }
 async function lrValidate() {
   if (!lr.asset || !lr.data.building) return null;
-  const v = await api(`/api/projects/${slug}/library/asset/${lr.asset}/check`, {brief: lrBriefBody()}).catch(err => ({errors: [err.message], warnings: [], impact: []}));
+  const v = await api(`/api/projects/${slug}/library/asset/${lr.asset}/check`, {brief: lrBriefBody()}).catch(err => ({errors: [errorText(err)], warnings: [], impact: []}));
   const e = $("#lr-errors"); if (e) e.textContent = v.errors.length ? v.errors.join(" · ") : "";
   const w = $("#lr-warnings"); if (w) w.textContent = v.warnings.length ? "Note: " + v.warnings.join(" · ") : "";
   const btn = $("#lr-rebuild"); if (btn) { btn.disabled = !!v.errors.length; btn.title = v.errors.length ? "Fix the highlighted values first" : ""; }
@@ -393,7 +393,7 @@ async function lrRebuild() {
   if (v && v.errors.length) return;
   const go = async confirm => {
     try { await api(`/api/projects/${slug}/library/asset/${lr.asset}/rebuild`, {brief: lr.data.building ? lrBriefBody() : {params: lr.draft.params}, confirm}); }
-    catch (err) { alert(err.message); return; }
+    catch (err) { alert(errorText(err)); return; }
     lr.dirty = false;
     await lrLoad(true);
     lr.data.jobs = [{}]; lrWatch();

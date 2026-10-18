@@ -199,7 +199,9 @@ table.grid-table td.dirty::after { content: " *"; }
 .unit:first-child { border-top: 0; }
 .unit-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; }
 .unit-head .title { font-weight: 700; }
-.unit-head .more { margin-left: auto; }
+.unit-head .guidance { margin-left: auto; flex: 0 1 26em; min-width: 12em; }
+.card .label:has(.guided) { right: 4px; }
+.card .label .guided { display: block; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .unit .empty { color: var(--muted); }
 .chip, .mine-tag, .auto-tag { padding: 0 4px; border: 1px solid var(--border); background: var(--field); }
 .mine-tag { border-color: var(--select); color: var(--select); }

@@ -108,7 +108,7 @@ async function libDecide(id, decision, frame = null) {
   const cur = (libraryData.decisions[id] || {}).decision || null;
   const next = cur === decision && !frame ? null : decision;          // pressing the chosen button again clears it
   try { libraryData.decisions = await api(`/api/projects/${slug}/library/decision`, {entry: id, decision: next, frame}); }
-  catch (err) { alert(err.message); return; }
+  catch (err) { alert(errorText(err)); return; }
   renderLibrary();
 }
 
@@ -144,7 +144,7 @@ $("#assets-list").addEventListener("click", async e => {
     const id = r.closest("[data-entry]").dataset.entry, ent = libEntries().find(x => x.id === id);
     const next = r.dataset.route === "procedural" ? "trellis" : "procedural";
     try { libraryData.decisions = await api(`/api/projects/${slug}/library/route`, {entry: id, route: next === ent.route_auto ? null : next}); }
-    catch (err) { alert(err.message); return; }
+    catch (err) { alert(errorText(err)); return; }
     renderLibrary(); return;
   }
   const b = e.target.closest("[data-decision]"); if (!b) return;
@@ -155,5 +155,5 @@ $("#assets-list").addEventListener("click", async e => {
   libDecide(id, b.dataset.decision);
 });
 $("#lib-filter").onchange = e => { lib.filter = e.target.value; try { localStorage.setItem("ap.libFilter", lib.filter); } catch (_) { /* ignore */ } renderLibrary(); };
-$("#lib-plan").onclick = async () => { try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(err.message); } };
-$("#lib-check").onclick = async () => { try { await api(`/api/projects/${slug}/library/check`, {}); } catch (err) { alert(err.message); } };
+$("#lib-plan").onclick = async () => { try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(errorText(err)); } };
+$("#lib-check").onclick = async () => { try { await api(`/api/projects/${slug}/library/check`, {}); } catch (err) { alert(errorText(err)); } };

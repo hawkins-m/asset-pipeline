@@ -75,7 +75,7 @@ async function saveDraft(d = fr.draft) {
     }
     d.changed = false;
     return true;
-  } catch (err) { alert(err.message); return false; }
+  } catch (err) { alert(errorText(err)); return false; }
 }
 function flushDraft() { if (fr.draft && fr.draft.changed) { const d = fr.draft; saveDraft(d).then(ok => ok && load()); } }
 
@@ -274,7 +274,7 @@ function regenerateDialog(r) {
     const n = Math.max(1, Math.min(12, +$("#rg-n", f).value || 4)), ref = $("#rg-ref", f).value;
     try { localStorage.setItem("ap.framesN", n); } catch (_) { /* ignore */ }
     try { const j = await api(`/api/projects/${slug}/shots/${r.id}/regenerate`, {n, refs: ref ? [ref] : []}); await load(); openJobDialog(j.id); }
-    catch (err) { alert(err.message); return false; }
+    catch (err) { alert(errorText(err)); return false; }
   };
   const dlg = dialog({title: `Regenerate ${r.id}`, body: f, buttons: [{label: "Regenerate", default: true, onClick: go}, {label: "Cancel"}]});
   f.onsubmit = async e => { e.preventDefault(); if ((await go()) !== false) dlg.close(); };
@@ -282,7 +282,7 @@ function regenerateDialog(r) {
 
 async function framesAction(body) {
   try { const j = await api(`/api/projects/${slug}/frames/generate`, {...body, n: framesPerShot()}); await load(); openJobDialog(j.id); }
-  catch (err) { alert(err.message); }
+  catch (err) { alert(errorText(err)); }
 }
 
 document.addEventListener("mousedown", e => {      // close the landmark picker on an outside click

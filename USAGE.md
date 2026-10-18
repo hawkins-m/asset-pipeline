@@ -554,6 +554,7 @@ RUNBOOK.md walks through it. The commands:
 ap area define my-project my-area --shots med-a med-b     # or --districts north
 ap area status my-project my-area                         # each asset's next step
 ap library sheets my-project --area my-area               # sheets for decided entries without any
+ap library sheets my-project --unit my-asset --guidance "slatted timber counters, no stone"   # a steered reroll
 ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front
 ap library build my-project --area my-area [--renders] [--force]
 ap library trellis my-project --area my-area              # props: TRELLIS on their chosen views

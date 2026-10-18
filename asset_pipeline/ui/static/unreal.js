@@ -31,7 +31,7 @@ function renderUnreal() {
 }
 
 async function ueExport() {
-  try { await api(`/api/projects/${slug}/export`, {}); } catch (err) { alert(err.message); }
+  try { await api(`/api/projects/${slug}/export`, {}); } catch (err) { alert(errorText(err)); }
   await load();
 }
 
@@ -39,9 +39,9 @@ async function ueBackup(force = false) {
   try { await api(`/api/projects/${slug}/ue/backup`, {force}); }
   catch (err) {
     if (!force && err.message.includes("open:") &&
-        confirm(`${err.message}.\n\nBack up anyway? A snapshot taken while the editor saves can be inconsistent.`))
+        confirm(`${errorText(err)}.\n\nBack up anyway? A snapshot taken while the editor saves can be inconsistent.`))
       return ueBackup(true);
-    if (force || !err.message.includes("open:")) alert(err.message);
+    if (force || !err.message.includes("open:")) alert(errorText(err));
   }
   await load();
 }

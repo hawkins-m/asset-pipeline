@@ -46,8 +46,13 @@ down the list, largest frame share first:
    reference, kit, exclude).
 2. **Sheets.** `ap library sheets my-project --area my-area` makes two sheets for every
    decided, unapproved entry that has none (about 55 s each). For another try, use
-   References › the asset › Generate (or `--more`, or `--unit my-asset`). Add
+   Library › Reference sheets › **+2 more** on the asset (or `--more`, or `--unit my-asset`). Add
    `--view three-quarter` for deep buildings.
+   - To steer a reroll, type **guidance** in the field next to +2 more, e.g. "slatted timber
+     counter boxes under one shared timber pergola, no stone" (Enter also rerolls). It is added
+     to that asset's prompt for that batch only and saved with those sheets: each one shows it
+     as a caption. The field starts from the last batch's guidance; edit or clear it before the
+     next reroll. CLI: `ap library sheets my-project --unit my-asset --guidance "..."`.
 3. **Buildings and structures (procedural route).**
    - A new asset needs a brief from its best sheet view:
      `ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front`.
