@@ -201,7 +201,7 @@ function guideEdits(asset, guidance, res, onDone) {
   const body = document.createElement("div"); body.id = "gd-edits";
   const rows = res.edits.map((e, i) => `<tr class="gd-row" data-path="${esc(e.path)}" data-i="${i}">
       <td><input type="checkbox" class="gd-accept" checked aria-label="Accept ${esc(guideLabel(e.path))}"></td>
-      <td title="${esc(e.path)}">${esc(guideLabel(e.path))}</td><td class="gd-before">${esc(guideShow(e.before))}</td>
+      <td title="${esc(e.path)}">${esc(guideLabel(e.path))}</td><td class="gd-before"${e.switch_on ? ` title="${esc(guideLabel(e.switch_on))} is off: this switches it on (its other fields from the template)"` : ""}>${e.switch_on ? `<i>off</i> (${esc(guideShow(e.before))})` : esc(guideShow(e.before))}</td>
       <td><input class="gd-after" value="${esc(guideShow(e.after))}" aria-label="New value for ${esc(guideLabel(e.path))}"></td>
       <td class="hint" style="margin:0">${esc(e.why)}</td></tr>`).join("");
   body.innerHTML = `<p>${res.brief_made ? "There was no brief yet, so one was made from the sheet first. " : ""}${res.edits.length ?

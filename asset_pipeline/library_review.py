@@ -34,7 +34,8 @@ STEPS = ("brief saved", "Blender build", "quick preview", "Cycles: sheet angle",
 FRACTIONS = {"niche": ("w", "h", "rise", "mezzanine", "door_w"), "loggia": ("w", "h", "sill"),
              "window": ("w", "h", "sill"), "slot": ("w", "h", "sill"), "blind": ("w", "h", "sill"),
              "top": ("span",), "accent": ("w",), "end_screen": ("mezzanine", "passage_w"), "curtain": ("w", "transom"),
-             "street_garden": ("length",), "panel_frame": ("w", "margin")}
+             "street_garden": ("length",), "panel_frame": ("w", "margin"), "arcade": ("rise",),
+             "gallery": ("w", "h", "sill", "rise")}
 TOP_FRACTIONS = ("nave", "aisle_h", "gallery_h", "atrium")
 ZERO_OK = ("sill", "transom")          # shares that may be 0 (a loggia from the floor, no transom)
 
@@ -272,6 +273,9 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     for k in ("proj", "gap"):
         if isinstance(pf.get(k), (int, float)) and not pf[k] > 0 - (k == "gap") * 1e-9:
             errs.append(f"front.panel_frame.{k} = {pf[k]}: must be {'positive' if k == 'proj' else 'zero or more'} (metres)")
+    a_errs, a_warns = _arcade_checks(brief["form"], f, dims)
+    errs += a_errs
+    warns += a_warns
     if brief.get("surface") not in (None, "", "auto", "library", "patch"):
         errs.append(f"surface {brief['surface']!r}: library or patch")
     e = entry_of(store, asset)
@@ -316,6 +320,54 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         if abs(h - gh_) > 0.1 * gh_:
             warns.append(f"height {h:g} m differs from the greybox instance's {gh_:g} m")
     return {"errors": errs, "warnings": warns}
+
+
+def _arcade_checks(form: str, f: dict, dims) -> tuple[list[str], list[str]]:
+    """An arcade's geometry (errors) and how its storeys fit the brief's height (warnings)."""
+    errs, warns = [], []
+    if not f.get("arcade"):
+        return errs, warns
+    if form == "arcade_hall" and not f.get("range"):
+        warns.append("arcade: only a colonnade range (range) uses it")
+    A = building_gen.arcade_spec(f["arcade"])
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)          # noqa: E731
+    for k in ("bay_m", "pier_w", "arch_h", "h", "depth"):
+        if not num(A.get(k)) or A[k] <= 0:
+            errs.append(f"arcade.{k} = {A.get(k)!r}: a size in metres, above 0")
+    if errs:
+        return errs, warns
+    gap = A["bay_m"] - A["pier_w"]
+    if gap < 0.5:
+        errs.append(f"arcade.bay_m {A['bay_m']:g} m leaves {gap:.2f} m between piers {A['pier_w']:g} m wide: at least 0.5 m")
+    if A["arch_h"] > A["h"] - 0.3:
+        errs.append(f"arcade.arch_h {A['arch_h']:g} m: the crown must stay 0.3 m under the arcade storey (h {A['h']:g} m)")
+    elif A.get("arch", "round") == "round" and gap >= 0.5 and A["arch_h"] < gap / 2 + 0.2:
+        errs.append(f"arcade.arch_h {A['arch_h']:g} m is too low for a round arch {gap:.2f} m wide: at least "
+                    f"{gap / 2 + 0.2:.2f} m (or arch seg)")
+    if A["depth"] < A["pier_w"] + 0.4:
+        errs.append(f"arcade.depth {A['depth']:g} m: the walk needs the piers' {A['pier_w']:g} m plus 0.4 m")
+    im = A.get("impost")
+    if im and not (num(im.get("h")) and im["h"] > 0 and num(im.get("proj")) and im["proj"] >= 0):
+        errs.append("arcade.impost: h above 0 m and proj 0 m or more")
+    G = A.get("gallery")
+    if G:
+        if not num(G.get("storey_h")) or G["storey_h"] < 2.4:
+            errs.append(f"arcade.gallery.storey_h = {G.get('storey_h')!r}: at least 2.4 m")
+        if not isinstance(G.get("storeys"), int) or isinstance(G.get("storeys"), bool) or G["storeys"] < 0:
+            errs.append(f"arcade.gallery.storeys = {G.get('storeys')!r}: a whole number, 0 for as many as the height takes")
+        if G.get("kind", "loggia") == "loggia" and num(G.get("depth")) and G["depth"] < A["pier_w"] + 0.3:
+            warns.append(f"arcade.gallery.depth {G['depth']:g} m is no deeper than the piers: the loggia has no walk")
+    if form == "arcade":
+        faces = f.get("faces") or []
+        bad = [x for x in faces if x not in building_gen.SIDES]
+        if bad or not faces:
+            errs.append(f"faces {faces}: one or more of {', '.join(building_gen.SIDES)}")
+    if not errs:
+        sub = f if form == "arcade" else {"arcade": A, "attic": None}
+        hh = building_gen.arcade_height(sub, dims[2]) + ((f.get("attic") or {}).get("storey_h", 0.0) if form == "arcade" else 0.0)
+        if abs(hh - dims[2]) > 0.15 * dims[2]:
+            warns.append(f"arcade and gallery storeys come to {hh:.1f} m; the brief's height is {dims[2]:g} m")
+    return errs, warns
 
 
 def _walk_enums(f, path: str = "", parent: str = "") -> list[str]:

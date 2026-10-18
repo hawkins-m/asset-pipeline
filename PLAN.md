@@ -327,6 +327,18 @@ So:
     crops and briefs drafted by the vision model. Wide tile slots give wide crops, and their
     drafts describe whatever building dominates the crop.
   - Look scenes no longer carry a far-hill backdrop: terrain is planned separately.
+- **Arcades, variant sets, form gaps (2026-10-17).**
+  - **Arcade builder part** (`building_parts.arcade_run`): round or segmental arches on square
+    piers with impost mouldings, a walk behind them, and gallery storeys over them (an open loggia
+    with balustrades, or windows in a stone grid). It is the colonnade range's front when the range
+    has `arcade`. It is also the **arcade form** (bay, corner and arched-wall choices): arcades on
+    any faces, the walks turning corners round one pier, arched end walls where a module meets its
+    neighbour, party walls, a set-back attic. Build guidance can switch these parts on.
+  - **Variant sets** (`variants.py`): a prop type's places pick one of several entries by weight,
+    reproducibly per place. Nothing places props in Unreal or look scenes yet; `variants.assign`
+    is what that placement step will read.
+  - **Form gaps** in the area panel: each procedural asset without a form or size gets fixes as
+    buttons (a form and size, or the TRELLIS route).
 - **Terrain beyond the city (proposal, 2026-10-14; not applied).** `terrain_plan.py` reads
   every locked frame's far skyline and proposes ranges, carved so no locked frame's sky gets
   land:

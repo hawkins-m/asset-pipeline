@@ -46,7 +46,7 @@ def test_open_openings_have_no_glass():
 
 @pytest.mark.parametrize("form,dims", [("hall_vault", [43, 28, 10.6]), ("cube", [48, 48, 16]),
                                        ("basilica", [87, 50, 23.6]), ("podium_tower", [37, 28, 47]),
-                                       ("perimeter", [65, 65, 23.8]), ("row", [30, 14, 13.6])])
+                                       ("perimeter", [65, 65, 23.8]), ("row", [30, 14, 13.6]), ("arcade", [16, 16, 20.4])])
 def test_generators_stay_near_their_dimensions(form, dims):
     parts = bg.GENERATORS[form](dims, {}, bg.features(form, None))
     pts = []
@@ -144,7 +144,8 @@ print("VOL", bm.calc_volume(signed=True))
 
 FORM_DIMS = [("cube", [48, 48, 40]), ("basilica", [87, 50, 24]), ("podium_tower", [37, 28, 47]),
              ("perimeter", [45, 45, 24]), ("row", [30, 14, 10]), ("hall_vault", [43, 28, 19.5]),
-             ("civic_block", [31, 21, 18.2]), ("arcade_hall", [36, 22, 19.5]), ("campanile", [7, 7, 46])]
+             ("civic_block", [31, 21, 18.2]), ("arcade_hall", [36, 22, 19.5]), ("campanile", [7, 7, 46]),
+             ("arcade", [16, 16, 20.4])]
 
 
 @pytest.mark.parametrize("form,dims", FORM_DIMS)

@@ -149,6 +149,12 @@ class EntryFormReq(BaseModel):
     size_m: list[float] | None = None
 
 
+class VariantSetReq(BaseModel):
+    members: dict[str, float]      # entry -> weight (the base is kept; leave an entry out to remove it)
+    areas: list[str] | None = None  # None: keep; []: every area
+    seed: int | None = None
+
+
 class AssetBriefReq(BaseModel):
     brief: dict
     confirm: bool = False          # rebuild even though locked frames show instances whose size changed
@@ -1243,6 +1249,34 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         store = _store(slug)
         _entry_call(sw_library.describe, store, entry, req.description)
         return library_entries.view(store, entry)
+
+    # --- variant sets: several entries for one prop type, picked per prop slot ---------------
+
+    @app.get("/api/projects/{slug}/library/variants/{entry}")
+    def library_variants_get(slug: str, entry: str):
+        """The variant set an entry is in ({set: summary or None}), and the prop entries that could
+        join it (candidates: props in no other set)."""
+        from .. import variants
+        store = _store(slug)
+        if library_entries._entry_of(store, entry)[0] is None:
+            raise HTTPException(404, f"no library entry {entry}")
+        base = variants.set_of(store, entry)
+        data = sw_library.load(store) or {}
+        props = [e["id"] for e in data.get("entries", []) + data.get("unseen", []) if e.get("kind") == "prop"]
+        return {"entry": entry, "set": _entry_call(variants.summary, store, base) if base else None,
+                "can_base": variants.noun(store, entry) is not None and not (library_entries._all_entries(store).get(entry) or {}).get("custom"),
+                "candidates": [p for p in props if variants.set_of(store, p) in (None, base)]}
+
+    @app.post("/api/projects/{slug}/library/variants/{base}")
+    def library_variants_save(slug: str, base: str, req: VariantSetReq):
+        from .. import variants
+        return _entry_call(variants.save, _store(slug), base, req.members, req.areas, req.seed)
+
+    @app.delete("/api/projects/{slug}/library/variants/{base}")
+    def library_variants_delete(slug: str, base: str):
+        from .. import variants
+        _entry_call(variants.remove, _store(slug), base)
+        return {"removed": base}
 
     @app.get("/api/forms")
     def forms():

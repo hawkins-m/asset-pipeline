@@ -40,6 +40,10 @@ list, largest frame share first:
    entries **Form** and **Size**. The area panel marks entries with *no form* or *no size*
    (its **Set form…** button opens this) so they're fixed before Brief & build. See section 7 for new,
    duplicated and renamed entries.
+   - **Form gaps** (the box above the area's table) lists those assets with their fixes as
+     buttons, the suggested one first: *Form: …, size* (from the entry's words: a portico, an
+     arcade block, a courtyard; kit modules take their kit piece's size; a city wall one wall bay),
+     or *Use the TRELLIS route* for a building no form describes. Hover a button for why.
 2. **Sheets.** The area's **Sheets for missing…** makes two sheets for every decided,
    unapproved entry that has none (about 55 s each; it shows the count first). For another try:
    Library › Reference sheets › **+2 more** on the asset.
@@ -130,7 +134,13 @@ defaults. Change one or two things at a time, then Save & Rebuild.
 | Garden walls along the street | street garden: depth, h, gap, length (share of the frontage), planter |
 | Planters everywhere | planter: box, trough, pots, hedge, bed, none (a part's own planter overrides it) |
 | Low side buildings | annexes (Add): side, at, w, d, h, pattern, canopy |
-| Hipped roof | hip roof (rise, over) on civic and arcade halls; campanile › cap `hip` |
+| Hipped roof | hip roof (rise, over) on civic and arcade halls, colonnade ranges and arcades; campanile › cap `hip` |
+| Arches on square piers (arcades, porticoes, arcaded blocks) | arcade: bay m (pier centre to centre), pier w, arch h (to the crown), arch `round` / `seg` (rise: share of the opening), h (the arcade storey), depth (the walk), back `shop` / `wall`; on a colonnade range tick *arcade* |
+| The moulding at the arches' springing | arcade › impost: h, proj (untick for none) |
+| A storey or open gallery over the arcade | arcade › gallery: kind `loggia` (open arches) / `windowed`, storeys (0: fill the height), storey h, arch `round` / `seg` / `rect`, w / h / sill (shares), balustrade, balustrade h |
+| Stone frames round the windows over an arcade | arcade › gallery › grid: w, proj |
+| A set-back top storey (arcade form) | attic: storey h, setback, side setback (0 on a module's party walls) |
+| Party walls (bay and corner modules) | side: pattern `solid`, ground kind `solid` |
 | Wall material per band | Materials › Type per band (auto reads the sheet) and Colour; Surfaces library / patch |
 | Texture scale (joint size, veining) | Materials › the × box next to Type per band: a multiplier on the material's tile size, default 1 (0.5 on 2 m stone gives 1 m blocks; 2 doubles them). Saved only when not 1 |
 | Raised moulding around the basilica's central block | basilica front › panel frame: on, w (share of the block width), proj (m proud of the wall), margin (share in from its edges), gap (m clear of the window and oculus). Off by default |
@@ -173,6 +183,13 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 - **Manage entry… › Duplicate…** copies an entry with its sheets, views, brief, builds and
   TRELLIS results to a new id (not its review status). Use it to keep a model while rerolling
   the original: e.g. duplicate a market stand to `stone-counter`, then reroll the stand.
+- **Variant sets** (props): Manage entry… on a prop type's entry (e.g. a market's canopy tables)
+  › **Make a variant set**, then **Add entry** for each variant (make it first with New entry…)
+  and give each a **weight**. Every place of that prop picks one entry by weight, the same one
+  every time; adding an entry moves only some places to it, the rest keep theirs. *Areas* limits
+  the set to those areas' places. Variants appear in the area table (*variant of …*) and go
+  through sheets and TRELLIS like any prop. CLI: `ap library variants my-project my-prop
+  --member my-variant=2`.
 - **Manage entry… › Rename…**: entries of your own get a new id (their files move); entries
   from the library plan keep their id and change only their display name.
 
@@ -209,7 +226,7 @@ Everything above also runs from a terminal (`ap --help`, USAGE.md):
 | Sheets for missing… / +2 more (with guidance) | `ap library sheets my-project --area my-area`; `--unit my-asset --guidance "..."`; `--view three-quarter` |
 | Brief & build | `ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front` (or a view number 0 / 1 / 2), then `ap library build my-project my-asset --renders` |
 | Build all… / TRELLIS all… / Instances… | `ap library build|trellis|instances my-project --area my-area` |
-| Manage entry… (decision, route) | `ap library decide my-project ENTRY ...`; `ap library route my-project ENTRY procedural|trellis` |
+| Manage entry… (decision, route, form and size, variant set) | `ap library decide my-project ENTRY ...`; `ap library route my-project ENTRY procedural|trellis`; `ap library form my-project ENTRY FORM --size W D H`; `ap library variants my-project ENTRY --member OTHER=WEIGHT` |
 | Review round task list / mark done | `ap library review apply my-project [--done ASSET ...]` |
 | Pending slots… / Silhouette check… | `ap library pending my-project --shot SHOT`; `ap library silhouette my-project my-asset --shot SHOT` |
 | World › Generate frames… / Lock a shot… | `ap frames generate my-project SHOT -n 4`; `ap frames lock my-project SHOT [--greybox]` |

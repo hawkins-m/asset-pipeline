@@ -96,6 +96,29 @@ def members(store: ProjectStore, area: str | None = None, district: str | None =
         for e in ents.values():
             if d in (e.get("districts") or {}) or e.get("district") == d:
                 out.setdefault(e["id"], 0.0)
+    from . import variants                           # a variant set's members go where its base goes
+    for base, vs in variants.sets(store).items():
+        if base in out and (not vs.get("areas") or not area or area in vs["areas"]):
+            for m in vs.get("members") or {}:
+                if m in ents:
+                    out.setdefault(m, out[base])
+    return out
+
+
+def slots_in(store: ProjectStore, area: str) -> set[str]:
+    """The greybox slots an area covers: those its shots show (MIN_SHARE of a frame or more) and
+    those in its districts."""
+    from .stages import sw_shots, sw_site
+    spec = load(store).get(area)
+    if spec is None:
+        raise KeyError(f"no area {area!r}")
+    out = set()
+    for shot in spec["shots"]:
+        ids = read_json(sw_shots.shot_dir(store, shot) / "ids.json", default=None) or {"slots": {}}
+        out |= {sid for sid, v in ids["slots"].items() if v["frac"] >= MIN_SHARE}
+    ds = set(spec.get("districts") or [])
+    if ds:
+        out |= {s["id"] for s in sw_site.load_greybox(store)["slots"] if s.get("district") in ds}
     return out
 
 
@@ -108,9 +131,10 @@ def assets_of(store: ProjectStore, entry: str, decision: dict | None) -> list[st
 
 def status(store: ProjectStore, area: str | None = None, district: str | None = None) -> list[dict]:
     """One row per asset of the area: what it has (sheets, brief, build, review) and its next step."""
-    from . import kit_proc, library_review
+    from . import kit_proc, library_review, variants
     from .stages import s2_refs, s5_3d, sw_library
     ents, dec = _entries_and_decisions(store)
+    in_set = {m: base for base, vs in variants.sets(store).items() for m in (vs.get("members") or {}) if m != base}
     revs = library_review.reviews(store)
     units = {u.key: u for u in s2_refs.units(store, sw_library.PLAN_NAME)}
     rows = []
@@ -137,7 +161,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
             row = {"asset": a, "entry": eid, "tier": e.get("tier"), "kind": e.get("kind"), "share": round(share, 4), "missing": missing,
                    "decision": d.get("decision"), "route": route, "sheets": nsheets, "brief": brief,
                    "built": built, "fresh": fresh, "instances": len(inst), "trellis": len(trellis),
-                   "status": st, "note": (revs.get(a) or {}).get("note", "")}
+                   "status": st, "note": (revs.get(a) or {}).get("note", ""), "variant_of": in_set.get(eid)}
             row["next"] = next_step(store, row, area, district)
             rows.append(row)
     return rows
@@ -166,6 +190,69 @@ def next_step(store: ProjectStore, r: dict, area: str | None, district: str | No
     if not r["trellis"]:
         return f"pick a view in Review, then 3D there or ap library trellis {p} {sel}"
     return "review the TRELLIS result in Review, then Approve it there"
+
+
+def module_size(store: ProjectStore, e: dict) -> list[float] | None:
+    """A structure built from repeated modules, as one module: a city wall run as one wall bay
+    (city.WALL_BAY_M along it, the enclosure's wall depth and height). None for anything else."""
+    if (e or {}).get("typology") != "wall":
+        return None
+    from . import city
+    from .stages import sw_site
+    try:
+        enc = sw_site.load_layout(store).city.enclosure
+    except (FileNotFoundError, AttributeError):
+        return None
+    if enc is None or enc.kind != "wall":
+        return None
+    return [city.WALL_BAY_M, float(enc.wall_d), float(enc.wall_h)]
+
+
+def _size_text(s) -> str:
+    return " × ".join(f"{x:g}" for x in s) + " m"
+
+
+def form_gaps(store: ProjectStore, rows: list[dict]) -> list[dict]:
+    """The area's procedural assets that can't be briefed yet (no form, or no size), each with its
+    suggested fixes, the first one recommended: [{asset, entry, missing, size_m, fixes: [{kind:
+    form | route | manage, label, why, form?, size_m?, route?}]}]. A form fix sets the entry's form
+    and size (Manage entry… › Form, Size); a route fix moves it to TRELLIS."""
+    from . import library_entries
+    from .building_gen import FORM_CHOICE
+    out = []
+    for r in rows:
+        if r["route"] != "procedural" or r["brief"] or not r.get("missing") or r["status"] == "approved":
+            continue
+        a = r["asset"]
+        ent, own = library_entries._entry_of(store, a)
+        e = (ent or {}) if own else {}
+        info = library_entries.form_info(store, a)
+        choice, matched = library_entries.suggestion(e or ent or {"id": a}, None if own else a)
+        size, size_why = info["size_m"], {"yours": "your size", "plan": "the plan's size",
+                                         "kit piece": "the kit piece's size"}.get(info["size_source"])
+        mod = module_size(store, e)
+        if mod:
+            size, size_why = mod, "one wall bay (the plan's size is the whole wall run)"
+            matched_why = "a city wall is a run of arched bays: one bay, arches on piers with nothing over them"
+        else:
+            matched_why = None
+        fixes = []
+        if "form" in r["missing"]:
+            form_fix = {"kind": "form", "form": choice, "size_m": size,
+                        "label": f"Form: {FORM_CHOICE[choice]['label']}" + (f", {_size_text(size)}" if size else ""),
+                        "why": (matched_why or f"its words point to it ({FORM_CHOICE[choice]['desc']})" if matched else
+                                "no form matches its description; the cube is the catch-all")
+                        + (f"; size: {size_why}" if size else "")}
+            if matched or (e or ent or {}).get("kind") != "building":
+                fixes.append(form_fix)
+            else:                                       # an irregular building: TRELLIS from a sheet view
+                fixes += [{"kind": "route", "route": "trellis", "label": "Use the TRELLIS route",
+                           "why": "no building form matches its description: TRELLIS makes it from a sheet view"},
+                          form_fix]
+        if not size or ("size" in r["missing"] and not fixes):
+            fixes.append({"kind": "manage", "label": "Set size…", "why": "no size in the plan: give width, depth, height"})
+        out.append({"asset": a, "entry": r["entry"], "missing": r["missing"], "size_m": info["size_m"], "fixes": fixes})
+    return out
 
 
 CHECK_BEGIN, CHECK_END = "<!-- ap area status: begin -->", "<!-- ap area status: end -->"

@@ -7,7 +7,7 @@ const AREA_BATCHES = {
   trellis: ["TRELLIS all", "3D for every prop with a chosen view", "GPU 0; the vision LLM is stopped while TRELLIS runs. Assets need a chosen view."],
   instances: ["Instances", "Every building at its own footprint and storeys", "Blender on the CPU; one build per building footprint."],
 };
-const areaState = {sel: null, data: null, rows: []};
+const areaState = {sel: null, data: null, rows: [], gaps: []};
 
 function areaStep(r) {
   if (r.status === "approved") return {kind: "done", label: "Done"};
@@ -32,6 +32,7 @@ async function areasDialog() {
       <button type="button" id="area-new" class="small">New area…</button>
       <button type="button" id="area-refresh" class="small">Refresh</button></div>
     <div id="area-define" hidden></div>
+    <div id="area-gaps" hidden></div>
     <div id="area-table-box" class="hint">Loading…</div>
     <div class="row" id="area-batches">${Object.entries(AREA_BATCHES).map(([k, v]) =>
       `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}: ${esc(v[2])}">${v[0]}…</button>`).join("")}
@@ -56,14 +57,15 @@ async function areasDialog() {
     if (!areaState.sel) { box.textContent = "Define an area (New area…) from shots and/or districts."; return; }
     box.textContent = "Loading…";
     const q = new URLSearchParams(areaScope());
-    try { areaState.rows = (await api(`/api/projects/${slug}/areas/status?${q}`, undefined, "GET")).rows; }
+    try { const st = await api(`/api/projects/${slug}/areas/status?${q}`, undefined, "GET"); areaState.rows = st.rows; areaState.gaps = st.gaps || []; }
     catch (err) { box.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
+    areaGaps(d, table);
     box.className = "";
     if (!areaState.rows.length) { box.innerHTML = `<p class="hint">No assets in this area.</p>`; return; }
     box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr><th>Asset</th><th>Tier</th><th>Route</th><th>Share</th>
       <th>Sheets</th><th>Brief</th><th>Build</th><th>Review</th><th>Next</th></tr></thead><tbody>${areaState.rows.map((r, i) => {
         const st = areaStep(r);
-        return `<tr data-asset="${esc(r.asset)}"><td>${esc(r.asset)}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
+        return `<tr data-asset="${esc(r.asset)}"><td>${esc(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(r.variant_of)}</span>` : ""}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
           <td>${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td>${r.brief ? "yes" : (r.missing || []).length
             ? `<span class="error" title="Brief & build needs a building form and a size: set them in Manage entry… (or in the Brief & build dialog)">no ${esc(r.missing.join(", no "))}</span>` : "–"}</td><td>${areaBuildText(r)}</td>
           <td>${esc(r.status || "not reviewed")}</td><td><button type="button" class="small area-step" data-i="${i}" data-step="${st.kind}"
@@ -103,6 +105,38 @@ function areaDefineForm(d, reload) {
     } catch (err) { alert(errorText(err)); }
   };
   $("#area-name", box).focus();
+}
+
+// Form gaps: procedural assets with no form (or size) yet, each with its suggested fixes as
+// buttons (the first is the recommended one). A form fix sets the entry's form and size, a route
+// fix moves it to TRELLIS, "Set size…" opens Manage entry.
+function areaGaps(d, table) {
+  const box = $("#area-gaps", d.win), gaps = areaState.gaps;
+  box.hidden = !gaps.length;
+  if (!gaps.length) { box.replaceChildren(); return; }
+  box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>
+    <p class="hint" style="margin-top:0">These can't be briefed yet. The first button is the suggested fix.</p>
+    ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em">${esc(g.asset)}</b>
+      <span class="error" style="min-width:6em">no ${esc(g.missing.join(", no "))}</span>
+      ${g.fixes.map((f, k) => `<button type="button" class="small${k === 0 ? " default" : ""} area-fix" data-g="${i}" data-f="${k}"
+        title="${esc(f.why || "")}">${esc(f.label)}</button>`).join(" ")}
+      <button type="button" class="small area-fix-manage" data-g="${i}">Manage entry…</button></div>`).join("")}</fieldset>`;
+  box.querySelectorAll(".area-fix").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], gaps[+b.dataset.g].fixes[+b.dataset.f], d, table));
+  box.querySelectorAll(".area-fix-manage").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], {kind: "manage"}, d, table));
+}
+
+async function areaFix(g, f, d, table) {
+  try {
+    if (f.kind === "form") await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(g.asset)}/form`, {form: f.form, size_m: f.size_m || null});
+    else if (f.kind === "route") await api(`/api/projects/${slug}/library/route`, {entry: g.entry, route: f.route});
+    else {
+      const row = areaState.rows.find(r => r.asset === g.asset) || {asset: g.asset, entry: g.entry};
+      d.close(); showTab("library");
+      if (row.asset === row.entry) { showSub("assets"); await manageEntry(row.asset); return; }
+      showSub("refs"); return;
+    }
+  } catch (err) { alert(errorText(err)); return; }
+  await load(); table();
 }
 
 // Batches confirm first with counts (a dry run asks the server what would run).
