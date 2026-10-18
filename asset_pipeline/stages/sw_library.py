@@ -672,7 +672,7 @@ def decide(store: ProjectStore, entry: str, decision: str | None, note: str | No
             raise ValueError(f"no such image in the project: {ref_frame}")
     _check_entry(store, entry)
     d = decisions(store)
-    keep = {k: v for k, v in d.get(entry, {}).items() if k in ("description", "route")}   # the user's text and route stay
+    keep = {k: v for k, v in d.get(entry, {}).items() if k in ("description", "route", "name")}   # the user's text and route stay
     if decision is None:
         d.pop(entry, None)
         if keep:
@@ -737,7 +737,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             raise ValueError(f"{eid}: marked good source but no current frame shows it")
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
-            id=eid, name=eid.replace("-", " "), noun=e["part"].replace("_", " "),
+            id=eid, name=d.get("name") or e.get("name") or eid.replace("-", " "), noun=e["part"].replace("_", " "),
             category=CATEGORY.get(e["kind"], "structure"),
             description=d.get("description") or e.get("description") or e["description_auto"],
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
@@ -864,8 +864,37 @@ Crops: the best source frame, the entry's slots bright (object-id pass), everyth
 """
 
 
+def custom_path(store: ProjectStore) -> Path:
+    return sw_site.site_dir(store) / "library_custom.json"
+
+
+def custom(store: ProjectStore) -> dict[str, dict]:
+    """The user's own entries (created or duplicated in Library › Entries), by id. A separate
+    file, so a re-plan (library.json) never wipes them."""
+    return (read_json(custom_path(store), default={}) or {}).get("entries", {})
+
+
+def save_custom(store: ProjectStore, entries: dict[str, dict]) -> None:
+    write_json(custom_path(store), {"entries": entries})
+
+
 def load(store: ProjectStore) -> dict | None:
-    return read_json(library_path(store), default=None)
+    """The library plan with the user's custom entries merged in (an entry seen in a frame
+    goes with the entries, the others with the unseen)."""
+    data = read_json(library_path(store), default=None)
+    cust = custom(store)
+    if not cust:
+        return data
+    if data is None:
+        data = {"min_share": MIN_SHARE, "sources": {}, "mood": {}, "candidates": [], "checked": True,
+                "entries": [], "unseen": [], "surfaces": {}}
+    ids = {e["id"] for e in data["entries"]} | {u["id"] for u in data["unseen"]}
+    data = {**data, "entries": list(data["entries"]), "unseen": list(data["unseen"])}
+    for eid, e in cust.items():
+        if eid in ids:
+            continue
+        (data["entries"] if e.get("best") else data["unseen"]).append(e)
+    return data
 
 
 def summary(data: dict) -> str:

@@ -454,3 +454,6 @@ details summary { cursor: default; }
 #asset-detail .err { color: var(--danger); }
 .asset-review { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 2px 0; }
 @media (max-width: 1100px) { #asset-detail .lr-split { grid-template-columns: minmax(0, 1fr); } }
+
+.unit-head .next-step { display: inline-flex; gap: 6px; align-items: center; flex-basis: 100%; }
+.asset-manage { margin: 4px 0; }

@@ -686,32 +686,14 @@ def cmd_library_route(a) -> None:
 
 
 def cmd_library_brief(a) -> None:
-    from .building_proc import FORM_OF, brief
-    from .stages import sw_library, sw_site
+    from . import library_entries
     store = ProjectStore.open(a.project)
-    data = sw_library.load(store)
-    e = next((x for x in data["entries"] + data["unseen"] if x["id"] == a.entry), None)
-    dims = a.dims or (e or {}).get("size_m")
-    form = a.form
-    if not form and e:
-        typ = {t.id: t for t in (sw_site.load_layout(store).city.typologies)}.get(e["typology"])
-        form = FORM_OF.get(typ.form) if typ else None
-        form = "basilica" if e["typology"] == "basilica" else form
-    if not form or not dims:
-        raise SystemExit("give --form and --dims (no catalog form with a generator, or no size)")
-    from .building_proc import front_view
-    view = a.view
-    if view == "front":
-        fv = front_view(store, [a.sheet], a.entry)
-        if not fv["best"]:
-            raise SystemExit(f"no near-front view on {a.sheet}: " + ", ".join(f"view {p} {s:.2f}" for _, p, s in fv["scores"])
-                             + " (pick one: 0 / 1 / 2 / all)")
-        view = fv["best"][1]
-    elif view != "all":
-        view = int(view)
-    b = brief(store, a.entry, a.sheet, view, form, dims, json.loads(a.params) if a.params else None)
+    try:
+        b = library_entries.brief_from_sheet(store, a.entry, a.sheet, a.view, a.form, a.dims, a.params)
+    except ValueError as e:
+        raise SystemExit(str(e))
     m = b["measured"]
-    print(f"{a.entry}: {form} {b['dims']}, view {b['view']} (frontality {m.get('frontality')}); measured storeys "
+    print(f"{a.entry}: {b['form']} {b['dims']}, view {b['view']} (frontality {m.get('frontality')}); measured storeys "
           f"{m.get('storeys')}, bay {m.get('bay_m')} m")
 
 

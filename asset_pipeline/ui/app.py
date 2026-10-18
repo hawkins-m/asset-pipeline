@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from .. import config, review, silhouette, ue, vlm
+from .. import config, library_entries, review, silhouette, ue, vlm
 from ..comfy import service as comfy_service
 from ..comfy.client import ComfyError, connect
 from ..jobs import JobQueue
@@ -93,6 +93,34 @@ class LibraryDecisionReq(BaseModel):
 class LibraryRouteReq(BaseModel):
     entry: str
     route: Literal["procedural", "trellis"] | None = None      # None: back to the default
+
+
+class EntryCreateReq(BaseModel):
+    id: str
+    name: str | None = None
+    description: str | None = None
+    kind: Literal["building", "prop"] = "prop"
+    route: Literal["procedural", "trellis"] | None = None
+    size_m: list[float] | float | None = None
+    tier: Literal["A", "B", "C", "D"] | None = None
+    decision: Literal["description", "exclude"] | None = "description"
+    overwrite: bool = False
+
+
+class EntryMoveReq(BaseModel):
+    to: str | None = None          # the new id
+    name: str | None = None        # the display name
+    overwrite: bool = False        # replace files that already exist at the new id
+
+
+class EntryDescriptionReq(BaseModel):
+    description: str | None = None     # None / empty: back to the automatic one
+
+
+class BriefBuildReq(BaseModel):
+    sheet: str                     # the starred sheet to brief from
+    rebrief: bool = False          # replace an existing brief with one from this sheet
+    view: str = "front"
 
 
 class AssetBriefReq(BaseModel):
@@ -359,6 +387,9 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         st = read_json(lr.review_dir(store, tag["asset"], tag.get("round", 1)) / "status.json", default=None) or {}
         done, total = st.get("step", 0), len(lr.STEPS)
         line = f"{tag['asset']} · {st.get('line') or 'saving the brief'}"
+    elif job.kind == "library.brief_build" and tag.get("asset"):
+        done, total = tag.get("step", 0), 3
+        line = f"{tag['asset']} · {job.note or 'starting'}"
     elif job.kind == "ue.export":
         out_dir = s7_export.export_dir(store)
         m = re.findall(r"EXPORT_TOTAL (\d+)", _run_tail(out_dir / "blender.log", since) or "")
@@ -655,6 +686,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                                                                 "dimensions", "description"})
                             for a in u.assets],
                  "sheets": s2_refs.sheets(store, u), "sheet_meta": (sm := s2_refs.sheet_meta(store, u)),
+                 "next": library_entries.next_step(store, u.plan, u.key),
                  # the guidance of the newest batch that had one: the reroll field starts from it
                  "guidance": next((m["guidance"] for m in reversed(list(sm.values())) if m.get("guidance")), "")}
                 for u in s2_refs.units(store)]
@@ -1136,6 +1168,81 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return sw_library.set_route(_store(slug), req.entry, req.route)
         except KeyError as e:
             raise HTTPException(404, str(e))
+
+    # --- Library › Entries: create, duplicate, rename, describe ------------------------------
+
+    def _entry_call(fn, *a, **kw):
+        try:
+            return fn(*a, **kw)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'\""))
+        except library_entries.EntryExists as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/projects/{slug}/library/entries")
+    def library_entries_list(slug: str):
+        store = _store(slug)
+        data = sw_library.load(store) or {}
+        return [library_entries.view(store, e["id"]) for e in data.get("entries", []) + data.get("unseen", [])]
+
+    @app.post("/api/projects/{slug}/library/entries")
+    def library_entries_create(slug: str, req: EntryCreateReq):
+        return _entry_call(library_entries.create, _store(slug), req.id, req.name, req.description, req.kind,
+                           req.route, req.size_m, req.tier, req.decision, req.overwrite)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/duplicate")
+    def library_entries_duplicate(slug: str, entry: str, req: EntryMoveReq):
+        if not req.to:
+            raise HTTPException(400, "give the new id (to)")
+        return _entry_call(library_entries.duplicate, _store(slug), entry, req.to, req.name, req.overwrite)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/rename")
+    def library_entries_rename(slug: str, entry: str, req: EntryMoveReq):
+        return _entry_call(library_entries.rename, _store(slug), entry, req.to, req.name, req.overwrite)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/description")
+    def library_entries_description(slug: str, entry: str, req: EntryDescriptionReq):
+        store = _store(slug)
+        _entry_call(sw_library.describe, store, entry, req.description)
+        return library_entries.view(store, entry)
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/brief_build")
+    def library_brief_build(slug: str, asset: str, req: BriefBuildReq):
+        """Brief & build: the brief from a starred sheet (`ap library brief`), then the build and
+        review renders (Save & Rebuild). An existing brief is replaced only with rebrief=true."""
+        from .. import kit_proc, library_review as lr
+        from ..jobs import current_job
+        store = _store(slug)
+        data = sw_library.load(store) or {}
+        e = next((x for x in data.get("entries", []) + data.get("unseen", []) if x["id"] == asset), None)
+        if e is None:
+            raise HTTPException(404, f"no library entry {asset}")
+        if sw_library.route(e, sw_library.decisions(store).get(asset)) != "procedural":
+            raise HTTPException(400, f"{asset} is on the TRELLIS route: use Cut views")
+        try:
+            review.rel(store, req.sheet)
+        except (ValueError, FileNotFoundError) as ex:
+            raise HTTPException(400, str(ex))
+        rebrief = req.rebrief or not kit_proc.spec_path(store, asset).is_file()
+
+        def run():
+            job = current_job()
+
+            def at(step, note):
+                if job is not None:
+                    job.tag["step"], job.note = step, note
+            if rebrief:
+                at(1, "VLM brief…")
+                try:
+                    library_entries.brief_from_sheet(store, asset, req.sheet, req.view)
+                except ValueError as ex:
+                    raise RuntimeError(str(ex)) from None
+            at(2, "Blender build, then renders…")
+            return lr.rebuild(store, asset, log=lambda *a: None) | {"brief": rebrief}
+        return jobs.submit("library.brief_build", slug, run, lane="gpu0",
+                           tag={"asset": asset, "sheet": req.sheet, "round": lr.current_round(store)}).public()
 
     # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
 

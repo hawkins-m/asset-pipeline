@@ -42,7 +42,7 @@ const JOB_LABELS = {"style.explore": "scene generation", "style.derive": "derive
   "site.extract": "reading the .blend", "site.preview": "aerial previews", "shots.render": "shot passes",
   "frames.generate": "concept frames", "style.draft": "style text draft", "site.plan": "city plan",
   "shots.camera": "moving a camera", "ue.export": "export to Unreal", "ue.backup": "UE backup",
-  "library.plan": "library plan", "library.check": "library crop check", "library.rebuild": "asset rebuild",
+  "library.plan": "library plan", "library.check": "library crop check", "library.rebuild": "asset rebuild", "library.brief_build": "brief and build",
   "comfy.start": "starting ComfyUI", "comfy.stop": "stopping ComfyUI", "comfy.restart": "restarting ComfyUI"};
 // Analysis runs inside the VLM server and can't be interrupted mid-request: no Stop for it.
 const STOPPABLE = kind => kind !== "plan.analyze";
