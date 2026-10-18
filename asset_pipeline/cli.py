@@ -700,6 +700,45 @@ def cmd_library_route(a) -> None:
           f"{' (yours)' if d.get(a.entry, {}).get('route') else ' (default)'}")
 
 
+def cmd_library_form(a) -> None:
+    from . import library_entries
+    store = ProjectStore.open(a.project)
+    try:
+        info = library_entries.set_form(store, a.entry, None if a.form == "auto" else a.form, a.size)
+    except (KeyError, ValueError) as e:
+        raise SystemExit(str(e).strip('"'))
+    print(f"{a.entry}: form {info['form'] or '-'} ({info['source'] or 'none'}), size "
+          f"{' x '.join(f'{x:g}' for x in info['size_m']) if info['size_m'] else '-'} ({info['size_source'] or 'none'})")
+
+
+def cmd_library_variants(a) -> None:
+    from . import variants
+    store = ProjectStore.open(a.project)
+    try:
+        if a.remove:
+            variants.remove(store, a.base)
+            print(f"{a.base}: variant set removed")
+            return
+        if a.member or a.areas is not None or not variants.sets(store).get(a.base):
+            old = {m["entry"]: m["weight"] for m in (variants.summary(store, a.base)["members"]
+                                                       if variants.sets(store).get(a.base) else [])}
+            for m in a.member or []:
+                e, _, w = m.partition("=")
+                old[e] = float(w or 1.0)
+            for e in a.drop or []:
+                old.pop(e, None)
+            variants.save(store, a.base, old, a.areas)
+        s = variants.summary(store, a.base)
+    except (KeyError, ValueError) as e:
+        raise SystemExit(str(e).strip('"'))
+    print(f"{a.base}: {s['slots']} {s['prop']} place(s); areas {', '.join(s['areas']) or 'all'}")
+    for m in s["members"]:
+        print(f"  {m['entry']:28s} weight {m['weight']:g} ({100 * m['share']:.0f}%)  {m['slots']} place(s)")
+    if a.area:
+        for r in variants.assign(store, a.base, a.area):
+            print(f"  {r['key']:28s} {r['entry']}")
+
+
 def cmd_library_brief(a) -> None:
     from . import library_entries
     store = ProjectStore.open(a.project)
@@ -823,7 +862,18 @@ def cmd_area(a) -> None:
         raise SystemExit(str(e).strip('"'))
     for r in rows:
         print(f"{r['asset']:28s} {r['tier'] or '-'} {r['route']:10s} {100 * r['share']:5.1f}%  "
-              f"{(r['status'] or 'not reviewed'):14s} next: {r['next']}")
+              f"{(r['status'] or 'not reviewed'):14s} next: {r['next']}"
+              + (f"  (variant of {r['variant_of']})" if r.get("variant_of") else ""))
+    gaps = areas.form_gaps(store, rows)
+    if gaps:
+        print(f"\nform gaps ({len(gaps)}): the first fix is the suggested one")
+        for g in gaps:
+            print(f"  {g['asset']:28s} no {', no '.join(g['missing'])}")
+            for f in g["fixes"]:
+                cmd = {"form": f"ap library form {a.project} {g['asset']} {f.get('form')}"
+                               + (" --size " + " ".join(f"{x:g}" for x in f["size_m"]) if f.get("size_m") else ""),
+                       "route": f"ap library route {a.project} {g['entry']} {f.get('route')}"}.get(f["kind"], "Manage entry… in the app")
+                print(f"      {f['label']}: {cmd}")
 
 
 def cmd_library_instances(a) -> None:
@@ -1502,6 +1552,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entry")
     p.add_argument("route", choices=["procedural", "trellis", "auto"])
     p.set_defaults(fn=cmd_library_route)
+    p = libsub.add_parser("form", help="an entry's building form and size for its brief (Manage entry… › Form, Size); "
+                                       "forms: " + ", ".join(__import__("asset_pipeline.building_gen", fromlist=["FORM_CHOICE"]).FORM_CHOICE))
+    p.add_argument("project")
+    p.add_argument("entry", help="an entry, or a kit module (entry-piece)")
+    p.add_argument("form", help="a form choice, or auto (back to the catalog's)")
+    p.add_argument("--size", type=float, nargs=3, metavar=("W", "D", "H"), help="width, depth, height (m)")
+    p.set_defaults(fn=cmd_library_form)
+    p = libsub.add_parser("variants", help="a prop type's variant set: its places pick from several entries by weight, "
+                                           "reproducibly per place (show; --member ENTRY=WEIGHT adds or reweights)")
+    p.add_argument("project")
+    p.add_argument("base", help="the prop type's entry (e.g. canopy-table); a set is made on first use")
+    p.add_argument("--member", nargs="+", metavar="ENTRY=WEIGHT")
+    p.add_argument("--drop", nargs="+", metavar="ENTRY", help="leave these entries out of the set")
+    p.add_argument("--areas", nargs="*", help="only these areas' places pick variants (none given: every area)")
+    p.add_argument("--area", help="list each place of this area with the entry it picks")
+    p.add_argument("--remove", action="store_true", help="remove the set (every place takes the base entry)")
+    p.set_defaults(fn=cmd_library_variants)
     p = libsub.add_parser("instances", help="procedural route: build entries at each of their buildings' own footprint")
     p.add_argument("project")
     p.add_argument("entries", nargs="*", help="entries (or --area / --district)")

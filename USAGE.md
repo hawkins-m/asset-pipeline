@@ -559,7 +559,9 @@ RUNBOOK.md walks through it. The commands:
 
 ```
 ap area define my-project my-area --shots med-a med-b     # or --districts north
-ap area status my-project my-area                         # each asset's next step
+ap area status my-project my-area                         # each asset's next step, then the form gaps and their fixes
+ap library form my-project my-asset arcade --size 4.5 16 20.4   # an entry's (or kit module's) form and size
+ap library variants my-project my-prop --member my-variant=2     # a prop type's variant set (show without options)
 ap library sheets my-project --area my-area               # sheets for decided entries without any
 ap library sheets my-project --unit my-asset --guidance "slatted timber counters, no stone"   # a steered reroll
 ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front
@@ -574,6 +576,39 @@ ap area checklist my-project my-area                      # areas/my-area.md in 
   `material_scale` (`{"wall": 0.5}`; per band `base` / `wall` / `top`, a multiplier on the
   material's tile size, default 1, stored only when not 1) and, for basilicas,
   `features.front.panel_frame` (`on`, `w`, `proj`, `margin`, `gap`; off by default).
+- **Arcade part and forms (2026-10-17).** `features.arcade` (`building_parts.ARCADE`): round or
+  segmental arches (`arch`, `rise`) on square piers (`pier_w`) at `bay_m` centres, crown at
+  `arch_h`, the arcade storey `h` high, an `impost` moulding (`h`, `proj`; null: none), an
+  `archivolt`, a walk `depth` deep to a back wall (`back`: `shop` fronts or a `wall` with doors);
+  `arcade.gallery` (`GALLERY`, or null) the storeys over it: `kind` `loggia` (open arches with a
+  `balustrade` `balustrade_h` high, a walk `depth` behind) or `windowed`, `storeys` (0: as many as
+  the height takes), `storey_h`, `arch` (round / seg / rect), `w` / `h` / `sill` (shares of the bay
+  and storey), `grid` (stone pilasters on the pier lines and a band per floor). Used by:
+  - the colonnade range (`arcade_hall` with `range`): with `arcade` set, the range's front is the
+    arcade and its gallery, and the range is as tall as they are; `hip_roof` works on it;
+  - the **arcade** form (`building_gen.arcade`; choices *Arcade*, *Arcade corner*, *Arched
+    wall*): the arcade on the faces in `faces`, the others in the facade grammar (`side`; ground
+    kind `solid` for party walls), an optional set-back `attic` (`storey_h`, `setback`,
+    `side_setback`: 0 on a module's party walls). Two arcaded faces turn the corner round one
+    pier; an arcade meeting a plain face ends in a wall with an arch through (a module's walk
+    opens into its neighbour's).
+  Build guidance may switch these parts on: their fields are offered with the template's values,
+  and an edit to one (even to the template's value) switches the part on (`switch_on` in the row).
+- **Kit modules' sizes** come from their kit decision (`pieces.<piece>.size`) when nothing else
+  gives one (`size_source` "kit piece").
+- **Form gaps** (Library › Areas…, above the table; `gaps` in `/areas/status`): procedural assets
+  with no form or size, each with fixes as buttons, the suggested one first: *Form: …* (sets the
+  entry's form and size), *Use the TRELLIS route* (a building no form describes), *Set size…*. A
+  city wall run gets *Arched wall* at one wall bay's size (`city.WALL_BAY_M` × the enclosure's
+  wall depth × height), not the whole run's.
+- **Variant sets** (`asset_pipeline/variants.py`; Manage entry… › Variant set on a prop; `ap
+  library variants`): a prop type's places (each prop instance in a greybox slot, keyed
+  `<slot>@<x>,<y>`) pick one of several entries by weight, by weighted rendezvous hashing: the
+  same place always gets the same entry, and adding an entry (or raising its weight) moves only
+  some places to it. Kept in the library decisions file under `_variants`; `areas` limits a set
+  to those areas' places. Members join the base entry's areas, so the area loop makes their sheets
+  and 3D. `variants.assign(store, base[, area])` gives each place with its entry (for placement).
+  API: `GET|POST|DELETE /api/projects/{slug}/library/variants/{entry}`.
 - **Library › Entries** (browser): *New entry…* adds an entry of your own (id, name,
   description, prop/building, route, size, tier); it is kept in `site/library_custom.json`, so a
   re-plan never wipes it. *Manage entry…* on a card edits name, description (*Reset to auto*),

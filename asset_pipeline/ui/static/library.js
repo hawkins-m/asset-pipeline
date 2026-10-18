@@ -242,7 +242,7 @@ async function formFieldsHtml(info, {allowAuto = false} = {}) {
     ${entryField("ff-w", "Size (m):", `<span class="ff-size"><input id="ff-w" type="number" min="0.1" step="0.01" value="${size[0]}" aria-label="Width (m)"> ×
       <input id="ff-d" type="number" min="0.1" step="0.01" value="${size[1]}" aria-label="Depth (m)"> ×
       <input id="ff-h" type="number" min="0.1" step="0.01" value="${size[2]}" aria-label="Height (m)"></span>`)}
-    <span></span><span class="hint" style="margin:0">width × depth × height${info.size_source ? ` (${info.size_source === "yours" ? "your size" : "from the plan"})` : ", needed for the brief"}</span>`;
+    <span></span><span class="hint" style="margin:0">width × depth × height${info.size_source ? ` (${{yours: "your size", "kit piece": "the kit piece's size"}[info.size_source] || "from the plan"})` : ", needed for the brief"}</span>`;
 }
 function formFieldsWire(body) {
   const sel = $("#ff-form", body), desc = $("#ff-form-desc", body);
@@ -256,6 +256,55 @@ function formFieldsRead(body) {
   const dims = v.map(Number);
   if (dims.some(x => !(x > 0))) throw new Error("Size: fill in width, depth and height, all above 0 m.");
   return {form: $("#ff-form", body).value || null, dims};
+}
+
+// Manage entry… › Variant set (prop entries): the entries a prop type's places pick from, with
+// weights (variants.py). Places pick reproducibly per slot; adding an entry moves only some places
+// to it. Edits are saved with the dialog's Save.
+async function variantSection(id, box) {
+  let info, areaNames = [];
+  try {
+    info = await api(`/api/projects/${slug}/library/variants/${encodeURIComponent(id)}`, undefined, "GET");
+    areaNames = Object.keys((await api(`/api/projects/${slug}/areas`, undefined, "GET")).areas || {});
+  } catch (err) { box.innerHTML = `<p class="error">${esc(errorText(err))}</p>`; return null; }
+  let draft = info.set ? {members: Object.fromEntries(info.set.members.map(m => [m.entry, m.weight])), areas: [...info.set.areas]} : null;
+  let dirty = false;
+  const render = () => {
+    if (!draft) {
+      box.innerHTML = info.can_base ? `<fieldset><legend>Variant set</legend><p class="hint" style="margin-top:0">One entry for every ${esc(id)} place.
+        A variant set lets the places pick from several entries (e.g. different stall types), by weight.</p>
+        <button type="button" class="small" id="vs-make">Make a variant set</button></fieldset>`
+        : `<p class="hint">Variant set: none. Add this entry from its prop type's entry (Manage entry… › Variant set there).</p>`;
+      const mk = $("#vs-make", box);
+      if (mk) mk.onclick = () => { draft = {members: {[id]: 1}, areas: []}; dirty = true; render(); };
+      return;
+    }
+    const base = info.set ? info.set.base : id, total = Object.values(draft.members).reduce((a, b) => a + b, 0) || 1;
+    const counts = Object.fromEntries((info.set ? info.set.members : []).map(m => [m.entry, m.slots]));
+    const free = info.candidates.filter(c => !(c in draft.members));
+    box.innerHTML = `<fieldset id="vs-box"><legend>Variant set of ${esc(base)}${info.set ? ` · ${info.set.slots} places (${esc(info.set.prop)})` : ""}</legend>
+      <table class="grid-table" id="vs-table"><thead><tr><th>Entry</th><th>Weight</th><th>Share</th><th>Places</th><th></th></tr></thead><tbody>
+      ${Object.entries(draft.members).map(([m, w]) => `<tr><td>${esc(m)}</td>
+        <td><input type="number" min="0" step="0.1" value="${w}" data-vs-w="${esc(m)}" style="width:5em" aria-label="Weight of ${esc(m)}"></td>
+        <td>${(100 * w / total).toFixed(0)}%</td><td>${dirty ? "–" : (counts[m] ?? 0)}</td>
+        <td>${m === base ? `<span class="hint" style="margin:0">prop type</span>` : `<button type="button" class="small" data-vs-del="${esc(m)}">Remove</button>`}</td></tr>`).join("")}</tbody></table>
+      <div class="row"><label for="vs-add">Add entry:</label><select id="vs-add">${free.length ? free.map(c => `<option>${esc(c)}</option>`).join("") : `<option value="">(no other prop entries: New entry… first)</option>`}</select>
+        <button type="button" class="small" id="vs-add-btn"${free.length ? "" : " disabled"}>Add</button></div>
+      <div class="row"><b>Areas:</b> ${areaNames.length ? areaNames.map(a => `<label class="check"><input type="checkbox" data-vs-area="${esc(a)}"${draft.areas.includes(a) ? " checked" : ""}> ${esc(a)}</label>`).join(" ") : ""}
+        <span class="hint" style="margin:0">${draft.areas.length ? "only these areas' places pick variants" : "none ticked: every place picks variants"}</span></div>
+      <p class="hint">Each place picks one entry by weight, the same one every time; adding an entry moves only some places to it.${dirty ? " Places are counted after Save." : ""}</p></fieldset>`;
+    box.querySelectorAll("[data-vs-w]").forEach(el => el.onchange = () => { const x = parseFloat(el.value); draft.members[el.dataset.vsW] = x >= 0 ? x : 0; dirty = true; render(); });
+    box.querySelectorAll("[data-vs-del]").forEach(el => el.onclick = () => { delete draft.members[el.dataset.vsDel]; dirty = true; render(); });
+    box.querySelectorAll("[data-vs-area]").forEach(el => el.onchange = () => {
+      draft.areas = el.checked ? [...draft.areas, el.dataset.vsArea] : draft.areas.filter(a => a !== el.dataset.vsArea); dirty = true; render(); });
+    $("#vs-add-btn", box).onclick = () => { const v = $("#vs-add", box).value; if (v) { draft.members[v] = 1; dirty = true; render(); } };
+  };
+  render();
+  return {save: async () => {
+    if (!dirty || !draft) return;
+    const base = info.set ? info.set.base : id;
+    await api(`/api/projects/${slug}/library/variants/${encodeURIComponent(base)}`, {members: draft.members, areas: draft.areas});
+  }};
 }
 
 async function manageEntry(id) {
@@ -272,8 +321,10 @@ async function manageEntry(id) {
       <option value="procedural"${dec.route === "procedural" ? " selected" : ""}>procedural</option><option value="trellis"${dec.route === "trellis" ? " selected" : ""}>TRELLIS</option></select>`)}
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
       .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}
-    <div class="ff-box" id="en-form-box" style="display:contents"></div>`;
+    <div class="ff-box" id="en-form-box" style="display:contents"></div>
+    <div id="en-variants" style="grid-column:1/-1"></div>`;
   let finfo = null;
+  const vs = ent.kind === "prop" ? await variantSection(id, $("#en-variants", body)) : null;
   if ((ent.route || ent.route_auto) === "procedural" || dec.route === "procedural") {
     try { finfo = await api(`/api/projects/${slug}/library/entries/${id}/form`, undefined, "GET");
           $("#en-form-box", body).innerHTML = await formFieldsHtml(finfo, {allowAuto: true}); formFieldsWire(body); }
@@ -300,6 +351,7 @@ async function manageEntry(id) {
             await api(`/api/projects/${slug}/library/entries/${id}/form`, {form: ff.form || (finfo.source === "yours" ? finfo.form : null),
                                                                           size_m: ff.dims && !same(ff.dims, finfo.size_m) ? ff.dims : mySize});
         }
+        if (vs) await vs.save();
         const decision = $("#en-decision", body).value || null;
         if (decision !== (dec.decision || null)) {
           if (decision === "reference") { alert("Pick the reference frame with the card's 'Description + reference frame' button."); }

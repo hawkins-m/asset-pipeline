@@ -9,6 +9,8 @@ rows, `apply` saves them through `library_review.save_brief` and writes "guidanc
 
 Paths: features.<part>.<field> (nested, as the Asset review form shows them), dims (width, depth,
 height m), params.storey_h / params.bay_m, material_types.<band>, material_scale.<band>, surface.
+Parts in SWITCHABLE that are off (None) are listed with their template's values: an edit to one of
+their fields switches the part on from the template (an arcade on a colonnade range, its gallery).
 """
 import copy
 import json
@@ -38,6 +40,15 @@ Rules:
 Mapping from the sheet to fields: window size and position -> facade window w, h, sill; ground storey
 -> ground kind, door; pointed or segmental heads -> window kind; balconies -> balcony; attic -> top;
 wall materials -> material_types per band; overall size -> dims, params.
+Arches on square piers (an arcade) -> arcade: bay_m (pier centre to centre, m), pier_w, arch_h (floor to
+crown, m), arch (round | seg), h (the arcade storey, m), impost (the moulding at the springing);
+a storey or open gallery over the arcade -> arcade.gallery: kind (loggia: open arches with a balustrade;
+windowed: glazed windows), storey_h, storeys, w / h (shares of the bay and storey), arch,
+balustrade, balustrade_h. On the arcade form the windows over the arcade are arcade.gallery's (w, h,
+sill), not side.window (side is only the faces without an arcade); raised stone frames round the windows (pilasters on the pier lines, a band at
+each floor) -> arcade.gallery.grid (w, proj); a set-back top storey -> attic (storey_h, setback;
+side_setback 0 when the sides are party walls). A face with no openings (a party wall) -> its pattern
+["solid"] and its ground kind solid. A part marked "off" is switched on by editing any of its fields.
 
 Current brief fields (path = value [choices]):
 {catalogue}
@@ -63,18 +74,29 @@ def _enum(path: str) -> list[str] | None:
     return building_gen.ENUMS.get(f"{parent}.{key}") or building_gen.ENUMS.get(key)
 
 
-def _leaves(node, path: str, out: dict) -> None:
+# off parts (None) the guidance may switch on: their fields are offered with the template's values
+SWITCHABLE = ("arcade", "gallery", "impost", "grid", "attic", "hip_roof")
+
+
+def _leaves(node, path: str, out: dict, off: set | None = None) -> None:
     if isinstance(node, dict):
         for k, v in node.items():
-            _leaves(v, f"{path}.{k}", out)
+            tmpl = building_gen.TEMPLATES.get(k)
+            if v is None and off is not None and k in SWITCHABLE and isinstance(tmpl, dict):
+                off.add(f"{path}.{k}")
+                _leaves(tmpl, f"{path}.{k}", out, off)
+            else:
+                _leaves(v, f"{path}.{k}", out, off)
     elif isinstance(node, (bool, int, float, str)) or (isinstance(node, list) and all(
             isinstance(x, (int, float, str)) and not isinstance(x, bool) for x in node)):
         out[path] = node
 
 
-def values(brief: dict) -> dict:
-    """Every editable field of a brief as {path: current value}."""
+def values(brief: dict, off: set | None = None) -> dict:
+    """Every editable field of a brief as {path: current value}; off parts in SWITCHABLE with
+    their template's values (their paths go into `off` when given)."""
     out: dict = {}
+    off = set() if off is None else off
     form = brief.get("form")
     if brief.get("kind") != "building" or form not in building_gen.FORMS:
         return out
@@ -85,14 +107,18 @@ def values(brief: dict) -> dict:
         out[f"material_types.{b}"] = (brief.get("material_types") or {}).get(b)
         out[f"material_scale.{b}"] = (brief.get("material_scale") or {}).get(b, 1)
     out["surface"] = brief.get("surface") or "auto"
-    _leaves(building_gen.form_features(form, brief.get("features")), "features", out)
+    _leaves(building_gen.form_features(form, brief.get("features")), "features", out, off)
     return out
 
 
-def catalogue_text(vals: dict) -> str:
+def catalogue_text(vals: dict, off: set | frozenset = frozenset()) -> str:
     from .material_lib import LIBRARY
-    rows = []
+    rows, said = [], set()
     for p, v in vals.items():
+        part = next((o for o in sorted(off, key=len) if p.startswith(o + ".")), None)
+        if part and part not in said:
+            said.add(part)
+            rows.append(f"# {part} is off: editing any of its fields switches it on with these values")
         opts = ""
         if p.startswith("material_types."):
             opts = " [" + ", ".join(sorted(LIBRARY)) + "]"
@@ -107,9 +133,13 @@ def catalogue_text(vals: dict) -> str:
 # --- applying edits --------------------------------------------------------------------------
 
 def _set(d: dict, path: str, value) -> None:
+    """Set a nested value; a part that is off (None) is switched on from its template first."""
     keys = path.split(".")
     for k in keys[:-1]:
-        d = d.setdefault(k, {})
+        if d.get(k) is None:
+            tmpl = building_gen.TEMPLATES.get(k)
+            d[k] = copy.deepcopy(tmpl) if isinstance(tmpl, dict) else {}
+        d = d[k]
     d[keys[-1]] = value
 
 
@@ -142,7 +172,10 @@ def _coerce(before, after):
         if isinstance(after, str) and after.lower() in ("true", "false"):
             return after.lower() == "true"
         raise ValueError("must be true or false")
-    if isinstance(before, (int, float)):
+    if isinstance(before, int):                     # counts stay whole numbers (3.0 -> 3)
+        x = _number(after)
+        return int(x) if x.is_integer() else x
+    if isinstance(before, float):
         return _number(after)
     if isinstance(before, list):
         if not isinstance(after, list):
@@ -155,7 +188,8 @@ def _coerce(before, after):
 
 def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tuple[list[dict], list[dict]]:
     """(edits kept, dropped with reasons). raw rows have path, after, why; `before` is filled in."""
-    vals = values(brief)
+    off: set = set()
+    vals = values(brief, off)
     base_errs = set(lr.validate(store, asset, brief)["errors"])
     kept, dropped, seen = [], [], set()
     for r in raw:
@@ -187,7 +221,8 @@ def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tupl
         except ValueError as ex:
             dropped.append(row | {"reason": str(ex)})
             continue
-        if after == before:
+        part = next((o for o in sorted(off, key=len) if path.startswith(o + ".")), None)
+        if after == before and not part:            # an off part's field switches the part on, even unchanged
             dropped.append(row | {"reason": "already that value"})
             continue
         cand = brief | apply_edits(brief, [{"path": path, "after": after}])
@@ -196,7 +231,7 @@ def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tupl
             dropped.append(row | {"reason": "; ".join(errs)})
             continue
         seen.add(path)
-        kept.append({"path": path, "before": before, "after": after, "why": why})
+        kept.append({"path": path, "before": before, "after": after, "why": why} | ({"switch_on": part} if part else {}))
     return kept, dropped
 
 
@@ -226,9 +261,11 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
     brief = read_json(sp)
     if brief.get("kind") != "building":
         raise ValueError(f"{asset} is a kit piece: edit its measurements in Asset review")
+    off: set = set()
+    vals = values(brief, off)
     r = structured(llm or llm_for(None),
                    PROMPT.format(asset=asset, form=brief.get("form"), guidance=guidance, max_edits=max_edits,
-                                 catalogue=catalogue_text(values(brief))),
+                                 catalogue=catalogue_text(vals, off)),
                    [_image(store, brief, sheet)], Edits, system=SYSTEM)
     kept, dropped = check(store, asset, brief, [e.model_dump() for e in r.edits])
     extra = [{"path": e["path"], "after": e["after"], "why": e["why"], "reason": f"more than {max_edits} edits"}

@@ -205,7 +205,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         store = store_of(slug)
         if not area and not district:
             raise HTTPException(400, "give an area or a district")
-        return {"rows": sel(store, area, district)}
+        rows = sel(store, area, district)
+        return {"rows": rows, "gaps": areas.form_gaps(store, rows)}
 
     @app.post("/api/projects/{slug}/areas/{name}/checklist")
     def areas_checklist(slug: str, name: str):

@@ -10,10 +10,12 @@ import math
 
 import numpy as np
 
-from .building_parts import (FACADE, FACADE_KW, archivolt, balustrade, box, cornice, facade, height, hip_roof, lifted,
-                             merged, outline, pierced, placed, planter, prism, ring, walls_around)
+from .building_parts import (ARCADE, FACADE, FACADE_KW, GALLERY, GALLERY_GRID, above, arcade_run, archivolt, balustrade,
+                             box, cornice, facade, height, hip_roof, lifted, merged, outline, pierced, placed, planter,
+                             prism, ring, walls_around)
 
-FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row", "civic_block", "arcade_hall", "campanile")
+FORMS = ("hall_vault", "cube", "basilica", "podium_tower", "perimeter", "row", "civic_block", "arcade_hall", "campanile",
+         "arcade")
 
 # what every form takes: the planter style for all its planters (building_parts.PLANTER_STYLES)
 # and annexes, low volumes against its sides ([{"side": front | back | left | right, "at": share
@@ -32,7 +34,9 @@ TYPE_FEATURES = {
     },
     "arcade_hall": {
         "storey_h": 6.5, "bays": 5, "roof_steps": 4, "roof_step_m": 1.6, "roof_rise_m": 0.7,
-        "range": None, "masses": None, "hip_roof": None,
+        # arcade: with `range`, the range's front is this arcade (arches on piers, a gallery over
+        # them: building_parts.ARCADE) instead of the facade grammar's ground storey
+        "range": None, "masses": None, "hip_roof": None, "arcade": None,
         "front": {"ground": {"kind": "arcade", "recess": 3.5, "archivolt": 0.35}, "pattern": ["window"],
                   "window": {"kind": "arch", "w": 0.38, "h": 0.6, "sill": 0.22, "reveal": 0.35, "frame": True},
                   "courses": {"every": 1, "h": 0.3, "proj": 0.12}, "cornice": [[0.4, 0.25], [0.3, 0.45]]},
@@ -104,6 +108,18 @@ TYPE_FEATURES = {
         "roof": {"pergola": True, "planters": True}, "house_types": None, "gap": 0.0, "front_garden": None,
         "roof_box": None,
     },
+    # an arcaded building or module: the arcade (building_parts.ARCADE) on the listed faces, its
+    # gallery storeys over it (storeys 0: as many as the height takes), the other faces in the
+    # facade grammar (`side`; ground kind "solid" for party walls), an optional set-back attic
+    "arcade": {
+        "faces": ["front"],
+        "arcade": merged(ARCADE, {"gallery": merged(GALLERY, {"kind": "windowed", "storeys": 0, "storey_h": 3.4,
+                                                              "arch": "rect", "w": 0.6, "h": 0.7, "sill": 0.1,
+                                                              "balustrade": "glass"})}),
+        "side": {"ground": {"kind": "plain"}, "pattern": ["window"],
+                 "window": {"kind": "rect", "w": 0.45, "h": 0.6, "sill": 0.25, "reveal": 0.25, "frame": True}},
+        "attic": None, "hip_roof": None,
+    },
 }
 
 
@@ -128,7 +144,7 @@ FACADE_SPECS = {
     "perimeter": ("street", "street_side", "court", "top.facade", "accent.facade"),
     "row": ("house",), "civic_block": ("front", "side"), "arcade_hall": ("front", "side", "mass_facade"),
     "campanile": ("shaft", "belfry"), "podium_tower": ("podium", "tower"), "basilica": ("aisle", "gallery", "nave_wall"),
-    "hall_vault": (), "cube": (),
+    "hall_vault": (), "cube": (), "arcade": ("side", "attic.facade"),
 }
 
 
@@ -155,7 +171,9 @@ def form_features(form: str, brief_feats: dict | None = None) -> dict:
 # ("parent.key" for a key that means different things in different parts, e.g. kind)
 ENUMS = {
     "window.kind": ["rect", "arch", "seg", "pointed"], "blind.kind": ["rect", "arch", "seg", "pointed"],
-    "ground.kind": ["plain", "shop", "sparse", "arcade", "pilotis", "recessed", "blind_arcade"],
+    "ground.kind": ["plain", "shop", "sparse", "arcade", "pilotis", "recessed", "blind_arcade", "solid"],
+    "arcade.arch": ["round", "seg"], "gallery.arch": ["round", "seg", "rect"], "arcade.back": ["shop", "wall"],
+    "gallery.kind": ["loggia", "windowed"], "gallery.balustrade": ["rail", "glass", "solid", "none"],
     "balcony.kind": ["slab", "band"], "portal.kind": ["open", "glazed", "door"],
     "arch": ["arch", "seg", "pointed"], "balustrade": ["glass", "solid", "rail"], "column": ["round", "square"],
     "on": ["window", "loggia", "all"], "profile": ["pier", "strip", "fin"], "frame_mat": ["frame", "wood"],
@@ -795,14 +813,21 @@ def _arcade_range(dims, p, f) -> list[dict]:
     rg, t = f["range"], 0.5
     rh, rd = rg["h"], min(rg["d"], d)
     par = rg.get("parapet", 0.9)
-    g = merged((f.get("front") or {}).get("ground") or {}, {"h": min(0.95, rg["arch_h"] / rh)})
-    Ff = _F(merged(f.get("front"), {"ground": g}), storeys=1, ground_h=rh, storey_h=rh, bay_m=w / f["bays"],
-            parapet=par, thickness=t)
-    Fs = _F(f.get("side"), storeys=1, ground_h=rh, storey_h=rh, bay_m=f.get("side_bay_m", 6.0), parapet=par,
-            thickness=t)
-    Fs["ground"] = {"kind": "plain"}
-    parts = placed(walls_around(w, rd, {"front": Ff, "back": Fs, "left": Fs, "right": Fs}), 0, (0, -d / 2 + rd / 2, 0))
-    parts.append(placed([_roof_slab(w, rd, t, rh)], 0, (0, -d / 2 + rd / 2, 0))[0])
+    if f.get("arcade"):                     # the range's front is an arcade (with its gallery): the arcade form
+        sides = merged({"ground": {"kind": "plain"}, "pattern": ["window"]}, f.get("side"))
+        fa = {"arcade": f["arcade"], "faces": ["front"], "side": sides, "attic": None,
+              "hip_roof": f.get("hip_roof")}
+        parts = placed(arcade((w, rd, rh), p, fa), 0, (0, -d / 2 + rd / 2, 0))
+        rh = arcade_height(fa, rh)
+    else:
+        g = merged((f.get("front") or {}).get("ground") or {}, {"h": min(0.95, rg["arch_h"] / rh)})
+        Ff = _F(merged(f.get("front"), {"ground": g}), storeys=1, ground_h=rh, storey_h=rh, bay_m=w / f["bays"],
+                parapet=par, thickness=t)
+        Fs = _F(f.get("side"), storeys=1, ground_h=rh, storey_h=rh, bay_m=f.get("side_bay_m", 6.0), parapet=par,
+                thickness=t)
+        Fs["ground"] = {"kind": "plain"}
+        parts = placed(walls_around(w, rd, {"front": Ff, "back": Fs, "left": Fs, "right": Fs}), 0, (0, -d / 2 + rd / 2, 0))
+        parts.append(placed([_roof_slab(w, rd, t, rh)], 0, (0, -d / 2 + rd / 2, 0))[0])
     behind = d - rd
     for m in f.get("masses") or []:
         x0, x1 = (-w / 2 + v * w for v in m["x"])
@@ -820,6 +845,147 @@ def _arcade_range(dims, p, f) -> list[dict]:
         parts += placed(walls_around(mw, md, {"front": Fm}), 0, ((x0 + x1) / 2, (y0 + y1) / 2, 0))
         parts.append(placed([_roof_slab(mw, md, t, height(Fm))], 0, ((x0 + x1) / 2, (y0 + y1) / 2, 0))[0])
     return parts
+
+
+SIDES = ("front", "left", "right", "back")
+# each face: (turn, the face's length axis, where its local x = -L/2 end lies: the neighbour there)
+_FACE = {"front": (0, "x", "left", "right"), "back": (180, "x", "right", "left"),
+         "left": (-90, "y", "back", "front"), "right": (90, "y", "front", "back")}
+
+
+def arcade_spec(a: dict | None) -> dict | None:
+    """An arcade's values with the part defaults under them (building_parts.ARCADE, GALLERY): a
+    brief may switch the part on with only the fields it changes."""
+    if not a:
+        return None
+    A = deep_merged(ARCADE, {k: v for k, v in a.items() if k not in ("gallery", "impost")})
+    im = a.get("impost", ARCADE["impost"])          # absent: the default moulding; None: none
+    A["impost"] = deep_merged(ARCADE["impost"], im) if im else None
+    A["gallery"] = deep_merged(GALLERY, a["gallery"]) if a.get("gallery") else None
+    return A
+
+
+def gallery_storeys(f: dict, h: float) -> int:
+    """How many gallery storeys an arcade form's building gets: the gallery's own count, or (0) as
+    many as its height takes above the arcade (and below the attic)."""
+    A = arcade_spec(f["arcade"])
+    G = A.get("gallery")
+    if not G:
+        return 0
+    if G.get("storeys"):
+        return int(G["storeys"])
+    at = (f.get("attic") or {}).get("storey_h", 0.0) if f.get("attic") else 0.0
+    return max(1, round((h - A["h"] - at) / G["storey_h"]))
+
+
+def arcade_height(f: dict, h: float) -> float:
+    """The arcade form's walls' height (the arcade and its gallery storeys; no attic)."""
+    A = arcade_spec(f["arcade"])
+    return A["h"] + gallery_storeys(f, h) * ((A.get("gallery") or {}).get("storey_h") or 0.0)
+
+
+def arcade(dims, p, f) -> list[dict]:
+    """An arcaded building (or a bay or corner module of an arcaded block): on each face in
+    `faces` an arcade of arches on square piers with a walk behind it and its gallery storeys
+    over it (building_parts.arcade_run); the other faces in the facade grammar (`side`); a flat
+    roof, an optional set-back attic and hipped roof. Where two arcaded faces meet, the walks
+    turn the corner round one corner pier; where an arcade meets a plain face, a wall with an arch
+    closes the walk's end (a module's walk opens into its neighbour's through it).
+
+    Corners: an arcaded face runs through a corner it shares with a plain face; of two arcaded
+    (or two plain) faces, the front or back one does. The gallery walls stand on the piers'
+    line (pier_w thick), plain walls are 0.5 m."""
+    w, d, h = dims
+    A = arcade_spec(f["arcade"])
+    f = f | {"arcade": A}
+    faces = [s for s in SIDES if s in (f.get("faces") or ["front"])]
+    if not faces:
+        raise ValueError("faces: at least one of front, left, right, back")
+    t, pw = 0.5, A["pier_w"]
+    # the walk leaves at least a metre of building behind it (half the depth when the opposite
+    # face is arcaded too)
+    opposite = {"front": "back", "back": "front", "left": "right", "right": "left"}
+    room = [(d if s in ("front", "back") else w) * (0.5 if opposite[s] in faces else 1.0) - 1.0 for s in faces]
+    dep = max(pw + 0.4, min([A["depth"]] + room))
+    A = A | {"depth": dep} | ({"parapet": 0.0} if f.get("hip_roof") else {})       # a hipped roof: eaves, no parapet
+    G = A.get("gallery")
+    n = gallery_storeys(f, h)
+    gs = (G or {}).get("storey_h") or A["h"]
+    gd = min(G.get("depth", 3.0), dep) if G and G.get("kind", "loggia") == "loggia" else 0.0
+    H = A["h"] + n * gs
+    arc = {s: s in faces for s in SIDES}
+    thick = {s: pw if arc[s] else t for s in SIDES}
+    low_hi = {"front": ("left", "right"), "back": ("left", "right"), "left": ("front", "back"), "right": ("front", "back")}
+    half = {"x": w / 2, "y": d / 2}
+
+    def owns(s, nb):               # does face s run through its corner with nb?
+        return (arc[s] and not arc[nb]) or (arc[s] == arc[nb] and _FACE[s][1] == "x")
+
+    def span(s, inset):            # the interval along face s inside its two neighbours, by inset(neighbour)
+        lo, hi = low_hi[s]
+        hf = half[_FACE[s][1]]
+        return -hf + inset(lo), hf - inset(hi)
+
+    Fs = _F(f.get("side"), storeys=n + 1, ground_h=A["h"], storey_h=gs, bay_m=f.get("side_bay_m", A["bay_m"]),
+            thickness=t, parapet=A.get("parapet", 0.9), cornice=A.get("cornice"))
+    Fg = merged(Fs, {"storeys": 1, "cornice": None, "parapet": 0.0}) if n else merged(Fs, {"storeys": 1})
+    # the ground mass behind the walks (inset by the walk on arcaded faces); its walls: front and
+    # back across its whole width, left and right between them
+    g = {"x": (-w / 2 + (dep if arc["left"] else 0.0), w / 2 - (dep if arc["right"] else 0.0)),
+         "y": (-d / 2 + (dep if arc["front"] else 0.0) + t, d / 2 - (dep if arc["back"] else 0.0) - t)}
+    parts = []
+
+    def place(s, ps, mid):          # parts in face s's frame, centred at `mid` along it
+        rz, ax = _FACE[s][:2]
+        o = {"front": (0, -d / 2), "back": (0, d / 2), "left": (-w / 2, 0), "right": (w / 2, 0)}[s]
+        return placed(ps, rz, (o[0] + (mid if ax == "x" else 0.0), o[1] + (mid if ax == "y" else 0.0), 0.0))
+
+    for s in SIDES:
+        rz, ax, lo_end, hi_end = _FACE[s]
+        a, b = span(s, lambda nb: 0.0 if owns(s, nb) else thick[nb])
+        L, mid = b - a, (a + b) / 2
+
+        def rel(iv, mid=mid, L=L, rz=rz):          # a world interval along the face, in the run's frame
+            x0, x1 = iv[0] - mid, iv[1] - mid
+            x0, x1 = (x0, x1) if rz in (0, 90) else (-x1, -x0)
+            return max(x0, -L / 2), min(x1, L / 2)
+        if arc[s]:
+            if ax == "x":
+                ceil = span(s, lambda nb: pw if arc[nb] else t)
+                gceil = ceil
+                gwall = span(s, lambda nb: gd if arc[nb] else t)
+            else:
+                ceil = span(s, lambda nb: dep if arc[nb] else t)
+                gceil = span(s, lambda nb: gd if arc[nb] else t)
+                gwall = span(s, lambda nb: gd + 0.3 if arc[nb] else t)
+            run, _ = arcade_run(L, A, ends=(owns(s, lo_end), owns(s, hi_end)),
+                                end_walls=(not arc[lo_end], not arc[hi_end]), end_t=t, behind=rel(g[ax]),
+                                ceiling=rel(ceil), gallery_storeys=n, gallery_behind=rel(gwall),
+                                gallery_ceiling=rel(gceil), top_ceiling=False, gallery_t=pw)
+            parts += place(s, run, mid)
+            continue
+        if n:                                          # a plain face: its upper storeys along the whole run,
+            parts += place(s, above(facade(L, Fs), A["h"]), mid)
+        ga, gb = g[ax]                                 # its ground storey along the ground mass
+        if gb - ga > 0.5:
+            parts += place(s, facade(gb - ga, Fg), (ga + gb) / 2)
+    x0, x1 = -w / 2 + thick["left"], w / 2 - thick["right"]
+    y0, y1 = -d / 2 + thick["front"], d / 2 - thick["back"]
+    parts.append(box(x0, x1, y0, y1, H - 0.45, H, "roof"))
+    top = H
+    at = f.get("attic")
+    if at:                                             # a set-back attic storey (side_setback: from the
+        sb = at.get("setback", 2.5)                    # left and right faces; 0 on a module's party walls)
+        ss = at.get("side_setback", sb)
+        Fa = _F(at.get("facade") or {"ground": {"kind": "shop"}}, storeys=1, ground_h=at["storey_h"],
+                storey_h=at["storey_h"], bay_m=at.get("bay_m", A["bay_m"]), thickness=0.4, parapet=0.0,
+                cornice=[[0.25, 0.2]])
+        aw, ad = w - 2 * ss, d - 2 * sb
+        if aw > 2 and ad > 2:
+            parts += lifted(walls_around(aw, ad, {"front": Fa}), H)
+            top = H + at["storey_h"]
+            parts.append(box(-aw / 2 + 0.4, aw / 2 - 0.4, -ad / 2 + 0.4, ad / 2 - 0.4, top - 0.4, top, "roof"))
+    return parts + _hip(f, w, d, top)
 
 
 def arcade_hall(dims, p, f) -> list[dict]:
@@ -885,6 +1051,16 @@ FORM_CHOICES = [
      "features": {"range": {"h": 7.0, "d": 8.0, "arch_h": 5.6, "parapet": 0.9},
                   "front": {"ground": {"kind": "pilotis", "column": "round"}}},
      "sized": "range"},                    # preset_for() fits bays and range height to the entry's size
+    {"id": "arcade", "form": "arcade", "label": "Arcade (arches on piers)",
+     "desc": "an arcade of round or segmental arches on square piers with a walk behind, storeys or an open "
+             "gallery above it (arcaded blocks and their bay modules, arched walls)",
+     "features": {"faces": ["front"]}, "sized": "arcade"},
+    {"id": "arcade_corner", "form": "arcade", "label": "Arcade corner (two faces)",
+     "desc": "the same arcade turning a corner: arcades on the front and left faces round one corner pier",
+     "features": {"faces": ["front", "left"]}, "sized": "arcade"},
+    {"id": "arcade_wall", "form": "arcade", "label": "Arched wall",
+     "desc": "a wall of tall arches on piers with nothing over them (city wall bays, aqueduct-like runs)",
+     "features": {"faces": ["front"], "arcade": {"gallery": None, "back": "wall"}}, "sized": "arcade_wall"},
     {"id": "arcade_hall", "form": "arcade_hall", "label": "Arcaded civic hall",
      "desc": "a round-arched arcade across the front, tall upper storeys with arched windows, a low hipped roof"},
     {"id": "civic_block", "form": "civic_block", "label": "Civic block",
@@ -917,11 +1093,23 @@ def preset_for(choice_id: str, dims) -> dict | None:
         w, d, h = (float(x) for x in dims)
         f["bays"] = max(3, round(w / 4.5))
         f["range"].update({"h": round(h, 2), "arch_h": round(0.75 * h, 2), "d": round(min(8.0, d), 2)})
+    if f and c.get("sized") == "arcade" and dims:
+        # the arcade storey a quarter of the height (5-7 m), arches to four fifths of it, a walk at
+        # most a third of the depth; the gallery storeys fill the rest
+        w, d, h = (float(x) for x in dims)
+        ah = round(min(7.0, max(5.0, 0.28 * h)), 2)
+        f["arcade"] = {"h": ah, "arch_h": round(0.8 * ah, 2), "depth": round(min(4.5, max(2.5, d / 3)), 2)}
+    if f and c.get("sized") == "arcade_wall" and dims:
+        # the arches nearly the wall's height, one bay along it (or several), the walk most of its depth
+        w, d, h = (float(x) for x in dims)
+        ah = round(max(3.0, h - 1.2), 2)
+        f["arcade"].update({"h": ah, "arch_h": round(0.75 * ah, 2), "bay_m": round(min(w, 9.0), 2),
+                            "pier_w": round(max(1.2, 0.2 * min(w, 9.0)), 2), "depth": round(max(1.5, d - 1.0), 2)})
     return f
 
 GENERATORS = {"hall_vault": hall_vault, "cube": cube, "basilica": basilica, "podium_tower": podium_tower,
               "perimeter": perimeter, "row": row, "civic_block": civic_block, "arcade_hall": arcade_hall,
-              "campanile": campanile}
+              "campanile": campanile, "arcade": arcade}
 
 
 # Starting values for optional parts that a form's defaults leave off (None): what the review
@@ -952,5 +1140,9 @@ TEMPLATES = {
               "door_w": 0.22, "screen": True},
     "joints": {"cols": 4, "rows": 3, "groove": 0.12},
     "hip_roof": {"rise": 2.0, "over": 0.6},
+    # an arcade (the colonnade range's front, or switched on in the arcade form) and its parts
+    "arcade": merged(ARCADE, {"gallery": GALLERY}), "gallery": GALLERY, "impost": {"h": 0.3, "proj": 0.1},
+    "grid": GALLERY_GRID,
+    "attic": {"storey_h": 3.2, "setback": 2.5, "side_setback": 2.5, "facade": {"ground": {"kind": "shop"}}},
     "annexes": [{"side": "left", "at": 0.0, "w": 8.0, "d": 6.0, "h": 4.0, "pattern": ["solid"], "canopy": 0.0, "mat": "base"}],
 }

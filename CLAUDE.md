@@ -849,6 +849,20 @@ Until the deadline, all work follows these rules:
   order, which differs per process: one slot flipped between two districts across rebuilds of the
   same plan. `city.majority_district` breaks ties by the district at the slot's centre.
 
+## Arcades and build guidance (2026-10-17)
+- **The full test suite runs the live ComfyUI tests whenever ComfyUI answers** (they skip only
+  when it's down): a plain `pytest` queued a local Flux job on the user's running ComfyUI. Run
+  `pytest -m "not comfy"` unless the live parity test is the point (and ComfyUI is yours).
+- Guidance on off parts (None): the vision model switches a part on by restating its template's
+  values, so an edit equal to the template still counts (`switch_on`). It also needs the mapping
+  spelled out: party walls -> pattern `solid` + ground kind `solid` (it proposed `none`); windows
+  over an arcade are `arcade.gallery`'s, not `side.window` (it edited the plain back faces).
+- Review renders fit every bounding-box corner in the frame (`blender_render_asset.py`): from the
+  three-quarter view a tall, deep module's arches fell below a frame fitted to its height only.
+- Shell: `cd X && nohup cmd &` puts the subshell's PID in `$!`, not the server's; killing it left
+  the old server on the port (the new one failed to bind). Start servers without the `cd &&`,
+  and check `ss -ltnp` after a restart.
+
 ## Self-serve asset loop (2026-10-16)
 - RUNBOOK.md is the artist's guide; areas (`ap area`) and the batch commands' `--area` /
   `--district` are the unit of work. Builds stamp the brief's sha (procedural.json, instance

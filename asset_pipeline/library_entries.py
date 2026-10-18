@@ -306,6 +306,9 @@ def set_name(store: ProjectStore, eid: str, name: str) -> dict:
 # --- next step after a sheet is starred ---------------------------------------------------------
 
 FORM_WORDS = [            # first match wins: an entry's id, name, part and description, lower case
+    ("arcade_corner", ("arcade block corner", "arcaded block corner", "arcaded corner", "arcade corner")),
+    ("arcade_wall", ("arched wall", "city wall")),
+    ("arcade", ("arcade block", "arcaded block", "arcade bay", "arches on piers")),
     ("arcade_range", ("portico", "colonnade", "colonnaded", "stoa", "range")),
     ("campanile", ("campanile", "bell tower", "belfry")),
     ("basilica", ("basilica", "law court")),
@@ -337,11 +340,22 @@ def catalog_form(store: ProjectStore, e: dict) -> str | None:
     return "basilica" if e["typology"] == "basilica" else form
 
 
-def suggest_form(e: dict) -> str:
-    """The form choice an entry's words point to (shown pre-selected, never applied silently)."""
-    text = " ".join(str(e.get(k) or "") for k in ("id", "name", "part", "typology", "description", "description_auto")).lower()
+def suggest_form(e: dict, asset: str | None = None) -> str:
+    """The form choice an entry's words point to (shown pre-selected, never applied silently);
+    asset: a kit module's own id (e.g. my-block-corner), read before its entry's words. City wall
+    runs (typology wall) are arched walls: one arcade bay."""
+    return suggestion(e, asset)[0]
+
+
+def suggestion(e: dict, asset: str | None = None) -> tuple[str, bool]:
+    """(form choice, whether the entry's words matched one: False is the cube fallback)."""
+    if e.get("typology") == "wall":
+        return "arcade_wall", True
+    text = " ".join([asset or ""] + [str(e.get(k) or "") for k in ("id", "name", "part", "typology", "description",
+                                                                  "description_auto")]).lower()
     text = text.replace("-", " ").replace("_", " ")
-    return next((fid for fid, words in FORM_WORDS if any(w in text for w in words)), "cube")
+    hit = next((fid for fid, words in FORM_WORDS if any(w in text for w in words)), None)
+    return (hit, True) if hit else ("cube", False)
 
 
 def _entry_of(store: ProjectStore, asset: str) -> tuple[dict | None, bool]:
@@ -371,10 +385,16 @@ def form_info(store: ProjectStore, eid: str) -> dict:
         form, src = catalog_form(store, e), "catalog"
     if form and form not in FORM_CHOICE:
         form = next((c["id"] for c in _plain_choices(form)), form)
-    size = d.get("size_m") or e.get("size_m")
-    return {"form": form or None, "source": src if form else None, "suggested": suggest_form(e or ent or {"id": eid}),
-            "size_m": [float(x) for x in size] if size else None,
-            "size_source": ("yours" if d.get("size_m") else "plan") if size else None}
+    size, size_src = d.get("size_m"), "yours"
+    if not size and e.get("size_m"):
+        size, size_src = e["size_m"], "plan"
+    if not size and ent and not own:              # a kit module: the size its kit decision gives the piece
+        piece = eid[len(ent["id"]) + 1:]
+        size = (((sw_library.decisions(store).get(ent["id"]) or {}).get("pieces") or {}).get(piece) or {}).get("size")
+        size_src = "kit piece"
+    return {"form": form or None, "source": src if form else None,
+            "suggested": suggest_form(e or ent or {"id": eid}, eid if not own else None),
+            "size_m": [float(x) for x in size] if size else None, "size_source": size_src if size else None}
 
 
 def _brief_form(store: ProjectStore, eid: str) -> str | None:
@@ -385,6 +405,12 @@ def _brief_form(store: ProjectStore, eid: str) -> str | None:
         return None
     if b["form"] == "arcade_hall" and (b.get("features") or {}).get("range"):
         return "arcade_range"
+    if b["form"] == "arcade":
+        f = b.get("features") or {}
+        if set(f.get("faces") or ["front"]) - {"front", "back"}:
+            return "arcade_corner"
+        if "gallery" in (f.get("arcade") or {}) and not f["arcade"]["gallery"]:
+            return "arcade_wall"
     return b["form"]
 
 

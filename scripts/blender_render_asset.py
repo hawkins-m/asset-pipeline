@@ -140,8 +140,21 @@ for v in job["views"]:
     cam.data.lens = v.get("lens", 50)
     # far enough for the whole width and height (a tall tower was cropped at size * 1.55)
     fit = 1.15 * (hi.z - lo.z) / (2 * math.tan(cam.data.angle_y / 2)) if not v.get("target") else 0.0
-    cam.location = tgt + d * (v.get("dist") or max(size * 1.55, fit))
+    dist = v.get("dist") or max(size * 1.55, fit)
+    cam.location = tgt + d * dist
     cam.rotation_euler = (tgt - cam.location).to_track_quat("-Z", "Y").to_euler()
+    if not v.get("dist"):
+        # step back until every corner of the bounding box is in the frame: from above, a tall and
+        # deep building's near foot fell below a frame that only fitted its height (2026-10-17)
+        from bpy_extras.object_utils import world_to_camera_view
+        corners = [Vector((x, y, z)) for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+        for _ in range(12):
+            bpy.context.view_layer.update()
+            uv = [world_to_camera_view(sc, cam, c) for c in corners]
+            if all(0.03 <= p.x <= 0.97 and 0.03 <= p.y <= 0.97 for p in uv):
+                break
+            dist *= 1.1
+            cam.location = tgt + d * dist
     sc.render.filepath = f"{job['out_dir']}/{v['name']}.png"
     bpy.ops.render.render(write_still=True)
     out[v["name"]] = sc.render.filepath

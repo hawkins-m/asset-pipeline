@@ -741,6 +741,182 @@ def facade(L: float, F: dict) -> list[dict]:
     return parts
 
 
+# --- the arcade: arches on square piers, a walk behind, an optional gallery above ---------------
+
+# an arcade along a face (metres unless noted): piers `pier_w` square at `bay_m` centres, arches
+# (round | seg: a segmental head `rise` x the opening's width high) with their crown at `arch_h`,
+# an impost moulding at the springing ({"h", "proj"}, or None), an archivolt band (m, 0: none);
+# the arcade storey is `h` high; the walk runs `depth` from the piers' front face to the back
+# wall (`back`: shop fronts or a wall with doors); `gallery` (GALLERY or None) over it
+ARCADE = {"bay_m": 4.5, "pier_w": 0.9, "arch_h": 5.2, "arch": "round", "rise": 0.3, "h": 6.5, "depth": 4.0,
+          "back": "shop", "impost": {"h": 0.3, "proj": 0.1}, "archivolt": 0.0, "gallery": None,
+          "cornice": [[0.35, 0.25]], "parapet": 0.9}
+# the gallery storeys over an arcade: an open loggia (arched or square openings, a balustrade in
+# each, a walk `depth` m deep behind) or a wall with glazed windows; one opening per arcade bay,
+# on the arches' axes. storeys 0: as many as the building's height takes. w, h, sill: shares of
+# the bay and the storey. grid: stone pilasters on the pier axes and a band at each floor
+# ({"w", "proj"} m, or None)
+GALLERY = {"kind": "loggia", "storeys": 1, "storey_h": 4.5, "arch": "round", "rise": 0.3, "w": 0.62, "h": 0.8,
+           "sill": 0.0, "balustrade": "rail", "balustrade_h": 1.0, "depth": 3.0, "frame": True, "mullions": 1,
+           "grid": None}
+GALLERY_GRID = {"w": 0.5, "proj": 0.12}
+
+
+def arcade_bays(L: float, A: dict, ends=(True, True)) -> tuple[list[tuple[float, float]], list[tuple[float, float]], float]:
+    """(piers as (x0, x1), openings as (centre, width), the bay pitch) of an arcade run from -L/2
+    to L/2. An end without a pier (False) continues a neighbouring run's pier just outside it (a
+    corner pier), so the bays keep their rhythm round the corner."""
+    pw = A["pier_w"]
+    xa = -L / 2 - (0.0 if ends[0] else pw)
+    xb = L / 2 + (0.0 if ends[1] else pw)
+    n = max(1, round((xb - xa - pw) / A["bay_m"]))
+    s = (xb - xa - pw) / n
+    piers = [(xa + i * s, xa + i * s + pw) for i in range(n + 1)]
+    piers = [(max(a, -L / 2), min(b, L / 2)) for a, b in piers if b > -L / 2 + 1e-6 and a < L / 2 - 1e-6]
+    return piers, [(xa + i * s + pw + (s - pw) / 2, s - pw) for i in range(n)], s
+
+
+def _arch_opening(kind: str, cx: float, w: float, z0: float, h: float, rise: float, top: float, glass=False) -> dict:
+    """An opening with a round (arch), segmental (seg) or square (rect) head, its crown at z0 + h
+    but no higher than `top`; a round head is kept at least a half-circle plus 0.2 m tall."""
+    k = {"round": "arch", "seg": "seg", "rect": "rect"}.get(kind, kind)
+    o = {"kind": k, "cx": cx, "w": w, "z0": z0, "h": h, "glass": glass}
+    if k == "arch":
+        o["h"] = max(h, w / 2 + 0.2)
+    if k == "seg":
+        o["rise"] = max(0.05, min(rise * w, w / 2))
+    o["h"] = min(o["h"], top - z0)
+    return o
+
+
+def spring(o: dict) -> float:
+    """The springing height of an arched opening (where its head starts)."""
+    if o["kind"] == "arch":
+        return o["z0"] + o["h"] - o["w"] / 2
+    if o["kind"] == "seg":
+        return o["z0"] + o["h"] - o["rise"]
+    return o["z0"] + o["h"]
+
+
+def arcade_run(L: float, A: dict, ends=(True, True), end_walls=(False, False), end_t: float = 0.5,
+               behind=None, ceiling=None, gallery_storeys: int = 0, gallery_behind=None, gallery_ceiling=None,
+               top_ceiling: bool = True, gallery_t: float = 0.5, mat: str = "base") -> tuple[list[dict], float]:
+    """An arcade along a face, in the facade frame (front at y = 0, inside towards +y), and the
+    gallery storeys over it. Returns (parts, height to the top of the last storey).
+    ends: a pier at each end (False: the neighbouring run's corner pier stands there);
+    end_walls: a wall end_t thick across the walk at that end, in the neighbouring face's plane,
+    pierced by an arch like the arcade's; behind / ceiling: the x interval of the walk's back
+    wall and of its ceiling (default: the whole run); gallery_*: the same for a loggia gallery."""
+    pw, h, dep = A["pier_w"], A["h"], A["depth"]
+    t = 0.5
+    piers, bays_, s = arcade_bays(L, A, ends)
+    ops = [_arch_opening(A.get("arch", "round"), cx, w, 0.0, A["arch_h"], A.get("rise", 0.3), h - 0.3) for cx, w in bays_]
+    parts = pierced(-L / 2, L / 2, 0.0, h, 0.0, pw, ops, mat)
+    im = A.get("impost")
+    if im and ops:                                      # a moulding round each pier at the springing
+        zs, ih, pj = spring(ops[0]), im.get("h", 0.3), im.get("proj", 0.1)
+        for a, b in piers:
+            parts.append(box(a - pj, b + pj, -pj, pw + pj, zs - ih, zs, "trim"))
+    if A.get("archivolt"):
+        for o in ops:
+            if o["kind"] in ("arch", "seg"):
+                parts += archivolt(o, A["archivolt"], 0.0, 0.08)
+    bx0, bx1 = behind or (-L / 2, L / 2)
+    cx0, cx1 = ceiling or (-L / 2 + (end_t if end_walls[0] else 0.0), L / 2 - (end_t if end_walls[1] else 0.0))
+    if dep > pw + 0.3:
+        parts.append(box(cx0, cx1, pw, dep, h - 0.35, h, "trim"))          # the walk's ceiling
+        back = []
+        for cx, w in bays_:                             # the back wall's openings, on the arches' axes
+            if not bx0 + 0.3 < cx < bx1 - 0.3:
+                continue
+            if A.get("back", "shop") == "shop":
+                back.append({"kind": "rect", "cx": cx, "w": min(0.8 * w, bx1 - bx0 - 0.6), "z0": 0.25,
+                             "h": min(0.8 * spring(ops[0]), h - 1.0)})
+            else:
+                back.append({"kind": "rect", "cx": cx, "w": min(1.6, 0.5 * w), "z0": 0.0, "h": min(3.0, h - 1.0),
+                             "glass": False})
+        parts += pierced(bx0, bx1, 0.0, h, dep, dep + t, back, mat, inset=0.15)
+        for side, xe in ((0, -L / 2), (1, L / 2)):     # walls across the walk's ends, with an arch through
+            if not end_walls[side]:
+                continue
+            ew = min(dep - pw - 1.2, ops[0]["w"] if ops else dep)
+            if ew < 0.8:
+                wall = pierced(pw, dep, 0.0, h, -end_t if side == 0 else 0.0, 0.0 if side == 0 else end_t, [], mat)
+            else:
+                o = _arch_opening(A.get("arch", "round"), (pw + dep) / 2, ew, 0.0, A["arch_h"], A.get("rise", 0.3), h - 0.3)
+                wall = pierced(pw, dep, 0.0, h, -end_t if side == 0 else 0.0, 0.0 if side == 0 else end_t, [o], mat)
+            parts += placed(wall, 90, (xe, 0.0, 0.0))
+    H = h
+    G = A.get("gallery")
+    if G and gallery_storeys > 0:
+        gs, gt = G["storey_h"], gallery_t
+        gd = min(G.get("depth", 3.0), dep) if G.get("kind", "loggia") == "loggia" else 0.0
+        gb0, gb1 = gallery_behind or (bx0, bx1)
+        gc0, gc1 = gallery_ceiling or (cx0, cx1)
+        bal, bh = G.get("balustrade", "rail"), G.get("balustrade_h", 1.0)
+        for k in range(gallery_storeys):
+            z = h + k * gs
+            gops = [_arch_opening(G.get("arch", "round"), cx, G["w"] * s, z + G.get("sill", 0.0) * gs, G["h"] * gs,
+                                  G.get("rise", 0.3), z + gs - 0.3, glass=G.get("kind") == "windowed") for cx, _ in bays_]
+            if G.get("kind", "loggia") == "loggia":
+                parts += pierced(-L / 2, L / 2, z, z + gs, 0.0, gt, gops, "wall")
+                if gd > gt + 0.3:
+                    doors = [{"kind": "rect", "cx": o["cx"], "w": min(1.4, 0.5 * o["w"]), "z0": z, "h": min(2.6, gs - 0.6)}
+                             for o in gops if gb0 + 0.3 < o["cx"] < gb1 - 0.3]
+                    parts += pierced(gb0, gb1, z, z + gs, gd, gd + 0.3, doors, "wall", inset=0.1)
+                    if top_ceiling or k < gallery_storeys - 1:
+                        parts.append(box(gc0, gc1, gt, gd, z + gs - 0.3, z + gs, "trim"))
+            else:
+                parts += pierced(-L / 2, L / 2, z, z + gs, 0.0, gt, gops, "wall", inset=0.25)
+                for o in gops:
+                    if G.get("frame", True) and o["kind"] == "rect":
+                        parts += frame(o, 0.22, mullions=G.get("mullions", 1))
+                    parts.append(box(o["cx"] - o["w"] / 2 - 0.08, o["cx"] + o["w"] / 2 + 0.08, -0.06, 0.1, o["z0"] - 0.08,
+                                     o["z0"], "trim"))                           # sill
+            if bal != "none" and bh > 0:               # a balustrade in each opening
+                for o in gops:
+                    a, b = o["cx"] - o["w"] / 2 + 0.02, o["cx"] + o["w"] / 2 - 0.02
+                    parts += balustrade(a, b, 0.06 if G.get("kind") == "windowed" else 0.1, o["z0"], bal, bh)
+        H = h + gallery_storeys * gs
+        gr = G.get("grid")
+        if gr:                                         # stone pilasters on the pier axes, a band at each floor
+            gw, gp = gr.get("w", 0.5), gr.get("proj", 0.12)
+            for a, b in piers:
+                c = min(max((a + b) / 2, -L / 2 + gw / 2), L / 2 - gw / 2)
+                parts.append(box(c - gw / 2, c + gw / 2, -gp, 0.05, h, H, "trim"))
+            for k in range(gallery_storeys):
+                z = h + k * gs
+                parts.append(box(-L / 2, L / 2, -gp, 0.05, z, z + 0.25, "trim"))
+    if A.get("cornice"):
+        parts += cornice(L, H, A["cornice"])
+    if A.get("parapet"):
+        z = H + sum(c[0] for c in (A.get("cornice") or []))
+        parts.append(box(-L / 2, L / 2, 0.0, 0.3, z, z + A["parapet"], "trim"))
+    return parts, H
+
+
+def top_of(p: dict) -> float:
+    """A part's highest z in its own frame plus its placement (zones and hulls included)."""
+    dz = (p.get("at") or [0.0, 0.0, 0.0])[2]
+    k = p["kind"]
+    if k in ("box", "zone"):
+        return p["z1"] + dz
+    if k == "prism":
+        return max(z for _, z in p["xz"]) + dz
+    if k == "lathe":
+        return p["z"] + max(z for _, z in p["profile"]) + dz
+    if k == "hull":
+        return max(q[2] for q in p["pts"]) + dz
+    if k == "shell":
+        return p["z"] + max(max(r[1], r[3]) for r in p["rows"]) + dz
+    return math.inf
+
+
+def above(parts: list[dict], z: float) -> list[dict]:
+    """The parts that reach above z (a facade's upper storeys without its ground storey)."""
+    return [p for p in parts if top_of(p) > z + 1e-6]
+
+
 def walls_around(w: float, d: float, Fs: dict, fronts=None) -> list[dict]:
     """Facades around a w x d footprint (front at -Y), thickness inwards; side walls run between
     the front and back walls (no coplanar end faces). Fs: {"front", "back", "left", "right"}
