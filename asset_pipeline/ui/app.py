@@ -1220,4 +1220,6 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         return FileResponse(target, headers=headers)
 
     app.mount("/static", VersionedStatic(directory=STATIC), name="static")
+    from . import tools_api          # areas, preflight and the remaining runbook commands
+    tools_api.register(app, jobs, _store, _comfy_up, _on_comfy)
     return app

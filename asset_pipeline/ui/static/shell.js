@@ -337,7 +337,10 @@ function renderComfyControls() {
   }
 }
 async function vlmDialog() {
-  const d = dialog({title: "Vision LLM status", body: `<p>Checking…</p>`});
+  const d = dialog({title: "Vision LLM status", body: `<p>Checking…</p>`, buttons: [
+    {label: "Start", onClick: () => { d.close(); ACTIONS.vlmUp.run(); return false; }},
+    {label: "Stop…", onClick: () => { d.close(); ACTIONS.vlmDown.run(); return false; }}, {label: "Close", default: true}]});
+  d.win.id = "vlm-dialog";
   const s = await api("/api/vlm").catch(e => ({up: false, error: errorText(e)}));
   $(".wbody", d.win).innerHTML = s.up
     ? `<p>Local Qwen3-VL <b>${esc(String(s.model).toUpperCase())}</b> on GPU ${esc(s.gpu)}.</p>`
