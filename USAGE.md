@@ -586,6 +586,16 @@ ap area checklist my-project my-area                      # areas/my-area.md in 
   sheet, as `ap library brief ... front`, then the build and review renders; job
   `library.brief_build`) and a TRELLIS asset's row *Cut views*, with links on to Asset review or
   Views and 3D.
+- **Guidance for the next build** (procedural assets): the Brief & build dialog and Asset review
+  (*Guidance…*) take a few words ("taller windows, open arcade below"). The local vision model
+  reads the sheet, the brief and the brief form's fields and proposes edits as before → after rows
+  (`POST .../library/asset/{id}/guide`, job `library.guide`, code in `asset_pipeline/brief_guide.py`);
+  invalid fields or values are left out with a reason. *Accept & build* saves the ticked rows
+  (validated, Approved goes back to Needs review) plus the text as `guidance` in the brief and
+  rebuilds (`.../guide/apply`); Cancel changes nothing. No guidance: the dialog works as before.
+  TRELLIS assets take their text steering on the sheet reroll (*+2 more*).
+- **Make 3D, new seed** (Views and 3D): the *New seed* box draws a random seed instead of 42;
+  the seed is in the result's JSON and shown on the result.
 - `--district ID` works wherever `--area` does.
 - Batch commands skip approved assets and builds of an unchanged brief, report each failure
   and go on. Run the same command again after a crash or a ComfyUI restart.

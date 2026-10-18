@@ -33,6 +33,8 @@ function assetReview(a) {
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
       <span class="actions"><button type="button" class="make3d">Make 3D</button>
+        <label class="new-seed" title="Draw a random seed instead of 42 (the seed is recorded with the result)"><input type="checkbox" class="new-seed-box"> New seed</label>
+        <a href="#" class="seed-hint hint" title="Text steering for a TRELLIS asset happens on the sheet">Guidance on the sheet reroll (Library › Reference sheets › +2 more)</a>
         <button type="button" class="secondary cleanup" title="Scale to the plan size, pivot at the base${x.usage === "game" ? ", decimate and bake (game)" : ""}">Clean up</button>
         ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}">${esc((a.review || "not reviewed").replace("_", " "))}</span>
           <button type="button" class="secondary approve" ${a.results.length ? "" : "disabled title=\"Make 3D first\""}>Approve</button>
@@ -76,9 +78,11 @@ function assetReview(a) {
     make.after(stopButton(jobs3d));
   }
   make.onclick = async () => {
-    try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value}); await load(); }
+    try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value, new_seed: $(".new-seed-box", el).checked}); await load(); }
     catch (err) { alert(errorText(err)); }
   };
+
+  $(".seed-hint", el).onclick = ev => { ev.preventDefault(); showTab("library"); showSub("refs"); };
 
   const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
   const clean = $(".cleanup", el);
@@ -99,7 +103,7 @@ function assetReview(a) {
       const c = document.createElement("div"); c.className = "result";
       c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate shadow-intensity="0.6"
           alt="3D model of ${esc(x.name)}" loading="lazy"></model-viewer>
-        <span>${esc(res.name)}</span>
+        <span>${esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}</span>
         <span class="hint">${res.faces ? `${(res.faces / 1000).toFixed(0)}k faces` : ""}${res.raw_ratio ? ` · raw F/V ${res.raw_ratio}` : ""}${res.peak_vram_gb ? ` · ${res.peak_vram_gb} GB` : ""}</span>
         <span><a href="${fileUrl(res.glb)}" download>GLB</a> · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a></span>`;
       r.append(c);

@@ -505,4 +505,6 @@ def next_step(store: ProjectStore, plan: str, key: str) -> dict | None:
            "views": len(s3_views.views(store, plan, key))}
     if r == "procedural":
         out["form"] = form_info(store, key)
+        if out["has_brief"]:                       # what the last guided build was told
+            out["guidance"] = (read_json(kit_proc.spec_path(store, key), default={}) or {}).get("guidance", "")
     return out

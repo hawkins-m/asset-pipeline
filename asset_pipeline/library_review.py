@@ -353,7 +353,10 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
     sp = kit_proc.spec_path(store, asset)
     old = read_json(sp, default=None) or {}
     b = {**old, **{k: v for k, v in new.items() if k in ("dims", "params", "features", "colors", "patches", "form",
-                                                         "material_types", "material_scale", "surface")}}
+                                                         "material_types", "material_scale", "surface",
+                                                         "guidance")}}
+    if not (b.get("guidance") or "").strip():
+        b.pop("guidance", None)
     if not b.get("material_types"):
         b.pop("material_types", None)
     b["material_scale"] = {k: v for k, v in (b.get("material_scale") or {}).items() if v != 1}   # only the differences

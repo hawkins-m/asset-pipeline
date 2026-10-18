@@ -126,6 +126,24 @@ class BriefBuildReq(BaseModel):
     dims: list[float] | None = None    # width, depth, height m (else yours / the plan's)
 
 
+class GuideReq(BaseModel):
+    sheet: str                     # the starred sheet
+    guidance: str
+    view: str = "front"
+
+
+class GuideEdit(BaseModel):
+    path: str
+    after: str | float | bool | list[str | float]
+    why: str = ""
+
+
+class GuideApplyReq(BaseModel):
+    guidance: str = ""
+    edits: list[GuideEdit] = []    # the accepted rows (after as edited); none: only the guidance is saved
+    confirm: bool = False          # rebuild even though locked frames show instances whose size changed
+
+
 class EntryFormReq(BaseModel):
     form: str | None = None        # None / "": back to the catalog form
     size_m: list[float] | None = None
@@ -179,6 +197,7 @@ class ThreeDReq(BaseModel):
     asset: str
     mode: str = "1024_cascade"
     seed: int = 42
+    new_seed: bool = False         # Make 3D (new seed): a random seed, recorded in the result JSON
 
 
 class CleanupReq(BaseModel):
@@ -797,7 +816,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if req.mode not in s5_3d.MODES:
             raise HTTPException(400, f"mode must be one of {', '.join(s5_3d.MODES)}")
         return jobs.submit("3d.trellis", slug, lambda: s5_3d.run(store, req.plan, req.asset,
-                                                                 mode=req.mode, seed=req.seed),
+                                                                 mode=req.mode, seed=None if req.new_seed else req.seed),
                            lane="gpu0", tag={"plan": req.plan, "asset": req.asset}).public()
 
     @app.get("/api/vlm")
@@ -1283,6 +1302,56 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return lr.rebuild(store, asset, log=lambda *a: None) | {"brief": rebrief}
         return jobs.submit("library.brief_build", slug, run, lane="gpu0",
                            tag={"asset": asset, "sheet": req.sheet, "round": lr.current_round(store)}).public()
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/guide")
+    def library_guide(slug: str, asset: str, req: GuideReq):
+        """Guidance for the next build: the local VLM proposes brief edits (brief_guide.propose).
+        The job's result is {edits: [{path, before, after, why}], dropped: [... reason], brief_made}."""
+        from .. import brief_guide
+        store = _store(slug)
+        e, own = library_entries._entry_of(store, asset)
+        if e is None:
+            raise HTTPException(404, f"no library entry {asset}")
+        if sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
+            raise HTTPException(400, f"{asset} is on the TRELLIS route: guidance goes on the sheet reroll")
+        if not req.guidance.strip():
+            raise HTTPException(400, "write what the next build should change")
+        try:
+            review.rel(store, req.sheet)
+        except (ValueError, FileNotFoundError) as ex:
+            raise HTTPException(400, str(ex))
+
+        def run():
+            try:
+                return brief_guide.propose(store, asset, req.sheet, req.guidance, req.view)
+            except ValueError as ex:
+                raise RuntimeError(str(ex)) from None
+        return jobs.submit("library.guide", slug, run, lane="gpu0",
+                           tag={"asset": asset, "sheet": req.sheet}).public()
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/guide/apply")
+    def library_guide_apply(slug: str, asset: str, req: GuideApplyReq):
+        """Accept & build: save the accepted edits and the guidance into the brief (validated;
+        Approved goes back to Needs review), then rebuild as a job."""
+        from .. import brief_guide, kit_proc, library_review as lr
+        store = _store(slug)
+        old = read_json(kit_proc.spec_path(store, asset), default=None)
+        if old is None:
+            raise HTTPException(404, f"no procedural brief for {asset}")
+        edits = [e.model_dump() for e in req.edits]
+        try:
+            kept, dropped = brief_guide.check(store, asset, old, edits)
+            if dropped:
+                raise ValueError("; ".join(f"{d['path']}: {d['reason']}" for d in dropped))
+            imp = lr.locked_impact(store, asset, old, old | brief_guide.apply_edits(old, kept))
+            if imp and not req.confirm:
+                raise HTTPException(409, "locked frames show this asset: " + ", ".join(
+                    f"{r['shot']} ({100 * r['frac']:.2f}%)" for r in imp))
+            brief_guide.apply(store, asset, kept, req.guidance)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
+        return jobs.submit("library.rebuild", slug, lambda: lr.rebuild(store, asset), lane="cpu",
+                           tag={"asset": asset, "round": lr.current_round(store)}).public()
 
     # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
 

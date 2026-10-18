@@ -462,3 +462,9 @@ details summary { cursor: default; }
 .commit-list { max-height: 220px; overflow: auto; background: var(--field); border: 1px solid var(--border-dark); padding: 4px 6px; font-size: 12px; }
 .ff-size { display: inline-flex; align-items: center; gap: 4px; }
 .ff-size input { width: 6em; }
+
+.gd-table { border-collapse: collapse; width: 100%; }
+.gd-table th, .gd-table td { text-align: left; padding: 2px 6px; vertical-align: top; }
+.gd-table .gd-after { width: 9em; }
+.gd-window { min-width: min(46rem, 96vw); }
+.new-seed { margin: 0 6px; white-space: nowrap; }

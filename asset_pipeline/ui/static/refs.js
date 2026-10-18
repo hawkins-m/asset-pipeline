@@ -104,6 +104,13 @@ function refsNextStep(u, el) {
   }
   btn.disabled = !!running.length;
   box.append(btn);
+  if (nx.route !== "procedural") {
+    const h = document.createElement("span"); h.className = "hint guide-hint"; h.style.margin = "0 6px";
+    h.append("Text steering for TRELLIS assets happens on the sheet: ");
+    const a = document.createElement("a"); a.href = "#"; a.textContent = "Guidance on the sheet reroll (Library › Reference sheets › +2 more)";
+    a.onclick = ev => { ev.preventDefault(); showTab("library"); showSub("refs"); };
+    h.append(a); box.append(h);
+  }
   if (running.length) box.append(stopButton(running));
   if (nx.route === "procedural" && nx.has_build) {
     const a = document.createElement("a"); a.href = `/?project=${encodeURIComponent(slug)}&review=${encodeURIComponent(u.key)}`;
@@ -129,7 +136,10 @@ async function refsBriefBuild(u, sheet, nx) {
     <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">
       <option value="front">Auto (the most frontal view)</option><option value="0">Left view</option>
       <option value="1">Middle view</option><option value="2">Right view</option><option value="all">The whole sheet</option></select>
-      <div id="bb-form" style="display:contents"></div></div>`;
+      <div id="bb-form" style="display:contents"></div>
+      <label for="bb-guidance">Guidance for the next build:</label>
+      <textarea id="bb-guidance" rows="3" placeholder="Optional. What should change, in words (taller windows, an open arcade on the ground floor…). The vision model turns it into brief edits you accept before the build."></textarea></div>`;
+  $("#bb-guidance", body).value = nx.guidance || "";
   const info = nx.form || {form: null, suggested: "cube", size_m: null};
   try { $("#bb-form", body).innerHTML = await formFieldsHtml(info); formFieldsWire(body); }
   catch (err) { $("#bb-form", body).innerHTML = `<p class="error">${esc(errorText(err))}</p>`; }
@@ -138,12 +148,17 @@ async function refsBriefBuild(u, sheet, nx) {
       choose ${!info.form ? "the form" : "the size"} below. It is saved with the entry (Manage entry… › Form).</p>`);
   const go = async rebrief => {
     const view = $("#bb-view", body).value;
+    const guidance = $("#bb-guidance", body).value.trim();
     let ff = {form: null, dims: null};
     if (rebrief) {
       try { ff = formFieldsRead(body); } catch (err) { alert(errorText(err)); return false; }
       if (!ff.dims && !info.size_m) { alert("Size: fill in width, depth and height (m) for the brief."); return false; }
       if (ff.form === info.form) ff.form = null;                  // unchanged: theirs stays theirs
       if (ff.dims && JSON.stringify(ff.dims) === JSON.stringify(info.size_m)) ff.dims = null;
+    }
+    if (guidance) {                        // propose edits first; the build starts when they are accepted
+      guideRun(u.key, sheet, view, guidance, load);
+      return true;
     }
     try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`,
                     {sheet, rebrief, view, form: ff.form, dims: ff.dims}); await load(); }
@@ -153,4 +168,60 @@ async function refsBriefBuild(u, sheet, nx) {
     {label: "Re-brief from this sheet", default: true, onClick: () => go(true)},
     {label: "Just rebuild", onClick: () => go(false)},
     {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => go(true)}, {label: "Cancel"}]});
+}
+
+// --- guidance for the next build (procedural assets) ------------------------------------------
+// The vision model proposes brief edits from the guidance; the artist accepts rows, then the
+// accepted edits and the guidance go into the brief and the asset rebuilds. Also used by Asset review.
+const guideLabel = p => p.replace(/^features\./, "").split(".").join(" › ").replace(/_/g, " ");
+const guideShow = v => v === null || v === undefined ? "(not set)" : Array.isArray(v) ? v.join(", ") : String(v);
+function guideParse(text, before) {            // the edited text back to the kind of the field
+  const t = text.trim();
+  if (Array.isArray(before)) return t.split(",").map(x => x.trim()).filter(Boolean).map(x => before.every(y => typeof y === "number") && !isNaN(+x) ? +x : x);
+  if (typeof before === "boolean") return t.toLowerCase() === "true";
+  if (typeof before === "number" || before === null) return t !== "" && !isNaN(+t) ? +t : t;
+  return t;
+}
+
+async function guideRun(asset, sheet, view, guidance, onDone) {
+  let job;
+  try { job = await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(asset)}/guide`, {sheet, guidance, view}); }
+  catch (err) { alert(errorText(err)); return; }
+  for (;;) {                                    // the proposal arrives as the job's result
+    await new Promise(r => setTimeout(r, 1000));
+    try { job = await api(`/api/jobs/${job.id}`, undefined); } catch (err) { alert(errorText(err)); return; }
+    if (!["queued", "running"].includes(job.status)) break;
+  }
+  if (typeof jobDlg !== "undefined" && jobDlg) jobDlg.close();
+  if (job.status !== "done") { if (job.status !== "canceled") alert(job.error || "The vision model did not answer."); return; }
+  guideEdits(asset, guidance, job.result, onDone);
+}
+
+function guideEdits(asset, guidance, res, onDone) {
+  const body = document.createElement("div"); body.id = "gd-edits";
+  const rows = res.edits.map((e, i) => `<tr class="gd-row" data-path="${esc(e.path)}" data-i="${i}">
+      <td><input type="checkbox" class="gd-accept" checked aria-label="Accept ${esc(guideLabel(e.path))}"></td>
+      <td title="${esc(e.path)}">${esc(guideLabel(e.path))}</td><td class="gd-before">${esc(guideShow(e.before))}</td>
+      <td><input class="gd-after" value="${esc(guideShow(e.after))}" aria-label="New value for ${esc(guideLabel(e.path))}"></td>
+      <td class="hint" style="margin:0">${esc(e.why)}</td></tr>`).join("");
+  body.innerHTML = `<p>${res.brief_made ? "There was no brief yet, so one was made from the sheet first. " : ""}${res.edits.length ?
+      "The vision model proposes these changes to the brief. Untick the ones you don't want, or edit the new value." :
+      "The vision model found nothing it could express with the brief's fields. The guidance is still saved with the brief."}</p>
+    ${res.edits.length ? `<table class="gd-table"><thead><tr><th></th><th>Field</th><th>Before</th><th>After</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    ${res.dropped.length ? `<details class="gd-dropped"><summary>${res.dropped.length} proposed change${res.dropped.length === 1 ? "" : "s"} left out</summary><ul>${
+      res.dropped.map(d => `<li><code>${esc(d.path)}</code>: ${esc(d.reason)}</li>`).join("")}</ul></details>` : ""}`;
+  const go = async (confirm = false) => {
+    const edits = [...body.querySelectorAll(".gd-row")].filter(r => $(".gd-accept", r).checked).map(r => {
+      const e = res.edits[+r.dataset.i];
+      return {path: e.path, after: guideParse($(".gd-after", r).value, e.before), why: e.why};
+    });
+    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(asset)}/guide/apply`, {guidance, edits, confirm}); }
+    catch (err) {
+      if (!confirm && /locked frames/.test(errorText(err)) && window.confirm(`${errorText(err)}\n\nRebuild anyway?`)) return go(true);
+      alert(errorText(err)); return false;
+    }
+    if (onDone) await onDone();
+  };
+  dialog({title: "Guidance: proposed changes", body, className: "gd-window", buttons: [
+    {label: "Accept & build", default: true, onClick: () => go(false)}, {label: "Cancel"}]});
 }
