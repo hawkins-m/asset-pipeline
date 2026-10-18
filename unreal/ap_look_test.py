@@ -189,6 +189,24 @@ def spawn(eas, cls, loc, rot, label, tags):
     return a
 
 
+def attach_children(placements, actors):
+    """Attached pieces: each child actor goes under its parent's (keeping its world transform),
+    and parent and children share an outliner folder."""
+    n = 0
+    for pl in placements:
+        par = actors.get(pl.get("parent"))
+        kid = actors.get(pl["key"])
+        if par is None or kid is None:
+            continue
+        rule = unreal.AttachmentRule.KEEP_WORLD
+        kid.attach_to_actor(par, "", rule, rule, rule, False)
+        folder = f"AP/Look/{par.get_actor_label()}"
+        par.set_folder_path(folder)
+        kid.set_folder_path(folder)
+        n += 1
+    return n
+
+
 def main(args):
     report = {"ok": False, "slots": {}, "unmatched_slots": []}
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
@@ -207,13 +225,14 @@ def main(args):
     else:                                   # the single-building look test
         placements = [{"key": asset, "entry": asset, "glb": args["glb"], **args["building"]}]
         entries = {asset: args["slots"]}
-    mis = {}
+    mis, actors = {}, {}
     for pl in placements:                   # library builds, their materials shared per entry
         e = pl["entry"]
-        mesh = import_static(pl["glb"], f"{LOOK}/{asset}/builds", pl["key"])
-        for i, sm in enumerate(mesh.get_editor_property("static_materials")):
+        mesh = import_static(pl["glb"], f"{LOOK}/{asset}/builds", pl.get("mesh") or pl["key"])
+        own = entries.get(e)                # None: a TRELLIS piece keeps the materials in its GLB
+        for i, sm in enumerate(mesh.get_editor_property("static_materials") if own is not None else []):
             slot = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
-            spec = entries[e].get(slot)
+            spec = own.get(slot)
             if spec is None:
                 report["unmatched_slots"].append(f"{e}:{slot}")
                 continue
@@ -222,8 +241,12 @@ def main(args):
             mesh.set_material(i, mis[(e, slot)])
         eal.save_loaded_asset(mesh)
         bld = spawn(eas, unreal.StaticMeshActor, unreal.Vector(*pl["loc"]), unreal.Rotator(*pl["rot"]),
-                    f"AP_Look_{pl['key']}", [f"ap:look={pl['key']}"])
+                    f"AP_Look_{pl['key']}", [f"ap:look={pl['key']}"] + ([f"ap:parent={pl['parent']}"] if pl.get("parent") else []))
         bld.static_mesh_component.set_static_mesh(mesh)
+        if pl.get("scale"):
+            bld.set_actor_scale3d(unreal.Vector(*pl["scale"]))
+        actors[pl["key"]] = bld
+    report["attached"] = attach_children(placements, actors)
     report["placed"] = len(placements)
     # the greybox around it and the terrain, in world coordinates
     folder = f"{LOOK}/{asset}"

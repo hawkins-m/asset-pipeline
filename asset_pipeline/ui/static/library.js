@@ -321,6 +321,113 @@ async function variantSection(id, box) {
   }};
 }
 
+// Manage entry… › Attached pieces (assembly.py): child entries placed with this one everywhere
+// (Asset review preview, review renders, Unreal look scenes). Offsets are in this entry's frame:
+// x right, y back (negative: in front), z up, metres, from its centre or the middle of its front
+// edge; rotation about the vertical, degrees. The top-down view redraws as you type, and pieces
+// can be dragged there. Saved with the dialog's Save (the assembly preview rebuilds in Blender).
+async function childrenSection(id, box) {
+  let info;
+  try { info = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/children`, undefined, "GET"); }
+  catch (err) { box.innerHTML = `<p class="error">${esc(errorText(err))}</p>`; return null; }
+  if (info.attached_to) {
+    box.innerHTML = `<p class="hint">Attached pieces: this entry is attached to <b>${esc(assetName(info.attached_to))}</b>, so it can't carry pieces of its own.</p>`;
+    return null;
+  }
+  const natural = {};                          // entry -> its own size (before the piece's scale)
+  const rows = info.children.map(c => { natural[c.entry] = c.size.map(v => v / c.scale); return {...c}; });
+  let dirty = false;
+  const par = info.parent.size, an = info.anchors;
+  const others = libEntries().filter(e => e.id !== id).map(e => e.id).sort();
+  const num = (v, d = 2) => +(+v).toFixed(d);
+  const corners = r => {                        // a piece's footprint corners in the parent frame
+    const [w, d] = [natural[r.entry][0] * r.scale, natural[r.entry][1] * r.scale];
+    const a = an[r.anchor], cx = a[0] + r.offset[0], cy = a[1] + r.offset[1], t = r.yaw * Math.PI / 180;
+    return [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]]
+      .map(([x, y]) => [cx + x * Math.cos(t) - y * Math.sin(t), cy + x * Math.sin(t) + y * Math.cos(t)]);
+  };
+  const svg = () => {
+    const pts = [[-par[0] / 2, -par[1] / 2], [par[0] / 2, par[1] / 2], ...rows.flatMap(corners)];
+    const xs = pts.map(p => p[0]), ys = pts.map(p => -p[1]);
+    const m = Math.max(4, 0.08 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
+    const vb = [Math.min(...xs) - m, Math.min(...ys) - m, Math.max(...xs) - Math.min(...xs) + 2 * m, Math.max(...ys) - Math.min(...ys) + 2 * m];
+    const poly = (c, cls, extra = "") => `<polygon class="${cls}" ${extra} points="${c.map(([x, y]) => `${num(x)},${num(-y)}`).join(" ")}"/>`;
+    const fs = vb[2] / 40;
+    return `<svg id="ch-plan" viewBox="${vb.map(v => num(v)).join(" ")}" role="img" aria-label="Top-down placement of the attached pieces">
+      ${poly([[-par[0] / 2, -par[1] / 2], [par[0] / 2, -par[1] / 2], [par[0] / 2, par[1] / 2], [-par[0] / 2, par[1] / 2]], "ch-parent")}
+      <line class="ch-front" x1="${num(-par[0] / 2)}" y1="${num(par[1] / 2)}" x2="${num(par[0] / 2)}" y2="${num(par[1] / 2)}"/>
+      <text x="${num(-par[0] / 2)}" y="${num(par[1] / 2 + fs * 1.4)}" font-size="${num(fs)}" text-anchor="start" class="ch-label">front edge (−y)</text>
+      ${Object.entries(an).map(([k, a]) => `<circle class="ch-anchor" cx="${num(a[0])}" cy="${num(-a[1])}" r="${num(fs / 3)}"><title>${k} anchor</title></circle>`).join("")}
+      ${rows.map((r, i) => { const c = corners(r), cx = c.reduce((s, p) => s + p[0], 0) / 4, cy = c.reduce((s, p) => s + p[1], 0) / 4;
+        return poly(c, "ch-child", `data-i="${i}"`) + `<text x="${num(cx)}" y="${num(-cy)}" font-size="${num(fs)}" text-anchor="middle" class="ch-label">${esc(assetName(r.entry))}</text>`; }).join("")}
+    </svg>`;
+  };
+  const st = info.assembly;
+  const render = () => {
+    box.innerHTML = `<fieldset id="ch-box"><legend>Attached pieces</legend>
+      <p class="hint" style="margin-top:0">Entries placed with this one everywhere: Asset review preview, review renders and Unreal look scenes
+        (separate actors under this one). x right, y back (negative is in front), z up, in metres from the anchor; rotation in degrees.</p>
+      ${rows.length ? `<table class="grid-table" id="ch-table"><thead><tr><th>Piece</th><th>Anchor</th><th>x</th><th>y</th><th>z</th><th>Rotation</th><th>Scale</th><th></th></tr></thead><tbody>
+        ${rows.map((r, i) => `<tr data-i="${i}"><td>${assetLabelHtml(r.entry)}${r.glb ? "" : ` <span class="hint" style="margin:0" title="No 3D model yet: a placeholder box in previews, left out in Unreal">(no model yet)</span>`}</td>
+          <td><select class="ch-anchor-sel" style="min-width:8em" aria-label="Anchor of ${esc(r.entry)}">${["centre", "front"].map(k => `<option value="${k}"${r.anchor === k ? " selected" : ""}>${k === "front" ? "front edge" : "centre"}</option>`).join("")}</select></td>
+          ${[0, 1, 2].map(k => `<td><input type="number" step="0.1" class="ch-off" data-k="${k}" value="${r.offset[k]}" aria-label="${"xyz"[k]} offset of ${esc(r.entry)} (m)" style="width:5.5em"></td>`).join("")}
+          <td><input type="number" step="5" class="ch-yaw" value="${r.yaw}" aria-label="Rotation of ${esc(r.entry)} (degrees)" style="width:4.5em"></td>
+          <td><input type="number" step="0.05" min="0.01" class="ch-scale" value="${r.scale}" aria-label="Scale of ${esc(r.entry)}" style="width:4.5em"></td>
+          <td><button type="button" class="small ch-rm">Remove</button></td></tr>`).join("")}</tbody></table>` : `<p class="hint">None yet.</p>`}
+      <div class="row"><select id="ch-add-sel" aria-label="Entry to attach"><option value="">attach an entry…</option>${others.map(e => `<option value="${esc(e)}">${esc(assetName(e))}${assetName(e) !== e ? ` (${esc(e)})` : ""}</option>`).join("")}</select>
+        <button type="button" class="small" id="ch-add">Attach</button></div>
+      <div id="ch-plan-box">${svg()}</div>
+      <p class="hint" id="ch-status" style="margin:0">${!info.parent.glb ? "This entry has no 3D model yet: build it to see the assembly." :
+        st ? (st.fresh ? "Assembly preview up to date" : "Assembly preview out of date: Save rebuilds it") + (st.missing && st.missing.length ? ` (placeholder boxes for ${st.missing.map(m => esc(assetName(m))).join(", ")})` : "") : ""}
+        ${dirty ? " · unsaved changes" : ""}</p></fieldset>`;
+    const redraw = () => { $("#ch-plan-box", box).innerHTML = svg(); wireDrag(); };
+    box.querySelectorAll("#ch-table tr[data-i]").forEach(tr => {
+      const r = rows[+tr.dataset.i];
+      const set = f => e => { f(e.target.value); dirty = true; redraw(); };
+      $(".ch-anchor-sel", tr).onchange = set(v => { r.anchor = v; });
+      tr.querySelectorAll(".ch-off").forEach(inp => { inp.oninput = set(v => { r.offset[+inp.dataset.k] = +v || 0; }); });
+      $(".ch-yaw", tr).oninput = set(v => { r.yaw = +v || 0; });
+      $(".ch-scale", tr).oninput = set(v => { if (+v > 0) r.scale = +v; });
+      $(".ch-rm", tr).onclick = () => { rows.splice(+tr.dataset.i, 1); dirty = true; render(); };
+    });
+    $("#ch-add", box).onclick = async () => {
+      const e = $("#ch-add-sel", box).value; if (!e) return;
+      try {
+        const f = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(e)}/footprint`, undefined, "GET");
+        natural[e] = f.size;
+        rows.push({entry: e, anchor: "front", offset: [0, -num(f.size[1] / 2 + 2, 1), 0], yaw: 0, scale: 1, glb: f.has_model ? true : null});
+        dirty = true; render();
+      } catch (err) { alert(errorText(err)); }
+    };
+    const wireDrag = () => {
+      const s = $("#ch-plan", box);
+      s.querySelectorAll(".ch-child").forEach(pg => {
+        pg.onpointerdown = ev => {
+          const r = rows[+pg.dataset.i], ctm = s.getScreenCTM().inverse();
+          const at = e => { const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm); return [p.x, -p.y]; };
+          const [x0, y0] = at(ev), o0 = [...r.offset];
+          pg.setPointerCapture(ev.pointerId);
+          pg.onpointermove = e => {
+            const [x, y] = at(e);
+            r.offset[0] = num(o0[0] + x - x0, 1); r.offset[1] = num(o0[1] + y - y0, 1);
+            const tr = box.querySelector(`#ch-table tr[data-i="${pg.dataset.i}"]`);
+            if (tr) { tr.querySelector('.ch-off[data-k="0"]').value = r.offset[0]; tr.querySelector('.ch-off[data-k="1"]').value = r.offset[1]; }
+            dirty = true; $("#ch-plan-box", box).innerHTML = svg(); wireDrag();
+          };
+          pg.onpointerup = () => { pg.onpointermove = null; };
+        };
+      });
+    };
+    wireDrag();
+  };
+  render();
+  return {save: async () => {
+    if (!dirty) return;
+    const body = {children: rows.map(r => ({entry: r.entry, anchor: r.anchor, offset: r.offset, yaw: r.yaw, scale: r.scale}))};
+    await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/children`, body, "PUT");
+  }};
+}
+
 async function manageEntry(id) {
   const ent = libEntries().find(x => x.id === id); if (!ent) return;
   const dec = libraryData.decisions[id] || {};
@@ -336,9 +443,11 @@ async function manageEntry(id) {
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
       .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}
     <div class="ff-box" id="en-form-box" style="display:contents"></div>
-    <div id="en-variants" style="grid-column:1/-1"></div>`;
+    <div id="en-variants" style="grid-column:1/-1"></div>
+    <div id="en-children" style="grid-column:1/-1"></div>`;
   let finfo = null;
   const vs = ent.kind === "prop" ? await variantSection(id, $("#en-variants", body)) : null;
+  const kids = await childrenSection(id, $("#en-children", body));
   if ((ent.route || ent.route_auto) === "procedural" || dec.route === "procedural") {
     try { finfo = await api(`/api/projects/${slug}/library/entries/${id}/form`, undefined, "GET");
           $("#en-form-box", body).innerHTML = await formFieldsHtml(finfo, {allowAuto: true}); formFieldsWire(body); }
@@ -366,6 +475,7 @@ async function manageEntry(id) {
                                                                           size_m: ff.dims && !same(ff.dims, finfo.size_m) ? ff.dims : mySize});
         }
         if (vs) await vs.save();
+        if (kids) await kids.save();
         const decision = $("#en-decision", body).value || null;
         if (decision !== (dec.decision || null)) {
           if (decision === "reference") { alert("Pick the reference frame with the card's 'Description + reference frame' button."); }

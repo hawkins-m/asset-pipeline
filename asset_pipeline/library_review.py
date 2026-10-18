@@ -124,7 +124,11 @@ def images(store: ProjectStore, asset: str) -> dict:
     prev = rounds[-2] if len(rounds) > 1 else None
     glb = kit_proc.out_dir(store, asset) / "procedural.glb"
     st = read_json(review_dir(store, asset, cur) / "status.json", default=None) if cur else None
-    return {"reference": brief.get("view"), "current_round": cur, "previous_round": prev,
+    from . import assembly
+    asm = assembly.assembly_state(store, asset)            # with attached pieces: the assembly when up to date
+    if asm and asm["fresh"] and asm["glb"]:
+        glb = store.root / asm["glb"]
+    return {"reference": brief.get("view"), "current_round": cur, "previous_round": prev, "assembly": asm,
             "current": _imgs(store, review_dir(store, asset, cur)) if cur else {},
             "previous": _imgs(store, review_dir(store, asset, prev)) if prev else {},
             "quick": bool(cur and not (review_dir(store, asset, cur) / "threeq.png").is_file()),
@@ -173,11 +177,13 @@ def rebuild(store: ProjectStore, asset: str, log=print) -> dict:
     glb = kit_proc.out_dir(store, asset) / "procedural.glb"
     filestore.copy(store, glb, d / "procedural.glb")
     form = (read_json(kit_proc.spec_path(store, asset), default={}) or {}).get("form")
+    from . import assembly
+    shown = assembly.render_glb(store, asset, log=log) or glb   # attached pieces render with it
     step(2, f"quick preview · {res.get('faces', 0):,} faces")
-    render(store, asset, glb, d, "quick", form)
+    render(store, asset, shown, d, "quick", form)
     versions.attach_thumbs(store, asset, vn, d)
     step(3)
-    render(store, asset, glb, d, "cycles", form, extra_views=None)
+    render(store, asset, shown, d, "cycles", form, extra_views=None)
     versions.attach_thumbs(store, asset, vn, d)
     step(5, "done")
     return {"round": rnd, "faces": res.get("faces"), "images": _imgs(store, d), "version": vn}

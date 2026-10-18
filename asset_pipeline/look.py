@@ -425,6 +425,14 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
     pls, drop_slots, entries, held = placements(store, shot, p["radius"], gate=p.get("gate", True))
     log(f"{name}: {len(pls)} approved library builds placed ({len(drop_slots)} at kit slots); "
         f"{len(held)} held back as greybox ({len(set(h['entry'] for h in held))} entries not approved)")
+    from . import assembly                       # attached pieces go with their parent
+    kids, kid_entries, no_model = assembly.child_placements(store, pls)
+    if kids or no_model:
+        log(f"{name}: {len(kids)} attached piece(s) placed with their parents"
+            + (f"; left out (no 3D model yet): {', '.join(no_model)}" if no_model else ""))
+    parents = pls
+    pls = pls + kids
+    entries = {**kid_entries, **entries}
     gr = ground(store, p, shot, out / "textures")
     log(f"{name}: ground tints " + ", ".join(f"{k} {v['tint']} ({v['from']})" for k, v in gr["tints"].items()))
     bd, bd_info = backdrop(store, p, shot)
@@ -440,10 +448,10 @@ def run(store: ProjectStore, name: str, log=print) -> dict:
                         sky=p["sky"], white_balance=p["white_balance"], ground=gr["materials"], adapter=int(gpu),
                         greybox_rgb=p.get("greybox"), held=held, held_slots=[h["slot"] for h in held if h.get("slot")])
     sil = {}
-    if pls and shot.get("locked"):
+    if parents and shot.get("locked"):
         if comfy_running():
             from . import silhouette
-            sil = silhouette.check(store, shot, pls, log=log)
+            sil = silhouette.check(store, shot, parents, log=log)
         else:   # the frame masks need SAM 3.1; the render doesn't
             log(f"{name}: silhouette check skipped: ComfyUI is down (ap library silhouette later)")
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")

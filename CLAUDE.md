@@ -921,3 +921,17 @@ Until the deadline, all work follows these rules:
   the build on disk when procedural.json's brief_sha matches its own: switching back to it needs no rebuild.
 - TRELLIS outputs no version lists are adopted as versions (never made current); other loose
   GLBs are listed under Tools › Storage….
+
+## Attached pieces (2026-10-18)
+- `asset_pipeline/assembly.py`: decisions[parent]["children"] = [{entry, anchor (centre/front),
+  offset, yaw, scale}], one level. Frame: the parent model's footprint centred, base at 0, metres,
+  Z up, front -Y; anchors are read off the parent's current model each time (rebuilds at a new
+  size keep children on the front edge). A TRELLIS child is fitted to its entry's height.
+- GLB bounds come from the glTF JSON (accessor min/max + node transforms), no Blender: cheap
+  enough for the UI and look placements.
+- Review renders and the Asset review preview use `3d/library/<parent>/assembly.glb`
+  (scripts/blender_assembly.py; placeholder boxes for children without a model), rebuilt when
+  its stamp (model paths, sizes, mtimes, matrices) changes.
+- Unreal: look scenes add child placements (full matrix with scale, `parent` key); ap_look_test
+  attaches them with KEEP_WORLD and shares an outliner folder. Verified in UE 5.8 with a
+  commandlet probe (attach, world location kept, scale, folder). Children never clear greybox.

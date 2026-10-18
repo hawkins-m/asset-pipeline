@@ -114,6 +114,11 @@ class EntryMoveReq(BaseModel):
     overwrite: bool = False        # replace files that already exist at the new id
 
 
+class ChildrenReq(BaseModel):
+    children: list[dict]           # [{entry, anchor (centre / front), offset [x, y, z], yaw, scale}]
+    build: bool = True             # rebuild the assembly preview (a Blender job) when the parent has a model
+
+
 class EntryDescriptionReq(BaseModel):
     description: str | None = None     # None / empty: back to the automatic one
 
@@ -1263,6 +1268,40 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_entries_create(slug: str, req: EntryCreateReq):
         return _entry_call(library_entries.create, _store(slug), req.id, req.name, req.description, req.kind,
                            req.route, req.size_m, req.tier, req.decision, req.overwrite)
+
+    # attached pieces (assembly.py): children placed with the parent everywhere
+    @app.get("/api/projects/{slug}/library/entries/{entry}/children")
+    def library_children_get(slug: str, entry: str):
+        from .. import assembly
+        return _entry_call(assembly.info, _store(slug), entry)
+
+    @app.get("/api/projects/{slug}/library/entries/{entry}/footprint")
+    def library_footprint(slug: str, entry: str):
+        from .. import assembly
+        return _entry_call(assembly.footprint, _store(slug), entry)
+
+    def _assembly_job(slug, store, entry):
+        from .. import assembly
+        return jobs.submit("library.assembly", slug, lambda: assembly.build(store, entry), lane="cpu",
+                           tag={"asset": entry}).public()
+
+    @app.put("/api/projects/{slug}/library/entries/{entry}/children")
+    def library_children_put(slug: str, entry: str, req: ChildrenReq):
+        from .. import assembly
+        store = _store(slug)
+        _entry_call(assembly.set_children, store, entry, req.children)
+        out = assembly.info(store, entry)
+        if req.build and req.children and out["parent"]["glb"]:
+            out["job"] = _assembly_job(slug, store, entry)
+        return out
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/assembly")
+    def library_assembly(slug: str, entry: str):
+        from .. import assembly
+        store = _store(slug)
+        if not assembly.children(store, entry):
+            raise HTTPException(400, f"{entry} has no attached pieces")
+        return _assembly_job(slug, store, entry)
 
     @app.post("/api/projects/{slug}/library/entries/{entry}/duplicate")
     def library_entries_duplicate(slug: str, entry: str, req: EntryMoveReq):

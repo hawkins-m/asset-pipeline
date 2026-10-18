@@ -129,12 +129,19 @@ function lrRenderViewer() {
                     `frontality ${(lr.data.brief.measured || {}).frontality ?? "–"}`, "lr-ref");
   const center = lr.orbit && im.glb
     ? `<figure class="lr-orbit"><model-viewer src="${fileUrl(im.glb)}" camera-controls shadow-intensity="0.7" exposure="0.9"
-         environment-image="neutral" alt="3D model of ${esc(lr.data.asset)}"></model-viewer><figcaption><span>Current build · orbit: drag to turn, scroll to zoom</span><span></span></figcaption></figure>`
+         environment-image="neutral" alt="3D model of ${esc(lr.data.asset)}"></model-viewer><figcaption><span>${im.assembly && im.assembly.fresh ? "Current build with its attached pieces" : "Current build"} · orbit: drag to turn, scroll to zoom</span><span>${im.assembly && !im.assembly.fresh ? `<button type="button" class="small" id="lr-asm">Update attached pieces</button>` : ""}</span></figcaption></figure>`
     : lrImg(cur.sheet, `Current · sheet angle${q}`, im.current_round ? `round ${im.current_round}` : "") +
       lrImg(cur.threeq, `Current · three-quarter${q}`, "");
   box.classList.toggle("orbit", !!(lr.orbit && im.glb));
   box.innerHTML = ref + center + lrImg(prev[lr.prev], `Previous build${im.previous_round ? ` · round ${im.previous_round}` : ""}`, "", "prev");
   $(".lr-ref img", box)?.addEventListener("click", lrPickClick);
+  const asm = $("#lr-asm", box);
+  if (asm) asm.onclick = async () => {
+    try { const job = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(lr.asset)}/assembly`, {}); const j = await jobDone(job);
+          if (j.status === "error") alert(errorText(j.error)); }
+    catch (err) { alert(errorText(err)); }
+    await lrLoad(true);
+  };
   const j = $("#lr-job");
   if (j) j.textContent = im.job && im.job.step < 5 ? `Rebuild: ${im.job.line} (${im.job.step} of 5)` : "";
 }

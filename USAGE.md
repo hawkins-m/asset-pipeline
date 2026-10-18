@@ -572,6 +572,13 @@ ap site vegetation my-project [--preview med-a]           # street-tree slots, p
 ap area checklist my-project my-area                      # areas/my-area.md in the project
 ```
 
+**Attached pieces.** Library › Manage entry… › Attached pieces lists child entries placed with an
+entry everywhere (Asset review preview, review renders, Unreal look scenes): an anchor (the
+entry's centre or the middle of its front edge), an offset (x right, y back, z up, metres), a
+rotation and a scale, with a top-down view to check and drag them. Anchors follow the parent's
+model, so a rebuild at another size keeps the pieces in place. A piece without a 3D model shows as
+a grey box in previews and is left out in Unreal.
+
 **Shared file store.** Reference sheets, cut views and every GLB under `3d/` are stored once per
 project in `files/<aa>/<sha256>.<ext>` (read-only); the usual paths are hard links to them, so a
 duplicate entry or a version references the same file instead of copying it. Tools › Storage…

@@ -7,8 +7,8 @@
 //   "Delete unpinned versions" (never the Approved, pinned or current ones).
 // - Tools › Settings…: how many unpinned versions to keep per asset.
 // Loaded after tools.js (jobDone, confirmDialog).
-Object.assign(JOB_LABELS, {"library.restore": "switching the version in use"});
-Object.assign(LOADERS, {"library.restore": ["Switching the version in use…", "greybox", "steps"]});
+Object.assign(JOB_LABELS, {"library.restore": "switching the version in use", "library.assembly": "attached pieces preview"});
+Object.assign(LOADERS, {"library.restore": ["Switching the version in use…", "greybox", "steps"], "library.assembly": ["Placing the attached pieces…", "greybox", ""]});
 const fmtCount = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
 // a 3D model's plain stats: "faces 934k · file 36.4 MB · peak GPU memory 9.2 GB"
 const modelStats = r => [r.faces ? `faces ${fmtCount(r.faces)}` : "", r.file_bytes ? `file ${fmtBytes(r.file_bytes)}` : "",

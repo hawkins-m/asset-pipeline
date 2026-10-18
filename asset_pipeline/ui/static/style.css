@@ -488,3 +488,11 @@ details summary { cursor: default; }
 .ver-cmp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .ver-cmp-col { margin: 0; display: grid; gap: 4px; align-content: start; }
 .ver-cmp-col img, .ver-cmp-col .ver-nothumb { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #fff; display: grid; place-items: center; }
+
+/* Manage entry… › Attached pieces: top-down placement */
+#ch-plan { width: 100%; max-height: 320px; background: var(--field); border: 1px solid var(--border-dark); touch-action: none; }
+#ch-plan .ch-parent { fill: #d8d4cc; stroke: #6b665c; stroke-width: 0.3; }
+#ch-plan .ch-front { stroke: var(--danger); stroke-width: 0.8; }
+#ch-plan .ch-child { fill: color-mix(in srgb, var(--select) 35%, transparent); stroke: var(--select); stroke-width: 0.3; cursor: move; }
+#ch-plan .ch-anchor { fill: var(--danger); }
+#ch-plan .ch-label { fill: var(--text, #000); pointer-events: none; }

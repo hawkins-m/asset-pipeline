@@ -468,7 +468,7 @@ def pull_layout(store: ProjectStore) -> dict:
 
 def _blender_to_ue_xf(m) -> dict:
     t = ue_coords.to_ue(m)
-    return {"loc": t["loc"], "rot": t["rot"]}
+    return {"loc": t["loc"], "rot": t["rot"], "scale": t["scale"]}
 
 
 def look_test(store: ProjectStore, asset: str, shot: str, slot: str, bbox, sun_offset_deg: float = 30.0,
@@ -587,7 +587,8 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
     look.mkdir(parents=True, exist_ok=True)
     job = {"camera": s["matrix"], "lens_mm": s["lens_mm"], "sensor_mm": s["sensor_mm"], "resolution": s["resolution"],
            "radius": radius, "out_context": str(look / "context.glb"), "out_terrain": str(look / "terrain.glb"),
-           "drop": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in placements], "drop_slots": drop_slots or [],
+           "drop": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in placements if not p.get("parent")],
+           "drop_slots": drop_slots or [],
            "hold": [{k: p[k] for k in ("x", "y", "w", "d", "yaw")} for p in held or []], "hold_slots": held_slots or [],
            "out_held": str(look / "held.glb")}
     (look / "held.glb").unlink(missing_ok=True)
@@ -600,11 +601,15 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
     ctx = json.loads(next(ln for ln in lg.read_text().splitlines() if ln.startswith("REPORT "))[7:])
     pls = []
     for p in placements:
-        yaw = np.radians(p["yaw"])
-        B = np.eye(4)
-        B[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
-        B[:3, 3] = [p["x"], p["y"], p["z"]]
-        pls.append({"key": p["key"], "entry": p["entry"], "glb": str(store.root / p["glb"]), **_blender_to_ue_xf(B)})
+        if "matrix" in p:                          # an attached piece: its full world transform (with scale)
+            B = np.asarray(p["matrix"], float)
+        else:
+            yaw = np.radians(p["yaw"])
+            B = np.eye(4)
+            B[:2, :2] = [[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]]
+            B[:3, 3] = [p["x"], p["y"], p["z"]]
+        pls.append({"key": p["key"], "entry": p["entry"], "glb": str(store.root / p["glb"]), **_blender_to_ue_xf(B)}
+                   | {k: p[k] for k in ("parent", "mesh") if p.get(k)})
     C = np.array(s["matrix"])
     w, h = s["resolution"]
     cam = {"id": f"look_{name}", "transform": _blender_to_ue_xf_cam(C), "focal_mm": s["lens_mm"],
