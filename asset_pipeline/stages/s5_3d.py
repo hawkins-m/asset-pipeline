@@ -119,5 +119,6 @@ def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
                      "faces": stats.get("glb_faces"), "vertices": stats.get("glb_vertices"),
                      "raw_ratio": round(stats["raw_faces"] / stats["raw_vertices"], 2)
                      if stats.get("raw_vertices") else None,
-                     "peak_vram_gb": stats.get("peak_vram_gb"), "seed": stats.get("seed"), "name": glb.stem})
+                     "peak_vram_gb": stats.get("peak_vram_gb"), "seed": stats.get("seed"), "name": glb.stem,
+                     "file_bytes": glb.stat().st_size})
     return rows

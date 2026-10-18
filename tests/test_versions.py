@@ -134,13 +134,14 @@ def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     filestore.detach(glb)                          # what a build does before writing it
     glb.write_bytes(b"newer")
     r = versions.restore(store, "gate", 1)
-    assert r == {"version": 1, "rebuilt": False}                     # pinned GLB: no rebuild
+    assert r["version"] == 1 and not r["rebuilt"] and r["current"] == 1  # pinned GLB: no rebuild
+    assert r["glb"] == "3d/library/gate/procedural.glb"
     assert read_json(kit_proc.spec_path(store, "gate"))["guidance"] == "taller arch"
     assert kit_proc.out_dir(store, "gate").joinpath("procedural.glb").read_bytes() == b"glb" * 1000
     assert versions.current(store, "gate") == 1
     versions.unpin(store, "gate", 1)
     called = []
-    monkey = lambda s, a, log=print: (called.append(a), {"version": 9})[1]    # noqa: E731
+    monkey = lambda s, a, log=print: (called.append(a), _build(s, a))[1]    # noqa: E731
     lr_rebuild = lr.rebuild
     lr.rebuild = monkey
     try:
@@ -309,3 +310,124 @@ def test_trellis_source_is_relative_and_names_the_sheet(tmp_path, monkeypatch):
     assert row["source"]["sheet"] == "refs/library/a/sheet_002.png"
     (store.root / "3d/library/_keep-copy").mkdir()
     assert versions.assets_of(store) == ["a"]
+
+
+# --- "Use this version": either kind becomes the version in use, the route follows -------------
+
+def _library_entry(store, eid="gate", route=None):
+    from asset_pipeline.stages import sw_library, sw_site
+    e = {"id": eid, "tier": "A", "kind": "structure", "typology": "gate", "part": "gate", "material": None,
+         "instances": 0, "districts": {}, "district": "core", "mood": [], "flags": [], "best": None, "share": 0.0,
+         "description_auto": "A gate.", "description": None, "size_m": [10, 4, 8], "route_auto": "procedural",
+         "slot_ids": []}
+    write_json(sw_site.site_dir(store) / "library.json", {"min_share": 0.005, "sources": {}, "mood": {}, "candidates": [],
+                                                          "checked": True, "entries": [], "unseen": [e], "surfaces": {}})
+    if route:
+        sw_library.set_route(store, eid, route)
+
+
+def _trellis_run(store, asset="gate", stem="sheet_006_v2_1024_cascade_s42"):
+    out = kit_proc.out_dir(store, asset)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{stem}.glb").write_bytes(b"trellis-glb" * 100)
+    write_json(out / f"{stem}.json", {"seed": 42, "glb_faces": 934000, "peak_vram_gb": 9.23})
+    (out / f"{stem}_input.png").write_bytes(b"png")
+    filestore.intern(store, out / f"{stem}.glb")
+    return versions.record_trellis(store, "library", asset, {"glb": f"3d/library/{asset}/{stem}.glb",
+                                                             "input": f"3d/library/{asset}/{stem}_input.png",
+                                                             "seed": 42, "mode": "1024_cascade"})
+
+
+def test_using_a_trellis_version_beats_the_brief_and_switches_the_route(store, monkeypatch):
+    """The bug: with a brief on disk, the procedural version stayed current whatever was restored."""
+    from asset_pipeline.stages import s6_cleanup, sw_library
+    _library_entry(store)                                  # route procedural (auto)
+    _build(store)                                          # v1 procedural, in use
+    versions.pin(store, "gate", 1)                         # keeps its GLB
+    t = _trellis_run(store)                                # v2 TRELLIS: not the route, so not in use
+    assert versions.current(store, "gate") == 1
+    r = versions.restore(store, "gate", t["n"])
+    assert r["current"] == t["n"] == versions.current(store, "gate")
+    assert r["route"] == {"from": "procedural", "to": "trellis"}
+    assert sw_library.decisions(store)["gate"]["route"] == "trellis"
+    assert r["glb"] == "3d/library/gate/sheet_006_v2_1024_cascade_s42.glb"
+    assert versions.listing(store, "gate")["current"] == t["n"]          # what the strip reads
+    # export: cleanup takes the version in use, not the newest file
+    seen = {}
+
+    def fake_blender(script, args, log, what, exe=None, blend=None):
+        if "--in" not in args:                         # review renders of a rebuild: not this check
+            return
+        seen["in"] = args[args.index("--in") + 1]
+        rep = args[args.index("--report") + 1]
+        write_json(rep, {"output_faces": 1, "warnings": []})
+    monkeypatch.setattr(s6_cleanup.blender, "run", fake_blender)
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda *a: __import__("types").SimpleNamespace(
+        dimensions=__import__("types").SimpleNamespace(width=10, depth=4, height=8), usage="cine", category="structure"))
+    s6_cleanup.run(store, "library", "gate")
+    assert str(seen["in"]).endswith("sheet_006_v2_1024_cascade_s42.glb")
+    # and back: using the procedural version switches the route back
+    r = versions.restore(store, "gate", 1)
+    assert r["current"] == 1 and r["route"] == {"from": "trellis", "to": "procedural"}
+    assert versions.current_glb(store, "gate").name == "procedural.glb"
+
+
+def test_a_new_build_is_used_only_on_its_route_and_a_failed_switch_raises(store):
+    _library_entry(store, route="trellis")
+    _build(store)                                          # v1 procedural on a TRELLIS-route entry
+    t = _trellis_run(store)                                # v2 TRELLIS: matches the route, in use
+    assert versions.current(store, "gate") == t["n"]
+    _build(store, guidance="again")                         # v3 procedural: not the route
+    assert versions.current(store, "gate") == t["n"]
+    (store.root / t["files"][0]).unlink()                  # its model gone: can't be used
+    with pytest.raises(FileNotFoundError):
+        versions.restore(store, "gate", t["n"])
+
+
+def test_cards_are_the_versions_with_a_model_in_use_first(store):
+    _library_entry(store, route="trellis")
+    _build(store)                                          # v1 procedural: the build on disk is its model
+    t1 = _trellis_run(store, stem="a_1024_cascade_s1")     # v2
+    t2 = _trellis_run(store, stem="b_1024_cascade_s2")     # v3, in use
+    out = kit_proc.out_dir(store, "gate")                  # an orphan TRELLIS output: becomes a version
+    (out / "old_1024_cascade_s7.glb").write_bytes(b"old")
+    write_json(out / "old_1024_cascade_s7.json", {"seed": 7})
+    os.utime(out / "old_1024_cascade_s7.json", (1000, 1000))
+    (out / "stray.glb").write_bytes(b"stray")              # a GLB no version can take: listed as loose
+    versions.restore(store, "gate", t1["n"])
+    c = versions.cards(store, "gate")
+    assert [x["n"] for x in c][0] == t1["n"] and c[0]["current"] and not any(x["current"] for x in c[1:])
+    assert {x["n"] for x in c} == {1, t1["n"], t2["n"], 4}             # v4 adopted
+    assert versions.current(store, "gate") == t1["n"]                    # adopting didn't switch
+    assert c[0]["faces"] == 934000 and c[0]["file_bytes"] == 1100 and c[0]["peak_vram_gb"] == 9.23
+    assert [r["file"] for r in versions.loose_files(store)] == ["3d/library/gate/stray.glb"]
+    assert versions.remove_loose(store)["removed"] == 1 and not (out / "stray.glb").exists()
+    versions.delete(store, "gate", t2["n"])
+    assert t2["n"] not in {x["n"] for x in versions.cards(store, "gate")}
+
+
+def test_review_api_serves_version_cards_and_the_version_in_use(store):
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.stages import sw_library
+    from asset_pipeline.ui import app as ui_app
+    _library_entry(store, route="trellis")
+    sw_library.decide(store, "gate", "description")
+    sw_library.asset_plan(store)
+    _build(store)
+    t = _trellis_run(store)
+    client = TestClient(ui_app.create_app(JobQueue()))
+    a = next(x for x in client.get("/api/projects/demo/review").json()["assets"] if x["asset"]["id"] == "gate")
+    assert a["current"]["n"] == t["n"] and a["current"]["kind"] == "trellis"
+    assert a["results"][0]["n"] == t["n"] and a["results"][0]["current"]
+
+
+def test_switching_back_to_the_procedural_build_on_disk_needs_no_rebuild(store, monkeypatch):
+    _library_entry(store)
+    _build(store)                                          # v1, its build stays on disk (not pinned)
+    t = _trellis_run(store)
+    versions.restore(store, "gate", t["n"])
+    assert {c["n"] for c in versions.cards(store, "gate")} == {1, t["n"]}   # v1 keeps its card
+    monkeypatch.setattr(lr, "rebuild", lambda *a, **k: pytest.fail("rebuilt"))
+    r = versions.restore(store, "gate", 1)
+    assert not r["rebuilt"] and r["current"] == 1 and r["glb"] == "3d/library/gate/procedural.glb"

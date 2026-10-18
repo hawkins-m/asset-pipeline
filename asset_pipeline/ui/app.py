@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from .. import config, library_entries, review, silhouette, ue, vlm
+from .. import config, library_entries, review, silhouette, ue, versions, vlm
 from ..comfy import service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
@@ -778,6 +778,14 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
 
     # --- stages 3-4: views, review, 3D -------------------------------------------------
 
+    def _current_brief(store, asset):
+        """The version in use, for the asset row header: number, kind, thumbnail."""
+        n = versions.current(store, asset)
+        if n is None:
+            return None
+        r = versions.get(store, asset, n)
+        return {"n": n, "kind": r["kind"], "thumb": r.get("thumb")}
+
     @app.get("/api/projects/{slug}/review")
     def review_state(slug: str):
         from .. import library_review
@@ -794,7 +802,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     "id", "name", "category", "count", "dimensions", "kit", "usage"}),
                     "views": s3_views.views(store, name, a.id),
                     "chosen": review.chosen(store, name, a.id),
-                    "results": s5_3d.results(store, name, a.id),
+                    # library assets: one card per version with a 3D model, the one in use first
+                    "results": versions.cards(store, a.id) if name == sw_library.PLAN_NAME else s5_3d.results(store, name, a.id),
+                    "current": _current_brief(store, a.id) if name == sw_library.PLAN_NAME else None,
                     "cleanups": s6_cleanup.results(store, name, a.id),
                     # library props (TRELLIS route): the same review status as Library › Asset review
                     "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None})

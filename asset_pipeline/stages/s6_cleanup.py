@@ -43,12 +43,19 @@ def _asset(store: ProjectStore, plan: str, asset_id: str):
 
 def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
         fit: str = "height", budget: int | None = None, texture_size: int = 2048) -> dict:
-    """Clean the asset's newest 3D result (or `glb`, project-relative). Returns the report."""
+    """Clean the asset's 3D model: for a library asset the version in use (versions.current_glb),
+    else the newest 3D result; or `glb`, project-relative. Returns the report."""
     if fit not in ("height", "geomean"):
         raise ValueError("fit must be height or geomean")
     a = _asset(store, plan, asset_id)
+    cur = None
+    if not glb and plan == "library":
+        from .. import versions
+        cur = versions.current_glb(store, asset_id, plan)
     if glb:
         src = store.root / glb
+    elif cur is not None:
+        src = cur
     else:
         results = s5_3d.results(store, plan, asset_id)
         if not results:

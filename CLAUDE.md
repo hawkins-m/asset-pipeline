@@ -908,3 +908,16 @@ Until the deadline, all work follows these rules:
 - Deleted sheet numbers go into meta.json `deleted` and are never reused (a brief or version
   naming the old file must not come to mean a new sheet).
 - Migration 2026-10-18 on a city project: 971 files -> 917 objects, 272.8 MB freed (duplicates and review-round copies).
+
+## Version in use (2026-10-18)
+- **Restoring a TRELLIS version never made it current** when the asset had a brief: `current()`
+  always preferred a procedural version, and restore only touched the result's mtime. The job
+  reported success, so nothing looked wrong. Now `versions/current.json` holds the version the
+  pipeline uses: set by "Use this version" (which also switches the entry's route to its kind and
+  raises if the switch didn't take) and by a new build whose kind matches the entry's route.
+  Without a pointer the old rule applies.
+- `versions.current_glb` is what cleanup (and so export) takes; `versions.cards` is Views and
+  3D's model cards (one per version with a model, the one in use first). A procedural version owns
+  the build on disk when procedural.json's brief_sha matches its own: switching back to it needs no rebuild.
+- TRELLIS outputs no version lists are adopted as versions (never made current); other loose
+  GLBs are listed under Tools › Storage….

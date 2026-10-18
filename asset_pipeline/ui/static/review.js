@@ -28,6 +28,7 @@ function assetReview(a) {
   const el = document.createElement("div"); el.className = "asset-review";
   const x = a.asset, d = x.dimensions;
   el.innerHTML = `<div class="head">
+      ${a.current ? `<span class="cur-version" title="The version used by the pipeline (cleanup, export)">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}
       <span class="title">${a.plan === "library" ? assetLabelHtml(x.id) : esc(x.name)}</span>
       ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, route, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
@@ -100,7 +101,7 @@ function assetReview(a) {
     catch (err) { alert(errorText(err)); }
   };
 
-  if (a.plan === "library" && a.results.length) {      // library props on the TRELLIS route: every run is a version
+  if (a.plan === "library" && (a.results.length || a.current)) {      // library assets: every build is a version
     const vs = document.createElement("fieldset"); vs.className = "version-strip"; el.append(vs);
     versionStrip(vs, x.id, () => load());
   }
@@ -108,11 +109,14 @@ function assetReview(a) {
     const r = document.createElement("div"); r.className = "results";
     for (const res of a.results) {
       const c = document.createElement("div"); c.className = "result";
+      if (res.current) c.classList.add("current");
+      c.dataset.n = res.n ?? "";
       c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate shadow-intensity="0.6"
           alt="3D model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
-        <span>${esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}</span>
-        <span class="hint">${res.faces ? `${(res.faces / 1000).toFixed(0)}k faces` : ""}${res.raw_ratio ? ` · raw F/V ${res.raw_ratio}` : ""}${res.peak_vram_gb ? ` · ${res.peak_vram_gb} GB` : ""}</span>
-        <span><a href="${fileUrl(res.glb)}" download>GLB</a> · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a></span>`;
+        <span>${res.n != null ? `<b>v${res.n}</b> ${esc(res.kind === "trellis" ? "TRELLIS" : res.kind)}` : esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}
+          ${res.current ? `<span class="mark ver-used">Used by the pipeline</span>` : ""}</span>
+        <span class="hint">${esc(modelStats(res))}</span>
+        <span><a href="${fileUrl(res.glb)}" download>GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a>` : ""}</span>`;
       r.append(c);
     }
     el.append(r);

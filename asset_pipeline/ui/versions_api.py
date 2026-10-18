@@ -9,6 +9,7 @@
     GET     /api/projects/{slug}/storage                                 totals per asset and project
     POST    /api/projects/{slug}/storage/prune {asset?, dry_run}         delete unpinned versions
     POST    /api/projects/{slug}/storage/clean {dry_run}                 shared-store files nothing references
+    POST    /api/projects/{slug}/storage/loose                           remove builds that are no version
     GET/PUT /api/projects/{slug}/settings                                {versions_keep}
 TRELLIS-route props use the same routes: their versions are the TRELLIS results.
 """
@@ -84,7 +85,13 @@ def register(app: FastAPI, jobs, store_of) -> None:
     @app.get("/api/projects/{slug}/storage")
     def storage(slug: str):
         store = store_of(slug)
-        return versions.storage(store) | {"files": filestore.stats(store)}
+        loose = versions.loose_files(store)
+        return versions.storage(store) | {"files": filestore.stats(store), "loose": loose,
+                                          "loose_bytes": sum(r["bytes"] for r in loose)}
+
+    @app.post("/api/projects/{slug}/storage/loose")
+    def storage_loose(slug: str):
+        return versions.remove_loose(store_of(slug))
 
     @app.post("/api/projects/{slug}/storage/clean")
     def storage_clean(slug: str, req: StorageCleanReq):

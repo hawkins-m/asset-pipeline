@@ -1,13 +1,18 @@
 // Asset version bank (server side: asset_pipeline/versions.py, ui/versions_api.py).
 // - versionStrip(box, asset, onChange): the strip of an asset's builds (Library › Asset review
 //   detail view, and Views and 3D for library props). Per version: thumbnail, vN, date, source
-//   (sheet, view, guidance, seed), size, Restore / Pin / Delete, two ticked = Compare.
+//   (sheet, view, guidance, seed), size, Use this version / Pin / Delete, two ticked = Compare.
+//   The version in use (cleanup, export) is highlighted: "Used by the pipeline".
 // - Tools › Storage…: what the builds and versions take, per asset and per project, with
 //   "Delete unpinned versions" (never the Approved, pinned or current ones).
 // - Tools › Settings…: how many unpinned versions to keep per asset.
 // Loaded after tools.js (jobDone, confirmDialog).
-Object.assign(JOB_LABELS, {"library.restore": "restoring a version"});
-Object.assign(LOADERS, {"library.restore": ["Restoring the version…", "greybox", "steps"]});
+Object.assign(JOB_LABELS, {"library.restore": "switching the version in use"});
+Object.assign(LOADERS, {"library.restore": ["Switching the version in use…", "greybox", "steps"]});
+const fmtCount = n => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+// a 3D model's plain stats: "faces 934k · file 36.4 MB · peak GPU memory 9.2 GB"
+const modelStats = r => [r.faces ? `faces ${fmtCount(r.faces)}` : "", r.file_bytes ? `file ${fmtBytes(r.file_bytes)}` : "",
+  r.peak_vram_gb ? `peak GPU memory ${(+r.peak_vram_gb).toFixed(1)} GB` : ""].filter(Boolean).join(" · ");
 
 const fmtBytes = b => b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : b >= 1e3 ? `${Math.round(b / 1e3)} KB` : `${b || 0} B`;
 const verDate = s => (s || "").replace("T", " ").slice(0, 16);
@@ -48,13 +53,13 @@ async function versionStrip(boxOrSel, asset, onChange) {
       ${d.prunable.length ? `<div class="ver-prune row"><span>${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} can be removed (${fmtBytes(d.prunable_bytes)})</span>
         <button type="button" class="small ver-prune-btn">Remove</button></div>` : ""}
       <div class="ver-list">${d.versions.map(v => `<div class="ver${v.current ? " cur" : ""}" data-n="${v.n}">
-        <label class="check ver-pick"><input type="checkbox" class="ver-sel" ${sel.has(v.n) ? "checked" : ""} aria-label="Select v${v.n} to compare"></label>
+        <label class="check ver-pick" title="Tick two versions to compare them"><input type="checkbox" class="ver-sel" ${sel.has(v.n) ? "checked" : ""} aria-label="Compare v${v.n}"> Compare</label>
         ${v.thumb ? `<img loading="lazy" alt="Thumbnail of v${v.n}" src="${fileUrl(v.thumb)}">` : `<div class="ver-nothumb">no render</div>`}
         <div class="ver-meta"><b>v${v.n}</b> <span class="hint" style="margin:0">${esc(v.kind)} · ${esc(verDate(v.created))}</span>
-          ${v.current ? `<span class="mark m-rdy">current</span>` : ""}${v.approved ? `<span class="mark m-ok">approved</span>` : ""}${v.pinned ? `<span class="mark m-new">pinned</span>` : ""}
+          ${v.current ? `<span class="mark ver-used" title="Cleanup and export take this version's 3D model">Used by the pipeline</span>` : ""}${v.approved ? `<span class="mark m-ok">approved</span>` : ""}${v.pinned ? `<span class="mark m-new">pinned</span>` : ""}
           <div class="hint ver-src" style="margin:0">${esc(verSource(v)) || "&nbsp;"}</div>
           <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div></div>
-        <div class="ver-btns"><button type="button" class="small ver-restore"${v.current ? " disabled title=\"This is the current build\"" : ""}>Restore</button>
+        <div class="ver-btns"><button type="button" class="small ver-restore"${v.current ? " disabled title=\"The pipeline already uses this version\"" : ""}>Use this version</button>
           <button type="button" class="small ver-pin">${v.pinned ? "Unpin" : "Pin"}</button>
           <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted\"" : ""}>Delete</button></div></div>`).join("")}</div>
       <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"}>Compare</button>
@@ -69,9 +74,10 @@ async function versionStrip(boxOrSel, asset, onChange) {
       $(".ver-pin", row).onclick = async () => {
         try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/${v.pinned ? "unpin" : "pin"}`, {}); }
         catch (err) { alert(errorText(err)); }
-        versionStrip(box, asset, onChange);
+        if (onChange) await onChange(); else versionStrip(box, asset, onChange);
       };
-      $(".ver-delete", row).onclick = () => versionDelete(asset, v, () => versionStrip(box, asset, onChange));
+      // the page's model cards come from the versions: refresh the whole view, not just the strip
+      $(".ver-delete", row).onclick = () => versionDelete(asset, v, async () => { if (onChange) await onChange(); else versionStrip(box, asset, onChange); });
     });
     const cmp = $(".ver-compare", box);
     if (cmp) cmp.onclick = () => versionCompare(asset, ...[...sel].sort((a, b) => a - b));
@@ -91,14 +97,25 @@ async function versionStrip(boxOrSel, asset, onChange) {
 }
 
 async function versionRestore(asset, v, onChange) {
-  const body = v.kind === "trellis"
-    ? `<p>Make v${v.n} (${esc(verSource(v))}) the 3D model of <b>${esc(assetName(asset))}</b> that cleanup and export use. Nothing is deleted.</p>`
-    : `<p>Put the brief of v${v.n} back for <b>${esc(assetName(asset))}</b>${v.has_glb ? " and its saved 3D model as the build." : " and rebuild it (a new version)."}
-       Unsaved edits to the brief are lost.</p>`;
-  if (!await confirmDialog({title: `Restore v${v.n}`, button: "Restore", id: "version-restore-dialog", body})) return;
-  try { const job = await api(`/api/projects/${slug}/library/asset/${asset}/versions/${v.n}/restore`, {}); await versionJob(job); }
+  const route = v.kind === "trellis" ? "TRELLIS" : "procedural";
+  const body = (v.kind === "trellis"
+    ? `<p>Use v${v.n} (${esc(verSource(v))}) as the 3D model of <b>${esc(assetName(asset))}</b> that cleanup and export take. Nothing is deleted.</p>`
+    : `<p>Use v${v.n} for <b>${esc(assetName(asset))}</b>: its brief goes back${v.has_glb ? " with its saved 3D model as the build." : " and the asset is rebuilt (a new version)."}
+       Unsaved edits to the brief are lost.</p>`)
+    + `<p class="hint">The entry's 3D route switches to ${route} if it isn't already.</p>`;
+  if (!await confirmDialog({title: `Use v${v.n}`, button: "Use this version", id: "version-restore-dialog", body})) return;
+  let j = null;
+  try { const job = await api(`/api/projects/${slug}/library/asset/${asset}/versions/${v.n}/restore`, {}); j = await versionJob(job); }
   catch (err) { alert(errorText(err)); }
   if (onChange) await onChange();
+  const r = j && j.status === "done" && j.result;
+  if (r) {
+    const done = document.createElement("div"); done.id = "version-used-body";
+    done.innerHTML = `<p><b>v${r.current}</b> of <b>${esc(assetName(asset))}</b> is now used by the pipeline${r.rebuilt ? ` (rebuilt from v${r.from})` : ""}.</p>
+      ${r.route ? `<p>3D route switched from ${esc(r.route.from || "auto")} to ${esc(r.route.to === "trellis" ? "TRELLIS" : r.route.to)}.</p>` : ""}
+      ${r.glb ? `<p class="hint">Cleanup and export take <code>${esc(r.glb)}</code>.</p>` : ""}`;
+    dialog({title: "Version in use", body: done, buttons: [{label: "OK", default: true}]}).win.id = "version-used-dialog";
+  }
 }
 
 async function versionDelete(asset, v, after) {
@@ -149,6 +166,10 @@ async function storageDialog() {
           <b id="st-saved">${fmtBytes(f.saved || 0)} saved</b> by sharing (copies would take ${fmtBytes(f.referenced_bytes || 0)}).</p>
         <div class="row"><button type="button" id="st-clean"${f.unreferenced ? "" : " disabled"}>Clean unreferenced files (${f.unreferenced || 0}, ${fmtBytes(f.unreferenced_bytes || 0)})</button>
           <span class="hint" style="margin:0">Stored files no sheet, view, build or version refers to any more.</span></div></fieldset>
+      <fieldset id="st-loose"><legend>Builds that aren't versions</legend>
+        ${(s.loose || []).length ? `<ul style="margin:0 0 4px">${s.loose.map(r => `<li>${assetLabelHtml(r.asset)}: <code>${esc(verBase(r.file))}</code> (${fmtBytes(r.bytes)})</li>`).join("")}</ul>
+          <button type="button" id="st-loose-rm">Remove these files (${s.loose.length}, ${fmtBytes(s.loose_bytes)})</button>`
+          : `<p class="hint" style="margin:0">None: every 3D model on disk belongs to a version (older TRELLIS results are taken into versions).</p>`}</fieldset>
       ${s.assets.length ? `<table class="grid-table"><thead><tr><th>Asset</th><th>Versions</th><th>Versions size</th><th>Build files</th><th>Total</th><th></th></tr></thead><tbody>
         ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}</td><td>${r.versions}${r.pinned ? ` (${r.pinned} pinned)` : ""}</td>
           <td>${fmtBytes(r.versions_bytes)}</td><td>${fmtBytes(r.current_bytes)}</td><td>${fmtBytes(r.total)}</td>
@@ -170,6 +191,14 @@ async function storageDialog() {
       $(".st-prune-asset", tr).onclick = () => prune(r.asset, r.removable, r.removable_bytes);
     });
     $("#st-prune-all", body).onclick = () => prune(null, s.removable, s.removable_bytes);
+    const lrm = $("#st-loose-rm", body);
+    if (lrm) lrm.onclick = async () => {
+      const ok = await confirmDialog({title: "Remove builds that aren't versions", button: "Remove", danger: true, id: "storage-loose-dialog",
+        body: `<p>Remove ${s.loose.length} 3D model file${s.loose.length === 1 ? "" : "s"} no version lists, freeing up to ${fmtBytes(s.loose_bytes)}?</p>`});
+      if (!ok) return;
+      try { await api(`/api/projects/${slug}/storage/loose`, {}); } catch (err) { alert(errorText(err)); }
+      draw();
+    };
     $("#st-clean", body).onclick = async () => {
       const ok = await confirmDialog({title: "Clean unreferenced files", button: "Clean", danger: true, id: "storage-clean-dialog",
         body: `<p>Remove ${f.unreferenced} stored file${f.unreferenced === 1 ? "" : "s"} nothing references, freeing ${fmtBytes(f.unreferenced_bytes)}?</p>
