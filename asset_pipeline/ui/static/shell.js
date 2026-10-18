@@ -363,7 +363,7 @@ function aboutDialog() {
 
 // --- side panel, status line, status bar ---------------------------------------------------
 const jobLabel = j => (JOB_LABELS[j.kind] || j.kind).replace(/^./, c => c.toUpperCase()) +
-  (j.tag.shot ? ` · ${j.tag.shot}` : j.tag.unit ? ` · ${j.tag.unit}` : j.tag.asset ? ` · ${j.tag.asset}` : "");
+  (j.tag.shot ? ` · ${j.tag.shot}` : j.tag.unit ? ` · ${assetName(j.tag.unit)}` : j.tag.asset ? ` · ${assetName(j.tag.asset)}` : "");
 
 function renderLanes() {
   const el = $("#lanes"); el.replaceChildren();

@@ -14,6 +14,12 @@ An entry's files, by asset id (the entry itself, plus `<entry>-<piece>` for a ki
 plus the stars and chosen view in review.json. Duplicate copies all of it; rename moves it.
 Build review statuses (site/library_review.json "_reviews") are copied by neither: a duplicate
 starts unreviewed, a rename carries the old id's review over.
+
+A duplicate owns no greybox slots (slot_ids, instances and district counts empty): the source
+keeps every slot it had. A rename also carries the id over in variant sets and the area
+checklists (areas/*.md); what it can't change (Unreal assets and actor labels made under the old
+id) comes back as `not_updated`. Labels everywhere come from the entry's current name
+(sw_library.asset_names); plans/library.json is refreshed on every name change.
 """
 import copy
 import re
@@ -241,7 +247,7 @@ def duplicate(store: ProjectStore, src: str, dst: str, name: str | None = None, 
     e = copy.deepcopy(ents[src])
     for k in ("sources", "scores", "kept"):
         e.pop(k, None)
-    e.update(id=dst, custom=True, slot_ids=[], instances=1, district=e.get("district") or "custom",
+    e.update(id=dst, custom=True, slot_ids=[], instances=0, districts={}, district=e.get("district") or "custom",
              name=(name or "").strip() or f"{view(store, src)['name']} copy", duplicate_of=src)
     cust = sw_library.custom(store)
     cust[dst] = e
@@ -254,6 +260,61 @@ def duplicate(store: ProjectStore, src: str, dst: str, name: str | None = None, 
     if sd.get("decision"):
         sync_plan(store, [dst])
     return view(store, dst)
+
+
+def _rename_refs(store: ProjectStore, src: str, dst: str) -> list[str]:
+    """The old id elsewhere in the project: variant sets (as base or member) and the area
+    checklists' text. Area definitions (site/areas.json) name shots and districts, never
+    entries: membership follows the entry's slots, so they need nothing. Returns what changed,
+    project-relative."""
+    from . import variants
+    changed = []
+    sets = variants.sets(store)
+    if any(b == src or src in (v.get("members") or {}) for b, v in sets.items()):
+        new = {}
+        for b, v in sets.items():
+            v = dict(v, members={(dst if m == src else m): w for m, w in (v.get("members") or {}).items()})
+            new[dst if b == src else b] = v
+        variants._save(store, new)
+        changed.append(f"{sw_library.decisions_path(store).relative_to(store.root).as_posix()} (variant sets)")
+    rx = _id_re(src)
+    for md in sorted((store.root / "areas").glob("*.md")):
+        txt = md.read_text()
+        if rx.search(txt):
+            md.write_text(rx.sub(dst, txt))
+            changed.append(md.relative_to(store.root).as_posix())
+    return changed
+
+
+def unreal_refs(store: ProjectStore, eid: str) -> list[str]:
+    """What in the Unreal project still carries an entry's id (it can only change in the editor or
+    by re-running the step that made it): material preview, look test, look-scene builds and
+    their AP_Look_ actors, and actor labels in the last pulled layout."""
+    from . import ue
+    from .stages import s7_export
+    out = []
+    content = ue.project_dir(store) / "Content" / "AP"
+    if (content / "Preview" / eid).is_dir():
+        out.append(f"Unreal: material preview /Game/AP/Preview/{eid}/ (its MIs) and actor AP_Preview_{eid}: "
+                   f"run the material preview again for the new id, then delete the old folder in the editor")
+    if (content / "LookTest" / eid).is_dir() or (content / "Maps" / f"LookTest_{s7_export.pascal(eid)}.umap").is_file():
+        out.append(f"Unreal: look test level LookTest_{s7_export.pascal(eid)}, /Game/AP/LookTest/{eid}/ and actor "
+                   f"AP_Look_{eid}: run the look test again for the new id, then delete the old level and folder")
+    key = eid.replace("-", "m") + "_"              # look.py's placement keys: <entry>_<slot>, '-' -> 'm'
+    for builds in sorted(content.glob("LookTest/*/builds")):
+        hits = sorted(f.stem for f in builds.glob(f"SM_{key}*.uasset"))
+        if hits:
+            scene = builds.parent.name
+            out.append(f"Unreal: look scene {scene}: {len(hits)} build mesh(es) {', '.join(hits[:3])}"
+                       f"{' …' if len(hits) > 3 else ''} and their AP_Look_{key}… actors: re-run "
+                       f"ap ue look {store.root.name} {scene}")
+    rx = re.compile(r"(?<![A-Za-z0-9-])" + re.escape(eid) + r"(?![A-Za-z0-9-])")   # labels join parts with _
+    pulled = read_json(sw_library.sw_site.site_dir(store) / "ue_layout.json", default=None) or {}
+    labels = [a["label"] for a in pulled.get("actors") or [] if rx.search(a.get("label") or "")]
+    if labels:
+        out.append(f"Unreal: actor label(s) {', '.join(labels[:5])}{' …' if len(labels) > 5 else ''} "
+                   f"(from the last pulled layout): rename them in the editor")
+    return out
 
 
 def rename(store: ProjectStore, src: str, dst: str | None = None, name: str | None = None,
@@ -283,11 +344,15 @@ def rename(store: ProjectStore, src: str, dst: str | None = None, name: str | No
             rv[dst + a[len(src):]] = rv.pop(a)
         write_json(sw_library.decisions_path(store), d)
         sw_library.save_custom(store, cust)
+        updated = _rename_refs(store, src, dst)
+        not_updated = unreal_refs(store, src)
         src = dst
         sync_plan(store, [dst] if (d.get(dst) or {}).get("decision") else [])
+    else:
+        updated, not_updated = [], []
     if name is not None and name.strip():
         set_name(store, src, name)
-    return view(store, src)
+    return view(store, src) | {"updated": updated, "not_updated": not_updated}
 
 
 def set_name(store: ProjectStore, eid: str, name: str) -> dict:
@@ -300,6 +365,7 @@ def set_name(store: ProjectStore, eid: str, name: str) -> dict:
     if eid in cust:
         cust[eid]["name"] = d[eid]["name"]
         sw_library.save_custom(store, cust)
+    sw_library.refresh_plan_names(store)
     return view(store, eid)
 
 

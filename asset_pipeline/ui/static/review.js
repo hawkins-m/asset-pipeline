@@ -28,7 +28,8 @@ function assetReview(a) {
   const el = document.createElement("div"); el.className = "asset-review";
   const x = a.asset, d = x.dimensions;
   el.innerHTML = `<div class="head">
-      <span class="title">${esc(x.name)}</span>
+      <span class="title">${a.plan === "library" ? assetLabelHtml(x.id) : esc(x.name)}</span>
+      ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, route, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
@@ -40,6 +41,8 @@ function assetReview(a) {
           <button type="button" class="secondary approve" ${a.results.length ? "" : "disabled title=\"Make 3D first\""}>Approve</button>
           <button type="button" class="secondary changes">Needs changes</button>` : ""}</span>
     </div>`;
+  const me = $(".manage-entry", el);
+  if (me) me.onclick = () => manageEntry(assetEntry(x.id));
   for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {
     const b = $(cls, el);
     if (b) b.onclick = async () => {
@@ -106,7 +109,7 @@ function assetReview(a) {
     for (const res of a.results) {
       const c = document.createElement("div"); c.className = "result";
       c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate shadow-intensity="0.6"
-          alt="3D model of ${esc(x.name)}" loading="lazy"></model-viewer>
+          alt="3D model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>${esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}</span>
         <span class="hint">${res.faces ? `${(res.faces / 1000).toFixed(0)}k faces` : ""}${res.raw_ratio ? ` · raw F/V ${res.raw_ratio}` : ""}${res.peak_vram_gb ? ` · ${res.peak_vram_gb} GB` : ""}</span>
         <span><a href="${fileUrl(res.glb)}" download>GLB</a> · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a></span>`;
@@ -120,7 +123,7 @@ function assetReview(a) {
       const d = c.output_dims_m.map(v => v.toFixed(2)).join(" × ");
       const box = document.createElement("div"); box.className = "result";
       box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls shadow-intensity="0.6"
-          alt="Cleaned model of ${esc(x.name)}" loading="lazy"></model-viewer>
+          alt="Cleaned model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>Cleaned (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
         ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}

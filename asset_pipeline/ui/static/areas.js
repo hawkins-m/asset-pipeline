@@ -65,7 +65,7 @@ async function areasDialog() {
     box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr><th>Asset</th><th>Tier</th><th>Route</th><th>Share</th>
       <th>Sheets</th><th>Brief</th><th>Build</th><th>Review</th><th>Next</th></tr></thead><tbody>${areaState.rows.map((r, i) => {
         const st = areaStep(r);
-        return `<tr data-asset="${esc(r.asset)}"><td>${esc(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(r.variant_of)}</span>` : ""}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
+        return `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(assetName(r.variant_of))}</span>` : ""}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
           <td>${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td>${r.brief ? "yes" : (r.missing || []).length
             ? `<span class="error" title="Brief & build needs a building form and a size: set them in Manage entry… (or in the Brief & build dialog)">no ${esc(r.missing.join(", no "))}</span>` : "–"}</td><td>${areaBuildText(r)}</td>
           <td>${esc(r.status || "not reviewed")}</td><td><button type="button" class="small area-step" data-i="${i}" data-step="${st.kind}"
@@ -116,7 +116,7 @@ function areaGaps(d, table) {
   if (!gaps.length) { box.replaceChildren(); return; }
   box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>
     <p class="hint" style="margin-top:0">These can't be briefed yet. The first button is the suggested fix.</p>
-    ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em">${esc(g.asset)}</b>
+    ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em" title="${esc(g.asset)}">${esc(assetName(g.asset))}</b>
       <span class="error" style="min-width:6em">no ${esc(g.missing.join(", no "))}</span>
       ${g.fixes.map((f, k) => `<button type="button" class="small${k === 0 ? " default" : ""} area-fix" data-g="${i}" data-f="${k}"
         title="${esc(f.why || "")}">${esc(f.label)}</button>`).join(" ")}

@@ -725,7 +725,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             for name, pc in d["pieces"].items():
                 w, dp, h = pc["size"]
                 assets.append(PlanAsset(
-                    id=f"{eid}-{name}", name=f"{eid.replace('-', ' ')} {name}", noun=pc.get("noun") or "building",
+                    id=f"{eid}-{name}", name=f"{entry_name(e, d)} {name}", noun=pc.get("noun") or "building",
                     category="structure", description=pc["description"], count=1,
                     dimensions=Dimensions(width=w, depth=dp, height=h), placement=f"kit module of {eid}",
                     include=inc, refs=[d["frame"]] if d.get("frame") else [],
@@ -737,7 +737,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             raise ValueError(f"{eid}: marked good source but no current frame shows it")
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
-            id=eid, name=d.get("name") or e.get("name") or eid.replace("-", " "), noun=e["part"].replace("_", " "),
+            id=eid, name=entry_name(e, d), noun=e["part"].replace("_", " "),
             category=CATEGORY.get(e["kind"], "structure"),
             description=d.get("description") or e.get("description") or e["description_auto"],
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),
@@ -747,6 +747,41 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
                      assets=assets, llm="")
     return s1_plan.save(store, PLAN_NAME, plan)
+
+
+def entry_name(e: dict, d: dict | None) -> str:
+    """An entry's current display name: the user's (decisions), else the entry's, else its id."""
+    return (d or {}).get("name") or e.get("name") or e["id"].replace("-", " ")
+
+
+def asset_names(store: ProjectStore) -> dict[str, str]:
+    """{asset id: display name} from each entry's current name: the entry itself, and its kit
+    modules as "<entry name> <piece>". Every UI label of a library asset comes from here."""
+    data = load(store) or {}
+    dec = decisions(store)
+    out = {}
+    for e in data.get("entries", []) + data.get("unseen", []):
+        d = dec.get(e["id"]) or {}
+        out[e["id"]] = n = entry_name(e, d)
+        for piece in d.get("pieces") or {}:
+            out[f"{e['id']}-{piece}"] = f"{n} {piece}"
+    return out
+
+
+def refresh_plan_names(store: ProjectStore) -> int:
+    """Write the entries' current names into plans/library.json (Reference sheets, Views and 3D
+    read them there) without re-planning. Returns how many changed."""
+    from . import s1_plan
+    plan = s1_plan.load(store, PLAN_NAME)
+    if plan is None:
+        return 0
+    names, n = asset_names(store), 0
+    for a in plan.assets:
+        if names.get(a.id) and a.name != names[a.id]:
+            a.name, n = names[a.id], n + 1
+    if n:
+        s1_plan.save(store, PLAN_NAME, plan)
+    return n
 
 
 def _description(e: dict, catalog: dict, mats: dict) -> str:

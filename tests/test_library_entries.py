@@ -317,3 +317,184 @@ def test_colonnade_preset_fits_the_size_and_a_rebrief_keeps_only_your_edits(proj
     f2 = writes[-1]["features"]
     assert f2["bays"] == 9 and f2["range"]["h"] == 9.0             # untouched preset values follow the new size
     assert f2["range"]["parapet"] == 1.4                            # the edit stays
+
+
+# --- duplicates own no slots, are independent; names follow the entry; rename reaches the rest --
+
+def test_a_duplicate_owns_no_slots_and_the_source_keeps_them(proj):
+    data = read_json(sw_library.library_path(proj))
+    data["unseen"][0] |= {"slot_ids": ["s1", "s2", "s3"], "instances": 3, "districts": {"core": 3}}
+    write_json(sw_library.library_path(proj), data)
+    sw_library.decide(proj, "canopy-table", "description")
+    le.duplicate(proj, "canopy-table", "stone-counter")
+    ents = {e["id"]: e for e in sw_library.load(proj)["unseen"]}
+    assert ents["stone-counter"]["slot_ids"] == [] and ents["stone-counter"]["instances"] == 0
+    assert ents["stone-counter"]["districts"] == {}
+    assert ents["canopy-table"]["slot_ids"] == ["s1", "s2", "s3"] and ents["canopy-table"]["instances"] == 3
+    # renaming the duplicate doesn't take any either
+    le.rename(proj, "stone-counter", "stone-bench")
+    ents = {e["id"]: e for e in sw_library.load(proj)["unseen"]}
+    assert ents["stone-bench"]["slot_ids"] == [] and ents["canopy-table"]["slot_ids"] == ["s1", "s2", "s3"]
+
+
+def test_names_come_from_the_entry_everywhere(proj):
+    sw_library.decide(proj, "canopy-table", "description")
+    le.duplicate(proj, "canopy-table", "portico")
+    plan_name = lambda a: next(x.name for x in s1_plan.load(proj, "library").assets if x.id == a)  # noqa: E731
+    assert plan_name("portico") == "canopy table copy"
+    le.rename(proj, "portico", name="Portico gate")            # name only: the plan follows (Views and 3D)
+    assert plan_name("portico") == "Portico gate"
+    assert sw_library.asset_names(proj)["portico"] == "Portico gate"
+    unit = next(u for u in s2_refs.units(proj, "library") if u.key == "portico")
+    assert unit.title == "Portico gate"
+    # kit modules carry the entry's current name
+    d = sw_library.decisions(proj)
+    d["hall-a"] = {"decision": "kit", "name": "Great hall", "pieces": {"bay": {"size": [4, 1, 6], "description": "a bay"}}}
+    write_json(sw_library.decisions_path(proj), d)
+    sw_library.asset_plan(proj)
+    assert sw_library.asset_names(proj)["hall-a-bay"] == "Great hall bay" == plan_name("hall-a-bay")
+    # and the UI gets the map with the library data
+    client = TestClient(ui_app.create_app(JobQueue()))
+    assert client.get("/api/projects/p/library").json()["names"]["portico"] == "Portico gate"
+
+
+def _png(path, boxes=((10, 20, 50, 80), (70, 20, 110, 80), (130, 20, 170, 80))):
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", (180, 100), "white")
+    dr = ImageDraw.Draw(im)
+    for b in boxes:
+        dr.rectangle(b, fill=(90, 60, 40))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    im.save(path)
+
+
+def _tree(store, eid):
+    """{project-relative path: bytes} of every file an entry owns."""
+    out = {}
+    for p in le.paths(store, eid).values():
+        files = [p] if p.is_file() else sorted(p.rglob("*")) if p.is_dir() else []
+        out |= {f.relative_to(store.root).as_posix(): f.read_bytes() for f in files if f.is_file()}
+    return out
+
+
+def test_a_duplicate_is_independent_of_its_source(proj, monkeypatch):
+    """Rerolling sheets, cutting views, Make 3D and deleting versions on the copy leave every
+    file of the source as it was (and the copy shares no file, link or path with it)."""
+    import os
+    import sys
+
+    import numpy as np
+    from PIL import Image
+
+    from asset_pipeline import segment, versions
+    from asset_pipeline.imagegen.base import GenResult
+    from asset_pipeline.stages import s3_views, s5_3d
+    _populate(proj)
+    r = proj.root
+    _png(r / "refs/library/canopy-table/sheet_000.png")
+    sw_library.decide(proj, "canopy-table", "description")
+    # a TRELLIS version of the source, so the copy's version index lists files
+    od = kit_proc.out_dir(proj, "canopy-table")
+    (od / "trellis_001_input.png").write_bytes(b"png")
+    versions.record_trellis(proj, "library", "canopy-table", {
+        "glb": "3d/library/canopy-table/trellis_001.glb", "input": "3d/library/canopy-table/trellis_001_input.png",
+        "view": "views/library/canopy-table/sheet_000_v1.png", "seed": 42, "mode": "1024_cascade"})
+    le.duplicate(proj, "canopy-table", "portico-gate", name="Portico gate")
+    before = _tree(proj, "canopy-table")
+    copy = _tree(proj, "portico-gate")
+    # nothing shared: no symlink or hard link, and no file of the copy names the source
+    for k in copy:
+        f = r / k
+        assert not f.is_symlink() and os.stat(f).st_nlink == 1, k
+        if f.suffix == ".json":
+            assert "canopy-table" not in f.read_text(), k
+    assert all(f.startswith("3d/library/portico-gate/") for v in versions.load(proj, "portico-gate")
+               for f in v["files"] if v["kind"] == "trellis")
+
+    # reroll: two new sheets for the copy only
+    class FakeBackend:
+        name = "fake"
+
+        def generate(self, req, d, prefix="tmp"):
+            for i in range(req.n):
+                p = d / f"{prefix}_{i}.png"
+                _png(p)
+                yield GenResult(path=p, seed=7, backend="fake", meta={})
+    monkeypatch.setattr(s2_refs, "backend_for", lambda *a, **k: FakeBackend())
+    unit = next(u for u in s2_refs.units(proj, "library") if u.key == "portico-gate")
+    new = s2_refs.generate(proj, unit, n=2)
+    assert all("refs/library/portico-gate/" in p.as_posix() for p in new)
+
+    # Cut views of the copy's sheet
+    def detect(client, path, noun, max_dets=6):
+        im = np.array(Image.open(path).convert("L")) < 200
+        out = []
+        for x0, x1 in ((10, 51), (70, 111), (130, 171)):
+            m = np.zeros_like(im)
+            m[20:81, x0:x1] = True
+            out.append(segment.Detection(mask=m, bbox=(x0, 20, x1, 81), area_frac=float(m.mean()), touches_border=False))
+        return out
+    monkeypatch.setattr(s3_views.segment, "detect", detect)
+    monkeypatch.setattr(s3_views, "connect", lambda: None)
+    views = s3_views.cut(proj, "refs/library/portico-gate/sheet_000.png")
+    assert len(views) == 3 and all(v["asset"] == "portico-gate" for v in views)
+
+    # Make 3D on the copy (a stand-in for scripts/trellis that writes what it writes)
+    fake = r / "fake_trellis.py"
+    fake.write_text("import json, sys, pathlib\n"
+                    "a = sys.argv; img = pathlib.Path(a[1]); out = pathlib.Path(a[a.index('--out-dir') + 1])\n"
+                    "stem = f\"{img.stem[:24]}_{a[a.index('--type') + 1]}_s{a[a.index('--seed') + 1]}\"\n"
+                    "(out / f'{stem}.glb').write_bytes(b'glb'); (out / f'{stem}_input.png').write_bytes(b'png')\n"
+                    "(out / f'{stem}.json').write_text(json.dumps({'seed': int(a[a.index('--seed') + 1]), 'glb_faces': 1}))\n")
+    fake.chmod(0o755)
+    wrapper = r / "trellis"
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {fake} \"$@\"\n")
+    wrapper.chmod(0o755)
+    monkeypatch.setattr(s5_3d, "TRELLIS", wrapper)
+    s5_3d.run(proj, "library", "portico-gate", view="views/library/portico-gate/sheet_000_v1.png", seed=5)
+    assert any(x["name"] == "sheet_000_v1_1024_cascade_s5" for x in s5_3d.results(proj, "library", "portico-gate"))
+
+    # delete every version of the copy
+    for v in versions.load(proj, "portico-gate"):
+        versions.delete(proj, "portico-gate", v["n"], confirm_pinned=True)
+    assert versions.load(proj, "portico-gate") == []
+
+    assert _tree(proj, "canopy-table") == before                  # the source, byte for byte
+    assert [v["n"] for v in versions.load(proj, "canopy-table")] == [1]
+    assert review.chosen(proj, "library", "canopy-table") == "views/library/canopy-table/sheet_000_v1.png"
+    assert not (r / "views/library/canopy-table/sheet_000_v2.png").exists()
+
+    # and the other way round: deleting the source's version leaves the copy's files alone
+    copy_now = _tree(proj, "portico-gate")
+    versions.delete(proj, "canopy-table", 1, confirm_pinned=True)
+    assert _tree(proj, "portico-gate") == copy_now
+
+
+def test_rename_carries_variant_sets_and_checklists_and_lists_what_unreal_keeps(proj, tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_UE_PROJECTS", str(tmp_path / "ue"))
+    sw_library.decide(proj, "canopy-table", "description")
+    le.duplicate(proj, "canopy-table", "stall-b")
+    d = sw_library.decisions(proj)
+    d["_variants"] = {"canopy-table": {"members": {"canopy-table": 1.0, "stall-b": 2.0}, "areas": [], "seed": 0}}
+    write_json(sw_library.decisions_path(proj), d)
+    (proj.root / "areas").mkdir()
+    (proj.root / "areas/market.md").write_text("| stall-b | D |\n\nGaps: stall-b needs a roof; stall-bb is another.\n")
+    content = tmp_path / "ue/p/Content/AP"
+    (content / "Preview/stall-b").mkdir(parents=True)
+    (content / "LookTest/med-market/builds").mkdir(parents=True)
+    (content / "LookTest/med-market/builds/SM_stallmb_m10_4.uasset").write_bytes(b"x")
+    (content / "LookTest/med-market/builds/SM_canopymtable_m1_2.uasset").write_bytes(b"x")
+    write_json(sw_site.site_dir(proj) / "ue_layout.json", {"actors": [{"label": "AP_Preview_stall-b"}, {"label": "AP_core_s1"}]})
+    e = le.rename(proj, "stall-b", "stall-oak")
+    assert sw_library.decisions(proj)["_variants"]["canopy-table"]["members"] == {"canopy-table": 1.0, "stall-oak": 2.0}
+    assert (proj.root / "areas/market.md").read_text() == "| stall-oak | D |\n\nGaps: stall-oak needs a roof; stall-bb is another.\n"
+    assert "areas/market.md" in e["updated"]
+    nu = "\n".join(e["not_updated"])
+    assert "/Game/AP/Preview/stall-b/" in nu and "AP_Preview_stall-b" in nu
+    assert "look scene med-market: 1 build mesh(es) SM_stallmb_m10_4" in nu and "canopymtable" not in nu
+    assert "AP_core_s1" not in nu
+    assert len(e["not_updated"]) == 3
+    # through the API, the same lists come back
+    client = TestClient(ui_app.create_app(JobQueue()))
+    res = client.post("/api/projects/p/library/entries/stall-oak/rename", json={"to": "stall-elm"}).json()
+    assert res["id"] == "stall-elm" and res["not_updated"] == [] and "areas/market.md" in res["updated"]

@@ -19,6 +19,20 @@ function libEntries() {
   const p = libraryData && libraryData.plan;
   return p ? [...p.entries, ...p.unseen.map(u => ({...u, best: null, sources: [], unseen: true}))] : [];
 }
+// a library asset's label: its entry's current name (sw_library.asset_names), else the fallback / id
+function assetName(id, fallback) { return (libraryData && libraryData.names && libraryData.names[id]) || fallback || id; }
+// the name, with the id as a hint when they differ (HTML)
+function assetLabelHtml(id) {
+  const n = assetName(id);
+  return n === id ? esc(id) : `${esc(n)} <span class="hint" style="margin:0">${esc(id)}</span>`;
+}
+// the entry an asset belongs to: itself, or the kit decision it is a module of
+function assetEntry(id) {
+  const ids = libEntries().map(e => e.id);
+  if (ids.includes(id)) return id;
+  return ids.filter(e => id.startsWith(e + "-") && ((libraryData.decisions[e] || {}).pieces || {})[id.slice(e.length + 1)])
+    .sort((a, b) => b.length - a.length)[0] || null;
+}
 const LIB_ROUTES = {procedural: "procedural", trellis: "TRELLIS"};
 const libRoute = e => (libraryData.decisions[e.id] || {}).route || e.route_auto || null;
 const libDecision = e => (libraryData.decisions[e.id] || {}).decision || null;
@@ -48,7 +62,7 @@ function libCard(e) {
         ${libRoute(e) ? `<button type="button" class="chip route route-${libRoute(e)}" data-route="${libRoute(e)}"
           title="3D route${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
-        · ${e.instances}×${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
+        · ${e.instances ? `${e.instances}× placed` : "not placed"}${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
       ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
         <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
@@ -365,10 +379,12 @@ async function manageEntry(id) {
       onGo: async (to, name) => { const r = await entriesCall(`/${id}/duplicate`, {to, name: name || null}); if (r) await reload(); return !!r; }}), 0); }},
     {label: "Rename…", onClick: () => { setTimeout(() => {
       if (custom) idPrompt({title: `Rename ${id}`, label: "New id:", value: id, button: "Rename",
-        intro: "Moves the entry's sheets, views, brief, build and results to the new id (files are renamed, not copied) and keeps its review. Anything that refers to the old id elsewhere (areas, Unreal) must be updated by hand.",
+        intro: "Moves the entry's sheets, views, brief, build, results and versions to the new id (files are renamed, not copied) and keeps its review. Variant sets and area checklists follow; what Unreal still names by the old id is listed afterwards.",
         onGo: async (to, name) => {
           if (to !== id && !(await askDialog("Rename entry", `Rename ${id} to ${to}? Its files move to the new id.`, "Rename"))) return false;
-          const r = await entriesCall(`/${id}/rename`, {to, name: name || null}); if (r) await reload(); return !!r; }});
+          const r = await entriesCall(`/${id}/rename`, {to, name: name || null}); if (r) await reload();
+          if (r && (r.not_updated || []).length) setTimeout(() => alert(`Renamed ${id} to ${r.id}. Not updated (still the old id):\n\n• ${r.not_updated.join("\n• ")}`), 0);
+          return !!r; }});
       else {
         const f = document.createElement("form"); f.className = "form";
         f.innerHTML = `<p class="hint" style="grid-column:1/-1">${esc(id)} comes from the library plan, so its id stays; only the display name changes.</p>

@@ -100,15 +100,15 @@ function detailLine(j, p) {
     "site.preview": "Blender on the CPU · aerial views of the greybox",
     "library.plan": "CPU · entries from the locked shot frames' object-id passes",
     "library.check": "SAM 3.1 · trees, sky and buildings on each source frame",
-    "library.rebuild": `Blender on the CPU · ${t.asset || "asset"}: build, quick preview, Cycles renders`,
+    "library.rebuild": `Blender on the CPU · ${t.asset ? assetName(t.asset) : "asset"}: build, quick preview, Cycles renders`,
     "shots.camera": `Blender · writing ${t.shot || "the"} camera into the .blend`,
     "plan.analyze": `Vision LLM · listing assets in ${base(t.scene) || "the scene"}`,
     "plan.refine": `SAM 3.1 · redrawing the boxes of ${t.plan || "the plan"}`,
     "style.draft": "Vision LLM · drafting style text from the moodboard",
     "style.explore": "Flux on GPU 1 · scenes from the brief",
     "style.derive": `SAM 3 + Flux · objects from ${base(t.scene) || "the scene"}`,
-    "3d.trellis": `TRELLIS.2 on GPU 0 · ${t.asset || "asset"}`,
-    "cleanup": `Blender · scaling to plan size, setting pivot, decimating · ${t.asset || ""}`,
+    "3d.trellis": `TRELLIS.2 on GPU 0 · ${t.asset ? assetName(t.asset) : "asset"}`,
+    "cleanup": `Blender · scaling to plan size, setting pivot, decimating · ${t.asset ? assetName(t.asset) : ""}`,
   }[j.kind] || jobLabel(j);
 }
 

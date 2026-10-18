@@ -883,3 +883,13 @@ Until the deadline, all work follows these rules:
   dedupe before deleting, or "found the same BMVert used multiple times".
 - Review renders fit tall assets: the camera distance covers the height too (a 46 m campanile
   was cropped at the old size * 1.55).
+
+## Library entry duplicates and names (2026-10-18)
+- **A duplicate copied its source's `districts` instance counts and `instances`** (shown as "1×",
+  and counted in district areas) though it owned no slots. Duplicates now start with no slots,
+  instances 0 and no district counts; the source keeps all of its slots.
+- Plan names were written once by `asset_plan`: a later rename left Views and 3D (and Reference
+  sheets) on the old name. `set_name` now refreshes plans/library.json, and the UI labels every
+  library asset from `sw_library.asset_names` (served as `names` with /library).
+- Rename carries the id into variant sets and areas/*.md; Unreal assets made under the old id
+  (Preview/<id>, LookTest, look-scene builds, pulled actor labels) come back as `not_updated`.

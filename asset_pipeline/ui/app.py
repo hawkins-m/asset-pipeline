@@ -1096,7 +1096,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_get(slug: str):
         store = _store(slug)
         data = sw_library.load(store)
-        return {"plan": data, "decisions": sw_library.decisions(store),
+        return {"plan": data, "decisions": sw_library.decisions(store), "names": sw_library.asset_names(store),
                 "has_greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
 
     @app.post("/api/projects/{slug}/library/plan")

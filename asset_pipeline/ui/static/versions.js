@@ -78,7 +78,7 @@ async function versionStrip(boxOrSel, asset, onChange) {
     const pr = $(".ver-prune-btn", box);
     if (pr) pr.onclick = async () => {
       const ok = await confirmDialog({title: "Remove old versions", button: "Remove", danger: true, id: "version-prune-dialog",
-        body: `<p>Remove ${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} of <b>${esc(asset)}</b>
+        body: `<p>Remove ${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} of <b>${esc(assetName(asset))}</b>
           (${d.prunable.map(n => "v" + n).join(", ")}), freeing ${fmtBytes(d.prunable_bytes)}?</p>
           <p class="hint">The last ${d.keep} unpinned, the pinned, the Approved and the current version stay.</p>`});
       if (!ok) return;
@@ -92,8 +92,8 @@ async function versionStrip(boxOrSel, asset, onChange) {
 
 async function versionRestore(asset, v, onChange) {
   const body = v.kind === "trellis"
-    ? `<p>Make v${v.n} (${esc(verSource(v))}) the 3D model of <b>${esc(asset)}</b> that cleanup and export use. Nothing is deleted.</p>`
-    : `<p>Put the brief of v${v.n} back for <b>${esc(asset)}</b>${v.has_glb ? " and its saved 3D model as the build." : " and rebuild it (a new version)."}
+    ? `<p>Make v${v.n} (${esc(verSource(v))}) the 3D model of <b>${esc(assetName(asset))}</b> that cleanup and export use. Nothing is deleted.</p>`
+    : `<p>Put the brief of v${v.n} back for <b>${esc(assetName(asset))}</b>${v.has_glb ? " and its saved 3D model as the build." : " and rebuild it (a new version)."}
        Unsaved edits to the brief are lost.</p>`;
   if (!await confirmDialog({title: `Restore v${v.n}`, button: "Restore", id: "version-restore-dialog", body})) return;
   try { const job = await api(`/api/projects/${slug}/library/asset/${asset}/versions/${v.n}/restore`, {}); await versionJob(job); }
@@ -104,7 +104,7 @@ async function versionRestore(asset, v, onChange) {
 async function versionDelete(asset, v, after) {
   const url = `/api/projects/${slug}/library/asset/${asset}/versions/${v.n}`;
   const ok = await confirmDialog({title: `Delete v${v.n}`, button: "Delete", danger: true, id: "version-delete-dialog",
-    body: `<p>Delete v${v.n} of <b>${esc(asset)}</b> (${fmtBytes(v.bytes)})?${v.kind === "trellis" ? " Its 3D model file is removed too." : ""}</p>
+    body: `<p>Delete v${v.n} of <b>${esc(assetName(asset))}</b> (${fmtBytes(v.bytes)})?${v.kind === "trellis" ? " Its 3D model file is removed too." : ""}</p>
       ${v.pinned ? `<p class="error">It is pinned. Deleting it removes the pin and its saved files.</p>` : ""}`});
   if (!ok) return;
   try { await api(url + (v.pinned ? "?confirm_pinned=true" : ""), {}, "DELETE"); }
@@ -143,7 +143,7 @@ async function storageDialog() {
     body.innerHTML = `<p id="st-total"><b>${fmtBytes(s.total)}</b> in asset builds and versions: ${fmtBytes(s.current_bytes)} current build files,
         ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} unpinned versions of each asset are kept (Tools › Settings…).</p>
       ${s.assets.length ? `<table class="grid-table"><thead><tr><th>Asset</th><th>Versions</th><th>Versions size</th><th>Build files</th><th>Total</th><th></th></tr></thead><tbody>
-        ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${esc(r.asset)}</td><td>${r.versions}${r.pinned ? ` (${r.pinned} pinned)` : ""}</td>
+        ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}</td><td>${r.versions}${r.pinned ? ` (${r.pinned} pinned)` : ""}</td>
           <td>${fmtBytes(r.versions_bytes)}</td><td>${fmtBytes(r.current_bytes)}</td><td>${fmtBytes(r.total)}</td>
           <td><button type="button" class="small st-prune-asset"${r.removable ? "" : " disabled"}>Delete unpinned versions (${r.removable}, ${fmtBytes(r.removable_bytes)})</button></td></tr>`).join("")}
         </tbody></table>` : `<p class="hint">No asset builds yet.</p>`}
@@ -151,7 +151,7 @@ async function storageDialog() {
         <span class="hint" style="margin:0">The Approved, pinned and current versions are never deleted.</span></div>`;
     const prune = async (asset, n, bytes) => {
       const ok = await confirmDialog({title: "Delete unpinned versions", button: "Delete", danger: true, id: "storage-confirm-dialog",
-        body: `<p>Delete ${n} unpinned version${n === 1 ? "" : "s"} ${asset ? `of <b>${esc(asset)}</b>` : "in the whole project"}, freeing ${fmtBytes(bytes)}?</p>
+        body: `<p>Delete ${n} unpinned version${n === 1 ? "" : "s"} ${asset ? `of <b>${esc(assetName(asset))}</b>` : "in the whole project"}, freeing ${fmtBytes(bytes)}?</p>
           <p class="hint">The Approved, pinned and current versions stay. This cannot be undone.</p>`});
       if (!ok) return;
       try { await api(`/api/projects/${slug}/storage/prune`, asset ? {asset} : {}); }

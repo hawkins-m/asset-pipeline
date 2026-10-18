@@ -80,7 +80,7 @@ function lrRender() {
   const e = d.entry || {};
   box.innerHTML = `
     <div class="row"><button type="button" class="small" id="lr-back">◂ Back to Asset review</button>
-      <b>${esc(d.asset)}</b><span class="hint" style="margin:0">${esc([e.tier, e.typology, e.district, d.brief.form || d.brief.kind].filter(Boolean).join(" · "))} · round ${d.round}</span>
+      <b>${esc(assetName(d.asset))}</b><span class="hint" style="margin:0">${assetName(d.asset) !== d.asset ? `${esc(d.asset)} · ` : ""}${esc([e.tier, e.typology, e.district, d.brief.form || d.brief.kind].filter(Boolean).join(" · "))} · round ${d.round}</span>
       <span class="mark ${LR_STATUS_CLASS[rv.status] || ""}" id="lr-status-chip">${esc(d.statuses[rv.status] || "not reviewed")}</span>
       <span class="spacer" style="flex:1"></span>
       <button type="button" class="small" id="lr-prev" title="Previous asset (←)">◂ Prev</button><button type="button" class="small" id="lr-next" title="Next asset (→)">Next ▸</button></div>
@@ -104,7 +104,7 @@ function lrRender() {
   for (const a of (lr.list && lr.list.assets) || []) {
     const li = document.createElement("li");
     if (a.asset === d.asset) li.className = "sel";
-    li.innerHTML = `<span>${esc(a.asset)}</span><span class="mark ${LR_STATUS_CLASS[a.status] || "m-none"}">${esc(a.status ? d.statuses[a.status].toLowerCase() : "–")}</span>`;
+    li.innerHTML = `<span title="${esc(a.asset)}">${esc(assetName(a.asset))}</span><span class="mark ${LR_STATUS_CLASS[a.status] || "m-none"}">${esc(a.status ? d.statuses[a.status].toLowerCase() : "–")}</span>`;
     li.onclick = () => lrGo(a.asset);
     ul.append(li);
   }
