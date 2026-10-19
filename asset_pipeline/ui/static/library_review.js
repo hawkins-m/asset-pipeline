@@ -204,13 +204,43 @@ function lrSet(path, value) {
   for (const k of keys.slice(0, -1)) { if (o[k] == null || typeof o[k] !== "object") o[k] = {}; o = o[k]; }
   o[keys.at(-1)] = value;
   if (!lr.dirty) { lr.dirty = true; const n = $("#lr-dirty"); if (n) n.hidden = false; }
+  lrSrcRefresh($("#lr-brief"));
   lrValidateSoon();
 }
 const lrGet = path => path.split(".").reduce((o, k) => o == null ? undefined : o[k], lr.draft);
 
+// Where a field comes from (brief_sources.py): "sheet" (measured), "edit" (yours) or "default"
+// (the form's defaults with its preset). Live: a field changed in the draft counts as your edit.
+const LR_SRC = {sheet: ["sheet", "Measured on the sheet"], edit: ["my edit", "Set by you (brief form, guidance or Pick on view)"],
+                default: ["default", "The builder's default for this form"]};
+const lrAt = (o, path) => path.split(".").reduce((x, k) => x == null ? undefined : x[k], o);
+function lrSource(path) {
+  const d = lr.data;
+  if (path.startsWith("features.") && d.base) {
+    const base = lrAt({features: d.base}, path), now = lrGet(path);
+    return JSON.stringify(now ?? null) === JSON.stringify(base ?? null) ? "default" : "edit";
+  }
+  const band = path.match(/^(colors|patches|material_types|material_scale)\.(\w+)$/);
+  if (band) {
+    const v = (lr.draft[band[1]] || {})[band[2]];
+    return v == null || (band[1] === "material_scale" && v === 1) ? (band[1] === "material_scale" ? "default" : "sheet") : "edit";
+  }
+  if (path === "params.storey_h" || path === "params.bay_m") return lrGet(path) == null ? "sheet" : "edit";
+  if (path === "surface") return !lr.draft.surface || lr.draft.surface === "auto" ? "default" : "edit";
+  const saved = lrAt(d.brief, path);
+  if (JSON.stringify(lrGet(path) ?? null) !== JSON.stringify(saved ?? null)) return "edit";
+  return (d.sources || {})[path] || (path.startsWith("params.") ? "edit" : "default");
+}
+const lrSrcMark = path => { const s = lrSource(path); return `<span class="src src-${s}" data-src="${esc(path)}" title="${LR_SRC[s][1]}">${LR_SRC[s][0]}</span>`; };
+function lrSrcRefresh(box) {         // after an edit: every mark from the draft again
+  (box || document).querySelectorAll(".src[data-src]").forEach(el => {
+    const s = lrSource(el.dataset.src); el.className = `src src-${s}`; el.textContent = LR_SRC[s][0]; el.title = LR_SRC[s][1];
+  });
+}
+
 function lrField(path, v, label) {
   const id = "lrf-" + path.replace(/\W/g, "_"), last = path.split(".").at(-1);
-  if (typeof v === "boolean") return `<label class="check"><input type="checkbox" id="${id}" data-path="${path}" data-t="bool" ${v ? "checked" : ""}>${esc(label)}</label>`;
+  if (typeof v === "boolean") return `<label class="check"><input type="checkbox" id="${id}" data-path="${path}" data-t="bool" ${v ? "checked" : ""}>${esc(label)}${lrSrcMark(path)}</label>`;
   let input;
   if (typeof v === "number") input = `<input type="number" id="${id}" data-path="${path}" data-t="num" value="${v}" step="any">`;
   else if (Array.isArray(v)) {
@@ -221,7 +251,7 @@ function lrField(path, v, label) {
     input = opts ? `<select id="${id}" data-path="${path}" data-t="str">${[...new Set([v, ...opts])].map(o => `<option${o === v ? " selected" : ""}>${esc(o)}</option>`).join("")}</select>`
       : `<input id="${id}" data-path="${path}" data-t="str" value="${esc(v ?? "")}" style="width:8em">`;
   }
-  return `<label class="lr-f" for="${id}"><span>${esc(label)}</span>${input}</label>`;
+  return `<label class="lr-f" for="${id}"><span>${esc(label)}</span>${input}${lrSrcMark(path)}</label>`;
 }
 
 function lrPart(path, v, dflt, depth) {
@@ -229,8 +259,8 @@ function lrPart(path, v, dflt, depth) {
   const name = path.split(".").at(-1);
   const tmpl = (lr.data.templates || {})[name];
   const on = v != null;
-  const user = JSON.stringify(v) !== JSON.stringify(dflt);
-  const head = `<label class="check"><input type="checkbox" data-toggle="${path}" ${on ? "checked" : ""} ${!on && !tmpl && dflt == null ? "disabled" : ""}>${esc(name.replace(/_/g, " "))}</label>${user ? ` <span class="mark m-rdy" title="set in this brief">brief</span>` : ""}`;
+  const user = lrSource(path) === "edit";
+  const head = `<label class="check"><input type="checkbox" data-toggle="${path}" ${on ? "checked" : ""} ${!on && !tmpl && dflt == null ? "disabled" : ""}>${esc(name.replace(/_/g, " "))}</label>${lrSrcMark(path)}`;
   if (!on) return `<div class="lr-part off">${head}</div>`;
   const plain = [], subs = [];
   for (const [k, x] of Object.entries(v)) {
@@ -260,7 +290,7 @@ function lrList(path, arr) {
       <button type="button" class="small" data-del="${path}" data-i="${i}">Remove</button></summary>
       <div class="lr-fields">${plain.join("") || `<span class="hint">no fields: Remove, then Add for the template</span>`}</div>${subs.join("")}</details>`;
   }).join("");
-  return `<div class="lr-part lr-list"><div class="row"><b>${esc(label)}</b> <span class="hint" style="margin:0">${arr.length} item(s)</span>
+  return `<div class="lr-part lr-list"><div class="row"><b>${esc(label)}</b>${lrSrcMark(path)} <span class="hint" style="margin:0">${arr.length} item(s)</span>
     <button type="button" class="small" data-add="${path}">Add</button></div>${items}</div>`;
 }
 
@@ -279,21 +309,22 @@ function lrRenderBrief() {
     const mt = `<select data-mtype="${name}" aria-label="${name} material type" title="${esc(((meas.materials || {})[name] || {}).why || "")}">
       <option value="">auto${read ? ` (${esc(read)})` : ""}</option>${(d.material_types || []).map(t => `<option${b.material_types[name] === t ? " selected" : ""}>${t}</option>`).join("")}</select>
       <input type="number" data-mscale="${name}" min="0.05" max="20" step="any" style="width:4.5em" value="${(b.material_scale || {})[name] ?? 1}" aria-label="${name} texture scale" title="Texture scale: a multiplier on the material's tile size (0.5 = half-size joints and veining, 2 = double). 1 = as scanned.">`;
-    return `<span>${name}</span><span>${mt}</span><span class="lr-patch" data-band="${name}" title="${bx ? bx.join(", ") : "none"}"></span>
+    return `<span>${name}</span><span>${mt}${lrSrcMark(`material_types.${name}`)}</span><span><span class="lr-patch" data-band="${name}" title="${bx ? bx.join(", ") : "none"}"></span>${lrSrcMark(`patches.${name}`)}</span>
       <span class="inl"><input type="checkbox" data-auto="${name}" ${col ? "" : "checked"} title="Colour from the sheet's band">auto
-        <input type="color" data-color="${name}" value="${col ? rgbHex(col) : "#cccccc"}" ${col ? "" : "disabled"}></span>
+        <input type="color" data-color="${name}" value="${col ? rgbHex(col) : "#cccccc"}" ${col ? "" : "disabled"}>${lrSrcMark(`colors.${name}`)}</span>
       <button type="button" class="small" data-pick="${name}" title="Click the reference image to take this band's patch">${lr.pick === name ? "Click the reference…" : "Pick on view"}</button>`;
   };
   box.innerHTML = `<fieldset><legend>Kit brief · library/kits/${esc(d.asset)}.json</legend>
+    <p class="hint lr-src-legend" style="margin:0 0 4px">Where each value comes from:${["sheet", "edit", "default"].map(k => `<span class="src src-${k}">${LR_SRC[k][0]}</span>${esc(LR_SRC[k][1].toLowerCase())}`).join(" ·")}</p>
     ${d.building ? `<div class="lr-form">
       <span>View</span><select id="lr-view">${views.map(([s, p]) => `<option value="${esc(s)}|${p}" ${s === b.sheet && String(p) === String(b.position) ? "selected" : ""}>${esc(s.split("/").pop())} · ${pos(p)}</option>`).join("")}</select>
-      <span>Footprint</span><span class="inl"><input type="number" step="any" data-path="dims.0" data-t="num" value="${b.dims[0]}" aria-label="width"> × <input type="number" step="any" data-path="dims.1" data-t="num" value="${b.dims[1]}" aria-label="depth"> m
+      <span>Footprint</span><span class="inl"><input type="number" step="any" data-path="dims.0" data-t="num" value="${b.dims[0]}" aria-label="width"> × <input type="number" step="any" data-path="dims.1" data-t="num" value="${b.dims[1]}" aria-label="depth"> m${lrSrcMark("dims.0")}
         <span class="hint">${cat && cat.width && cat.depth ? `catalog ${cat.width.join("–")} × ${cat.depth.join("–")}` : "no catalog range"}</span></span>
-      <span>Height</span><span class="inl"><input type="number" step="any" data-path="dims.2" data-t="num" value="${b.dims[2]}" aria-label="height"> m
+      <span>Height</span><span class="inl"><input type="number" step="any" data-path="dims.2" data-t="num" value="${b.dims[2]}" aria-label="height"> m${lrSrcMark("dims.2")}
         <span class="hint">${d.usage.size_m ? `greybox ${d.usage.size_m[2]}` : ""}</span></span>
-      <span>Storey</span><span class="inl"><input type="number" step="any" data-path="params.storey_h" data-t="num" value="${b.params.storey_h ?? ""}" placeholder="${b.features.storey_h ?? cat?.storey_m ?? 3.4}"> m
+      <span>Storey</span><span class="inl"><input type="number" step="any" data-path="params.storey_h" data-t="num" value="${b.params.storey_h ?? ""}" placeholder="${b.features.storey_h ?? cat?.storey_m ?? 3.4}"> m${lrSrcMark("params.storey_h")}
         <span class="hint">${cat && cat.storeys ? `catalog ${cat.storeys.join("–")} storeys` : ""}${meas.storeys ? ` · sheet ${meas.storeys} storeys` : ""}</span></span>
-      <span>Bay rhythm</span><span class="inl"><input type="number" step="any" data-path="params.bay_m" data-t="num" value="${b.params.bay_m ?? ""}" placeholder="auto"> m
+      <span>Bay rhythm</span><span class="inl"><input type="number" step="any" data-path="params.bay_m" data-t="num" value="${b.params.bay_m ?? ""}" placeholder="auto"> m${lrSrcMark("params.bay_m")}
         <span class="hint">sheet: ${meas.bay_m ? meas.bay_m + " m" : "not measured"}</span></span>
       ${top.map(([k, v]) => `<span>${esc(k.replace(/_/g, " "))}</span><span>${lrField("features." + k, v, "").replace('<span></span>', "")}</span>`).join("")}
     </div>` : `<p class="hint" style="margin:0 0 4px">A kit piece (${esc(d.brief.kind)}): its measurements in metres.</p>

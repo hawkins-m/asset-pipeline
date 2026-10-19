@@ -129,6 +129,8 @@ class BriefBuildReq(BaseModel):
     view: str = "front"
     form: str | None = None        # a building_gen.FORM_CHOICES id (else yours / the catalog's)
     dims: list[float] | None = None    # width, depth, height m (else yours / the plan's)
+    scratch: bool = False          # re-brief from scratch: drop every edit, measure only this sheet
+    drop: list[str] = []           # re-brief keeping edits: these edit paths go (brief_sources.carried_edits)
 
 
 class GuideReq(BaseModel):
@@ -1195,7 +1197,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if building and brief.get("sheet"):   # briefs from a frame crop have no sheet
             sheet_dir = (store.root / brief["sheet"]).parent
             views = sorted(p.relative_to(store.root).as_posix() for p in sheet_dir.glob("sheet_*.png"))
-        return {"asset": asset, "brief": brief, "building": building,
+        from .. import brief_sources
+        return {"asset": asset, "brief": brief, "building": building, "sources": brief_sources.sources(store, asset)["fields"],
+                "base": building_gen.form_features(form, brief_sources.preset_of(brief)) if building else None,
                 "features": building_gen.form_features(form, brief.get("features")) if building else None,
                 "defaults": building_gen.form_features(form) if building else None,
                 "templates": building_gen.TEMPLATES, "enums": building_gen.ENUMS,
@@ -1418,7 +1422,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     if req.form or req.dims:              # what the dialog chose: kept as the entry's own
                         library_entries.set_form(store, asset, req.form or library_entries.form_info(store, asset)["form"],
                                                  req.dims or library_entries.form_info(store, asset)["size_m"])
-                    library_entries.brief_from_sheet(store, asset, req.sheet, req.view, form=req.form, dims=req.dims)
+                    library_entries.brief_from_sheet(store, asset, req.sheet, req.view, form=req.form, dims=req.dims,
+                                                     drop=req.drop, scratch=req.scratch)
                 except ValueError as ex:
                     msg = str(ex)
                     if "no near-front view" in msg:          # the UI's words, not the CLI's 0 / 1 / 2
@@ -1431,7 +1436,18 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             at(2, "Blender build, then renders…")
             return lr.rebuild(store, asset, log=lambda *a: None) | {"brief": rebrief}
         return jobs.submit("library.brief_build", slug, run, lane="gpu0" if rebrief else "cpu",
-                           tag={"asset": asset, "sheet": req.sheet, "round": lr.current_round(store)}).public()
+                           tag={"asset": asset, "sheet": req.sheet, "round": lr.current_round(store),
+                                "mode": ("scratch" if req.scratch else "keep") if rebrief else "rebuild"}).public()
+
+    @app.get("/api/projects/{slug}/library/asset/{asset}/brief/sources")
+    def library_brief_sources(slug: str, asset: str):
+        """Where each brief field comes from (sheet / edit / default), the edits a re-brief keeps,
+        and what the sheet gives: Brief & build's re-brief step and Asset review's marks."""
+        from .. import brief_sources
+        try:
+            return brief_sources.sources(_store(slug), asset)
+        except FileNotFoundError as e:
+            raise HTTPException(404, str(e))
 
     @app.post("/api/projects/{slug}/library/asset/{asset}/guide")
     def library_guide(slug: str, asset: str, req: GuideReq):

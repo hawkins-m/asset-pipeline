@@ -574,3 +574,14 @@ details summary { cursor: default; }
 .job-notice .link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; text-align: left; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
 .job-notice .why { grid-column: 2 / 4; color: var(--danger); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .lane .lane-job .what { white-space: normal; overflow-wrap: anywhere; }
+
+/* --- re-brief step (refs.js) and brief field sources (library_review.js) -------------------- */
+.rebrief .grid-table { width: 100%; }
+.rebrief .rb-edits td:first-child { width: 1px; }
+.rebrief .rb-sheet tr.over td:not(.rb-over) { color: var(--muted); text-decoration: line-through; }
+.src { display: inline-block; font-size: 10px; line-height: 1; padding: 1px 3px; margin-left: 4px; border: 1px solid var(--border-dark);
+       border-radius: 2px; vertical-align: middle; white-space: nowrap; }
+.src-edit { background: var(--select); color: var(--select-text); border-color: var(--select); }
+.src-sheet { background: var(--ready); color: #fff; border-color: var(--ready); }
+.src-default { color: var(--muted); }
+.lr-src-legend .src { margin: 0 2px 0 6px; }

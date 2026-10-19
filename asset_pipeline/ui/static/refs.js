@@ -185,8 +185,9 @@ async function refsBriefBuild(u, sheet, nx) {
   // The view the brief reads proportions and rhythm from: auto picks the most frontal one,
   // which fails on curved buildings (vaults); then choose it by eye.
   const body = document.createElement("div");
-  body.innerHTML = `<p>${nx.has_brief ? `<b>${esc(u.title)}</b> already has a brief. Re-brief from <code>${esc(sheet.split("/").pop())}</code>
-    replaces it (your feature edits stay; the measured proportions and the view change), or just rebuild with the brief as it is.`
+  body.innerHTML = `<p>${nx.has_brief ? `<b>${esc(u.title)}</b> already has a brief. <b>Re-brief from this sheet</b> measures
+    <code>${esc(sheet.split("/").pop())}</code> again and keeps your edits; <b>Re-brief from scratch</b> drops them and takes only what this
+    sheet shows. Both show the fields before building. Or just rebuild with the brief as it is.`
       : `Brief <b>${esc(u.title)}</b> from <code>${esc(sheet.split("/").pop())}</code> with the vision model, then build it.`}</p>
     <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">
       <option value="front">Auto (the most frontal view)</option><option value="0">Left view</option>
@@ -201,7 +202,7 @@ async function refsBriefBuild(u, sheet, nx) {
   if (!info.form || !info.size_m) body.insertAdjacentHTML("afterbegin",
     `<p class="hint">${esc(u.title)} has no ${!info.form && !info.size_m ? "building form or size" : !info.form ? "building form" : "size"} yet:
       choose ${!info.form ? "the form" : "the size"} below. It is saved with the entry (Manage entry… › Form).</p>`);
-  const go = async rebrief => {
+  const go = async (rebrief, scratch = false) => {
     const view = $("#bb-view", body).value;
     const guidance = $("#bb-guidance", body).value.trim();
     let ff = {form: null, dims: null};
@@ -215,14 +216,67 @@ async function refsBriefBuild(u, sheet, nx) {
       guideRun(u.key, sheet, view, guidance, load);
       return true;
     }
-    try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`,
-                    {sheet, rebrief, view, form: ff.form, dims: ff.dims}); await load(); }
-    catch (err) { alert(errorText(err)); }
+    const send = async extra => {
+      try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief_build`,
+                      {sheet, rebrief, view, form: ff.form, dims: ff.dims, ...extra}); await load(); }
+      catch (err) { alert(errorText(err)); }
+    };
+    if (rebrief && nx.has_brief) { setTimeout(() => rebriefFields(u, sheet, scratch, info, send), 0); return true; }
+    await send({});
   };
   dialog({title: "Brief & build", body, buttons: nx.has_brief ? [
-    {label: "Re-brief from this sheet", default: true, onClick: () => go(true)},
+    {label: "Re-brief from this sheet (keep my edits)", default: true, onClick: () => go(true)},
+    {label: "Re-brief from scratch", onClick: () => go(true, true)},
     {label: "Just rebuild", onClick: () => go(false)},
     {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => go(true)}, {label: "Cancel"}]});
+}
+
+// Re-brief, second step: what the sheet gives (measured again) and the edits carried over, each
+// with a tick box (untick to drop it). From scratch starts with none ticked.
+async function rebriefFields(u, sheet, scratch, info, send) {
+  let src;
+  try { src = await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(u.key)}/brief/sources`, undefined, "GET"); }
+  catch (err) { alert(errorText(err)); return; }
+  const short = sheet.split("/").pop(), otherSheet = src.sheet_name && src.sheet_name !== short;
+  const val = v => v == null ? "off" : Array.isArray(v) ? (v.every(x => typeof x !== "object") ? v.join(", ") : JSON.stringify(v))
+    : typeof v === "object" ? JSON.stringify(v) : String(v);
+  const tickedByDefault = e => !scratch && !(otherSheet && e.path.startsWith("patches."));
+  const body = document.createElement("div"); body.id = "rebrief-body"; body.className = "rebrief";
+  body.innerHTML = `<p style="margin-top:0">${scratch ? `<b>From scratch:</b> nothing below is kept unless you tick it.` : `<b>Keeping your edits:</b> untick any to drop it.`}
+      Form <b>${esc(info.form || "–")}</b>${info.source ? ` (${esc(info.source)})` : ""} and size
+      <b>${info.size_m ? info.size_m.map(x => +(+x).toFixed(1)).join(" × ") + " m" : "–"}</b>${info.size_source ? ` (${esc(info.size_source)})` : ""} come from the entry.</p>
+    <fieldset><legend>From the sheet · measured again on <code>${esc(short)}</code></legend>
+      <table class="grid-table rb-sheet"><thead><tr><th>Field</th><th>Now${src.sheet_name ? ` (${esc(src.sheet_name)})` : ""}</th><th></th></tr></thead><tbody>
+      ${src.sheet.map(r => `<tr data-over="${esc(r.overridden_by || "")}"><td>${esc(r.label)}</td><td class="mono">${esc(Array.isArray(r.value) ? "box " + r.value.join(", ") : r.value == null ? "not measured" : val(r.value))}</td>
+        <td class="hint rb-over"></td></tr>`).join("")}</tbody></table></fieldset>
+    <fieldset><legend>Your edits · carried over</legend>
+      ${src.edits.length ? `<div class="row" style="margin:0 0 4px"><button type="button" class="small" data-all="1">Tick all</button>
+          <button type="button" class="small" data-all="0">Untick all</button><span class="hint" id="rb-count" style="margin:0"></span></div>
+        <table class="grid-table rb-edits"><thead><tr><th></th><th>Field</th><th>Your value</th></tr></thead><tbody>
+        ${src.edits.map((e, i) => `<tr><td><input type="checkbox" id="rb-${i}" data-path="${esc(e.path)}" ${tickedByDefault(e) ? "checked" : ""}></td>
+          <td><label for="rb-${i}">${esc(e.label)}</label>${otherSheet && e.path.startsWith("patches.") ? ` <span class="hint" style="margin:0">(a box on the old view)</span>` : ""}</td>
+          <td class="mono">${esc(val(e.value))}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="hint" style="margin:0">None: the brief has no edits of yours.</p>`}</fieldset>
+    <p class="hint">Everything else comes from the builder's defaults for the form.</p>`;
+  const sync = () => {
+    const boxes = [...body.querySelectorAll("input[data-path]")], on = new Set(boxes.filter(b => b.checked).map(b => b.dataset.path));
+    const c = $("#rb-count", body); if (c) c.textContent = `${on.size} of ${boxes.length} kept`;
+    body.querySelectorAll(".rb-sheet tr[data-over]").forEach(tr => {
+      const o = tr.dataset.over, kept = o && on.has(o);
+      tr.classList.toggle("over", !!kept);
+      $(".rb-over", tr).textContent = !o ? "from the sheet" : kept ? `your edit (${o.split(".").at(-1).replace(/_/g, " ")}) wins` : "from the sheet (your edit dropped)";
+    });
+  };
+  body.addEventListener("change", sync);
+  body.querySelectorAll("[data-all]").forEach(b => b.onclick = () => { body.querySelectorAll("input[data-path]").forEach(x => x.checked = b.dataset.all === "1"); sync(); });
+  sync();
+  const d = dialog({title: `Re-brief ${u.title}`, body, className: "tool-window", buttons: [
+    {label: "Brief & build", default: true, onClick: async () => {
+      const boxes = [...body.querySelectorAll("input[data-path]")];
+      const drop = boxes.filter(b => !b.checked).map(b => b.dataset.path);
+      await send({scratch: boxes.every(b => !b.checked), drop});
+    }}, {label: "Cancel"}]});
+  d.win.id = "rebrief-dialog";
 }
 
 // --- guidance for the next build (procedural assets) ------------------------------------------

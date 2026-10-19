@@ -1,5 +1,6 @@
 """Library › Entries: create, duplicate, rename, describe; Brief & build / Cut views next steps."""
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -548,3 +549,101 @@ def test_older_sheets_get_their_description_back_from_the_prompt():
     tq = s2_refs.THREE_QUARTER_PROMPT.format(name="gate", description="A gate")
     assert s2_refs.described_from_prompt(tq) == "A gate"
     assert s2_refs.described_from_prompt("something else entirely") is None
+
+
+# --- re-brief: keep my edits (untick some) or from scratch; field sources -----------------------
+
+def _fake_brief(writes):
+    def fake_brief(store, a, sheet, view, form, dims, params=None, feats=None):
+        old = read_json(kit_proc.spec_path(store, a), default=None) or {}
+        rec = {"kind": "building", "form": form, "dims": dims, "sheet": sheet, "position": view, "view": "views/v.png",
+               "params": params if params is not None else old.get("params", {}),
+               "features": feats if feats is not None else old.get("features", {}),
+               "measured": {"storey_h": 4.5, "bay_m": 6.0, "storeys": 3, "palette": [{"rgb": [1, 2, 3], "share": 1}]}}
+        for k in ("colors", "patches"):              # as building_proc.brief does
+            if k in old:
+                rec[k] = old[k]
+        write_json(kit_proc.spec_path(store, a), rec)
+        writes.append(rec)
+        return rec
+    return fake_brief
+
+
+def _edited(store, eid):
+    write_json(kit_proc.spec_path(store, eid), {
+        "kind": "building", "form": "row", "dims": [30, 14, 13.6], "sheet": f"refs/library/{eid}/sheet_000.png",
+        "position": 1, "view": "views/v.png", "form_choice": "row", "preset": {"gap": 1.0},
+        "params": {"storey_h": 3.2}, "colors": {"wall": [200, 190, 170]}, "patches": {"base": [1, 2, 3, 4]},
+        "material_types": {"top": "concrete"}, "surface": "library", "guidance": "deeper loggias",
+        "features": {"gap": 1.0, "house": {"parapet": 0.6, "loggia": {"depth": 1.8}}, "steps": [0, -1]},
+        "measured": {"storey_h": 4.53, "bay_m": 5.9, "storeys": 3}})
+
+
+def test_brief_sources_tell_sheet_edit_and_default(proj):
+    from asset_pipeline import brief_sources as bs
+    _populate(proj, "hall-a")
+    _edited(proj, "hall-a")
+    b = read_json(kit_proc.spec_path(proj, "hall-a"))
+    paths = [r["path"] for r in bs.carried_edits(b)]
+    assert "features.gap" not in paths                                  # the preset's value is not an edit
+    assert {"features.house.parapet", "features.house.loggia.depth", "features.steps", "params.storey_h",
+            "colors.wall", "patches.base", "material_types.top", "surface", "guidance"} == set(paths)
+    src = bs.sources(proj, "hall-a")
+    f = src["fields"]
+    assert f["features.house.parapet"] == "edit" and f["features.house"] == "edit" and f["features.gap"] == "default"
+    assert f["params.storey_h"] == "edit" and f["params.bay_m"] == "sheet"
+    assert f["colors.wall"] == "edit" and f["colors.top"] == "sheet" and f["material_types.top"] == "edit"
+    assert f["material_types.wall"] == "sheet" and f["surface"] == "edit"
+    st = {r["label"]: r for r in src["sheet"]}
+    assert st["storey height"]["value"] == 4.53 and st["storey height"]["overridden_by"] == "params.storey_h"
+    kept = bs.without(b, ["features.house.parapet", "colors.wall", "guidance"])
+    assert kept["features"] == {"house": {"loggia": {"depth": 1.8}}, "steps": [0, -1]} and "colors" not in kept
+    assert "guidance" not in kept and kept["surface"] == "library"
+
+
+def test_rebrief_keeps_ticked_edits_drops_unticked_and_scratch_drops_all(proj, monkeypatch):
+    from asset_pipeline import building_gen, building_proc
+    _populate(proj, "hall-a")
+    writes = []
+    monkeypatch.setattr(building_proc, "brief", _fake_brief(writes))
+    monkeypatch.setattr(building_gen, "preset_for", lambda cid, dims: {"gap": 1.0})
+    sheet = "refs/library/hall-a/sheet_000.png"
+    _edited(proj, "hall-a")
+    le.brief_from_sheet(proj, "hall-a", sheet, view="0", form="row", dims=[30, 14, 13.6])          # keep all
+    b = read_json(kit_proc.spec_path(proj, "hall-a"))
+    assert b["features"]["house"] == {"parapet": 0.6, "loggia": {"depth": 1.8}} and b["params"] == {"storey_h": 3.2}
+    assert b["colors"] == {"wall": [200, 190, 170]} and b["material_types"] == {"top": "concrete"}
+    assert b["surface"] == "library" and b["guidance"] == "deeper loggias"                       # used to be lost
+    _edited(proj, "hall-a")
+    le.brief_from_sheet(proj, "hall-a", sheet, view="0", form="row", dims=[30, 14, 13.6],
+                        drop=["features.house.parapet", "params.storey_h", "patches.base", "guidance"])
+    b = read_json(kit_proc.spec_path(proj, "hall-a"))
+    assert b["features"] == {"gap": 1.0, "house": {"loggia": {"depth": 1.8}}, "steps": [0, -1]}
+    assert b["params"] == {} and "patches" not in b and "guidance" not in b and b["colors"] == {"wall": [200, 190, 170]}
+    _edited(proj, "hall-a")
+    le.brief_from_sheet(proj, "hall-a", sheet, view="0", form="row", dims=[30, 14, 13.6], scratch=True)
+    b = read_json(kit_proc.spec_path(proj, "hall-a"))
+    assert b["features"] == {"gap": 1.0} and b["params"] == {}                                   # the preset only
+    assert not any(k in b for k in ("colors", "patches", "material_types", "surface", "guidance"))
+    assert b["preset"] == {"gap": 1.0} and b["measured"]["storey_h"] == 4.5                      # this sheet's
+
+
+def test_brief_build_api_passes_scratch_and_drop(proj, monkeypatch):
+    _populate(proj, "hall-a")
+    seen = {}
+    monkeypatch.setattr(le, "brief_from_sheet", lambda store, a, sheet, view="front", **k: seen.update(k))
+    from asset_pipeline import library_review as lr
+    monkeypatch.setattr(lr, "rebuild", lambda *a, **k: {"images": []})
+    c = TestClient(ui_app.create_app(JobQueue()))
+    r = c.post("/api/projects/p/library/asset/hall-a/brief_build",
+               json={"sheet": "refs/library/hall-a/sheet_000.png", "rebrief": True, "view": "0", "drop": ["guidance"]}).json()
+    assert r["tag"]["mode"] == "keep"
+    for _ in range(300):
+        if c.get(f"/api/jobs/{r['id']}").json()["status"] in ("done", "error"):
+            break
+        time.sleep(0.01)
+    assert seen["drop"] == ["guidance"] and seen["scratch"] is False
+    _edited(proj, "hall-a")
+    s = c.get("/api/projects/p/library/asset/hall-a/brief/sources").json()
+    assert s["fields"]["features.house.parapet"] == "edit" and any(e["path"] == "guidance" for e in s["edits"])
+    assert c.get("/api/projects/p/library/asset/nope/brief/sources").status_code == 404

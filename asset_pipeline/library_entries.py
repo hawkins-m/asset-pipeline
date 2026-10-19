@@ -512,13 +512,21 @@ def set_form(store: ProjectStore, eid: str, form: str | None = None, size_m=None
 
 
 def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", form: str | None = None,
-                     dims=None, params=None) -> dict:
+                     dims=None, params=None, drop: list[str] | None = None, scratch: bool = False) -> dict:
     """The procedural brief of an entry from one sheet (`ap library brief`): the form comes from
     the entry's catalog typology (or the entry's own `form`, else a cube), the size from the
-    plan. Raises ValueError with the CLI's messages."""
+    plan. Raises ValueError with the CLI's messages.
+
+    Re-briefing an existing brief measures the sheet again and keeps the artist's edits
+    (brief_sources.carried_edits: features, params, band colours / patches / materials / scales,
+    surfaces, guidance) except the paths in `drop`; scratch=True keeps none of them."""
     import json as _json
+    from . import brief_sources
     from .building_gen import FORM_CHOICE
     from .building_proc import brief, front_view
+    sp0 = kit_proc.spec_path(store, entry)
+    old0 = _json.loads(sp0.read_text()) if sp0.is_file() else None
+    kept = None if old0 is None else ({"features": {}} if scratch else brief_sources.without(old0, drop or []))
     e = _all_entries(store).get(entry) or {}
     info = form_info(store, entry)                 # yours (Manage entry…) > the entry's > the catalog's
     dims = dims or info["size_m"]
@@ -534,14 +542,12 @@ def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", 
     if choice_id:                                  # a form choice: its generator plus its feature preset
         from .building_gen import preset_for
         form, preset = FORM_CHOICE[choice_id]["form"], preset_for(choice_id, dims)
-        if preset:
-            sp = kit_proc.spec_path(store, entry)
-            old = _json.loads(sp.read_text()) if sp.is_file() else {}
-            # keep only the artist's edits: values the last preset wrote and nobody changed go
-            ref = old.get("preset") or (FORM_CHOICE[choice_id].get("features") or {}
-                                        if old.get("form") == form else {})   # briefs from before the record
-            mine = _drop_equal(old.get("features") or {}, ref)
-            feats = _merge_feats(preset, mine)
+        if preset and kept is None:
+            feats = dict(preset)
+    if kept is not None:                           # a re-brief: the preset under the edits kept
+        feats = _merge_feats(preset or {}, kept["features"])
+        if params is None:
+            params = kept.get("params") or {}
     if view == "front":
         fv = front_view(store, [sheet], entry)
         if not fv["best"]:
@@ -553,26 +559,19 @@ def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", 
     b = brief(store, entry, sheet, view, form, dims, _json.loads(params) if isinstance(params, str) else params,
               feats=feats)
     sp = kit_proc.spec_path(store, entry)
-    if choice_id and sp.is_file():                 # what the next re-brief may replace without losing edits
+    if (choice_id or kept is not None) and sp.is_file():
         rec = _json.loads(sp.read_text())
-        rec["form_choice"], rec["preset"] = choice_id, preset or {}
+        if choice_id:                              # what the next re-brief may replace without losing edits
+            rec["form_choice"], rec["preset"] = choice_id, preset or {}
+        if kept is not None:                       # band choices and guidance: only the kept ones
+            for k in ("colors", "patches", "material_types", "material_scale", "surface", "guidance"):
+                if kept.get(k):
+                    rec[k] = kept[k]
+                else:
+                    rec.pop(k, None)
         sp.write_text(_json.dumps(rec, indent=2))
         b = rec
     return b
-
-
-def _drop_equal(mine: dict, preset: dict) -> dict:
-    """mine without the values equal to preset's (nested): what the artist changed."""
-    out = {}
-    for k, v in mine.items():
-        p = preset.get(k)
-        if isinstance(v, dict) and isinstance(p, dict):
-            sub = _drop_equal(v, p)
-            if sub:
-                out[k] = sub
-        elif v != p:
-            out[k] = v
-    return out
 
 
 def _merge_feats(preset: dict, mine: dict) -> dict:

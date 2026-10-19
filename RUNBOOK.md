@@ -87,8 +87,13 @@ list, largest frame share first:
      piers, a lighter gallery above". The vision model reads it with the starred sheet and
      proposes brief edits as a before → after list; untick or adjust any row, then **Accept &
      build**. Edits it can't map to a field are listed as dropped, with the reason (that's
-     usually a builder feature to request). The guidance is saved with the build's version. With a brief already there it asks: *Re-brief from this sheet* or *Just
-     rebuild*. Then **Open in Asset review**.
+     usually a builder feature to request). The guidance is saved with the build's version.
+   - With a brief already there it asks: **Re-brief from this sheet (keep my edits)**,
+     **Re-brief from scratch** (drop your edits, take only what this sheet shows) or **Just
+     rebuild**. Both re-briefs show a second step first: what the sheet gives (measured again)
+     and your edits carried over, each with a tick box. Untick an edit to drop it (from scratch
+     starts with none ticked; band patches picked on another sheet start unticked). Then
+     **Open in Asset review**: every brief field is marked **sheet**, **my edit** or **default**.
    - **Cut views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
      3D**: click the view to use and **Make 3D** there. Tick **New seed** for another try
      from the same view; to steer the result with words, reroll the sheet with guidance
@@ -186,7 +191,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 | "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the Jobs panel |
 | A wall or strip renders black | Two faces in one plane | The builder pulls these apart; if one remains, review it as Needs new feature |
 | Planters look bare | Plants come from PCG; reviews show proxies | Nothing to do |
-| The build doesn't change after Save | The field is overridden lower down (a facade's own value) | Look for the **brief** badge on a nested part |
+| The build doesn't change after Save | The field is overridden lower down (a facade's own value) | Look for the **my edit** mark on a nested part (every field shows where it comes from: sheet, my edit, default) |
 | The area panel names no shots | The shots' id passes are missing | World › Shots… › tick them › Render passes |
 
 ## 6. Starting a new district
