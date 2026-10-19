@@ -10,13 +10,14 @@
     POST    /api/projects/{slug}/storage/prune {asset?, dry_run}         delete unpinned versions
     POST    /api/projects/{slug}/storage/clean {dry_run}                 shared-store files nothing references
     POST    /api/projects/{slug}/storage/loose                           remove builds that are no version
+    GET     /api/projects/{slug}/disk?dirty=                             size on disk by category (toolbar, Properties)
     GET/PUT /api/projects/{slug}/settings                                {versions_keep}
 TRELLIS-route props use the same routes: their versions are the TRELLIS results.
 """
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .. import filestore, versions
+from .. import disk_usage, filestore, versions
 
 
 class StorageCleanReq(BaseModel):
@@ -38,6 +39,8 @@ class SettingsReq(BaseModel):
 
 def register(app: FastAPI, jobs, store_of) -> None:
     base = "/api/projects/{slug}/library/asset/{asset}/versions"
+    disk = disk_usage.Cache(store_of)
+    app.state.disk_usage = disk
 
     def _call(fn, *a, **kw):
         try:
@@ -88,6 +91,13 @@ def register(app: FastAPI, jobs, store_of) -> None:
         loose = versions.loose_files(store)
         return versions.storage(store) | {"files": filestore.stats(store), "loose": loose,
                                           "loose_bytes": sum(r["bytes"] for r in loose)}
+
+    @app.get("/api/projects/{slug}/disk")
+    def disk_get(slug: str, dirty: bool = False):
+        """The last measurement at once (computed in the background, at most every 30 s);
+        dirty=true after a job finished or a clean: measure again once the interval is up."""
+        store_of(slug)
+        return disk.get(slug, dirty=dirty)
 
     @app.post("/api/projects/{slug}/storage/loose")
     def storage_loose(slug: str):

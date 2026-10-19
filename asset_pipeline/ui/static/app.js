@@ -154,7 +154,7 @@ $("#update-reload").onclick = () => location.reload();
 
 async function load() {
   checkBuild();
-  if (!slug) { $("#empty").hidden = false; renderShell(); return; }
+  if (!slug) { $("#empty").hidden = false; diskAfterLoad(); renderShell(); return; }
   [data, plans, refs, reviewData, siteData, framesData, catalogData, statusData] = await Promise.all([api(`/api/projects/${slug}`),
     api(`/api/projects/${slug}/plans`), api(`/api/projects/${slug}/refs`), api(`/api/projects/${slug}/review`),
     api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`),
@@ -162,6 +162,7 @@ async function load() {
   unrealData = await api(`/api/projects/${slug}/unreal`);
   await loadLibrary();
   fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));
+  diskAfterLoad();
   render();
 }
 
