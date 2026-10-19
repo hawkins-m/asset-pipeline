@@ -225,12 +225,18 @@ class AutoLocal:
 
     def __init__(self):
         self._client = None
+        self._url = None
 
     @property
     def name(self) -> str:
         return self._client.name if self._client else "local"
 
     def json_text(self, system, prompt, images, schema):
-        if self._client is None:
-            self._client = client(state() or up())
-        return self._client.json_text(system, prompt, images, schema)
+        """Each request holds the GPU 0 lane (inside a UI job: jobs.using), so it never runs
+        beside TRELLIS; the server may have been unloaded since the last one: start it again."""
+        from .jobs import using
+        with using("gpu0", "vlm"):
+            st = state() or up()
+            if self._client is None or self._url != st["url"]:
+                self._client, self._url = client(st), st["url"]
+            return self._client.json_text(system, prompt, images, schema)

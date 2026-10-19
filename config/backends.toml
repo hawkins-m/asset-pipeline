@@ -71,10 +71,27 @@ url = "http://127.0.0.1:8711"
 gguf = "gguf/Qwen3-VL-32B-Instruct-GGUF/Qwen3-VL-32B-Instruct-Q5_K_M.gguf"   # under $AP_ROOT/models
 mmproj = "gguf/Qwen3-VL-32B-Instruct-GGUF/mmproj-F16.gguf"
 ctx = 8192
+vram_gb = 28                 # free VRAM a job needs before it loads this model (jobs queue)
 
 [local.models.8b]            # Qwen3-VL-8B-Instruct bf16, transformers (scripts/vlm_server.py), ~18 GB
 backend = "transformers"
 url = "http://127.0.0.1:8710"
+vram_gb = 19
+
+# The UI's job lanes (asset_pipeline/jobs.py, gpu_policy.py; RUNBOOK.md "What runs where").
+# GPU lanes run one job at a time; CPU jobs (Blender, planning, export, Unreal commandlets) up
+# to cpu_slots at once (jobs writing the same files still wait for each other).
+[jobs]
+cpu_slots = 2
+gpu0_gpu = 0                 # the "GPU 0" lane: TRELLIS and the local vision model
+comfy_gpu = 1                # ComfyUI's GPU when [comfyui.service] gpu is ""
+vram_poll_s = 3
+
+# Free VRAM a job needs before it starts (GB). ComfyUI's own memory counts as free for
+# ComfyUI jobs; the vision model's need is its model's vram_gb above.
+[jobs.vram_gb]
+gpu = 16                     # TRELLIS.2 1024_cascade peaks at ~9 GB allocated
+comfy = 12
 
 # Default image backend per stage for new projects; override per project in project.json.
 [defaults.backends]

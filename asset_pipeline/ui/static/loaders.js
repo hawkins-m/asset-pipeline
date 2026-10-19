@@ -1,8 +1,9 @@
 // Job dialogs ("loaders"): one classic window per running job. The picture shows what kind
 // of work it is (CSS animations only; off under prefers-reduced-motion); the bar and the
 // lines under it show the job's real progress (counted by the server where it can be, else
-// a marquee and the elapsed time). Cancel stops the job like the Stop buttons do; the close
-// box only hides the window (the job keeps running; Details in the Jobs panel reopens it).
+// a marquee and the elapsed time). Cancel stops the job like the Stop buttons do; Run in
+// background (or the close box) only hides the window: the job keeps running in the Jobs
+// panel, a click on it there reopens the window, and a small notice says when it ends.
 const INK = `stroke="#333" stroke-width="1.5" fill="none"`;
 const PICS = {
   frames: `<svg viewBox="0 0 140 80" aria-hidden="true">
@@ -137,8 +138,13 @@ function updateJobDialog() {
   const p = jobProgress(j), win = jobDlg.win;
   let line2, bar, buttons;
   if (j.status === "queued") {
-    line2 = `Waiting for ${LANE_NAMES[j.lane] || j.lane}: another job is running there.`;
+    const w = j.waiting;
+    line2 = w && w.reason === "vram" ? (j.note || `Waiting for free VRAM on ${LANE_NAMES[w.lane] || w.lane}.`)
+      : w ? `Queued: #${w.position} in line for ${LANE_NAMES[w.lane] || w.lane}.` : `Waiting for ${LANE_NAMES[j.lane] || j.lane}: another job is running there.`;
     bar = {frac: null};
+  } else if (j.status === "running" && j.waiting) {      // moving to another lane (Brief & build: GPU 0, then the CPU)
+    line2 = j.waiting.reason === "vram" ? (j.note || "Waiting for free VRAM…") : `Waiting for ${LANE_NAMES[j.waiting.lane] || j.waiting.lane}: #${j.waiting.position} in line.`;
+    bar = p;
   } else if (j.status === "running") {
     const counted = p.total != null && p.done != null && !p.stages;
     line2 = counted ? `${p.done} of ${p.total}${unit ? ` ${unit}` : ""}${p.eta ? ` · ${p.eta}` : ""}`
@@ -154,7 +160,7 @@ function updateJobDialog() {
   const body = $(".loader", win);
   if (body.dataset.pic !== pic) { body.dataset.pic = pic; body.innerHTML = `<div class="ld-pic">${PICS[pic] || ""}</div><div class="ld-line1"></div><div class="ld-bar"></div><div class="ld-foot"><span class="ld-line2"></span><span class="ld-btns"></span></div>`; }
   body.classList.toggle("still", !active);
-  $(".ld-line1", body).textContent = detailLine(j, p);
+  $(".ld-line1", body).textContent = detailLine(j, j.waiting ? {} : p);   // a wait's note is on the second line
   const slot = $(".ld-bar", body);       // one bar per job, updated in place (smooth, never restarted)
   if (slot.dataset.job !== String(j.id)) { slot.replaceChildren(); slot.dataset.job = String(j.id); }
   paintBar(slot, bar);
@@ -163,11 +169,46 @@ function updateJobDialog() {
   const want = active ? (STOPPABLE(j.kind) ? "cancel" : "none") : "close";
   if (btns.dataset.mode !== want) {
     btns.dataset.mode = want; btns.replaceChildren();
+    if (active) {                         // the tool stays usable: the job goes on in the Jobs panel
+      const bg = document.createElement("button"); bg.type = "button"; bg.className = "default"; bg.dataset.role = "background";
+      bg.textContent = "Run in background"; bg.title = "Close this window; the job keeps running in the Jobs panel (click it there to come back)";
+      bg.onclick = () => jobDlg && jobDlg.close();
+      btns.append(bg);
+    }
     const b = document.createElement("button"); b.type = "button";
     if (want === "cancel") { b.textContent = "Cancel"; b.onclick = () => { b.disabled = true; b.textContent = "Canceling…"; cancelJobs([j]); }; }
     else if (want === "close") { b.textContent = "Close"; b.className = "default"; b.onclick = () => jobDlg && jobDlg.close(); }
-    else { b.textContent = "Hide"; b.title = "Analysis can't be interrupted mid-request"; b.onclick = () => jobDlg && jobDlg.close(); }
-    btns.append(b);
-    if (want === "close") b.focus();
+    else b.remove();                      // analysis can't be interrupted mid-request: Run in background only
+    if (want !== "none") btns.append(b);
+    $("button", btns)?.focus();
   }
+}
+
+// --- notices: a job that ends while its window is closed -----------------------------------------
+const jobSeen = {};          // id -> last status this page saw (only jobs seen running or queued notify)
+function trackJobEnds() {
+  if (!data) return;
+  for (const j of data.jobs) {
+    const was = jobSeen[j.id];
+    jobSeen[j.id] = j.status;
+    if (was && (was === "queued" || was === "running") && (j.status === "done" || j.status === "error")
+        && !(jobDlg && jobDlg.id === j.id)) jobNotice(j);
+  }
+}
+
+function jobNotice(j) {
+  let box = $("#job-notices");
+  if (!box) { box = document.createElement("div"); box.id = "job-notices"; box.setAttribute("aria-live", "polite"); document.body.append(box); }
+  const ok = j.status === "done";
+  const n = document.createElement("div"); n.className = `job-notice ${ok ? "ok" : "failed"}`; n.setAttribute("role", "status");
+  n.innerHTML = `<span class="ico" aria-hidden="true">${ok ? "✓" : "✕"}</span>
+    <button type="button" class="link" title="Open the job's window">${esc(jobLabel(j))}: ${ok ? "done" : "failed"}</button>
+    <button type="button" class="wclose" aria-label="Dismiss">x</button>
+    ${ok ? "" : `<div class="why">${esc(j.error || "unknown error")}</div>`}`;
+  const gone = () => n.remove();
+  $(".link", n).onclick = () => { gone(); openJobDialog(j.id); };
+  $(".wclose", n).onclick = gone;
+  box.append(n);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  setTimeout(gone, ok ? 8000 : 30000);
 }

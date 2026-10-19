@@ -320,14 +320,19 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
                 starred = [k for k in sheets if stars.get(k)]
                 req = req.model_copy(update={"sheet": (starred or sheets[:1])[-1]})
 
+        rebrief = not have or req.force_brief
+
         def run():
-            from .. import library_review as lr
-            if not have or req.force_brief:
+            from .. import building_proc, library_review as lr
+            from ..jobs import hop
+            if rebrief:
                 make_brief(store, asset, req)
                 lr.brief_edited(store, asset)                # a new brief: an Approved asset needs review again
+                building_proc.read_band_materials(store, asset, log=lambda s: None)   # still on GPU 0
+                hop("cpu")                                   # GPU 0 (and the VLM) go now; Blender is CPU work
             check_canceled()
             return lr.rebuild(store, asset, log=lambda s: None)
-        return jobs.submit("library.brief", slug, run, lane="gpu0", tag={"asset": asset}).public()
+        return jobs.submit("library.brief", slug, run, lane="gpu0" if rebrief else "cpu", tag={"asset": asset}).public()
 
     def make_brief(store, asset, req):
         """The body of `ap library brief` (library_entries.brief_from_sheet: one form logic for

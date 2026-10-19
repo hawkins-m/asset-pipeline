@@ -365,40 +365,85 @@ function aboutDialog() {
 const jobLabel = j => (JOB_LABELS[j.kind] || j.kind).replace(/^./, c => c.toUpperCase()) +
   (j.tag.shot ? ` · ${j.tag.shot}` : j.tag.unit ? ` · ${assetName(j.tag.unit)}` : j.tag.asset ? ` · ${assetName(j.tag.asset)}` : "");
 
+// What each lane runs (hover a lane's name); RUNBOOK.md "What runs where".
+function laneTip(lane) {
+  const L = (data && data.lanes) || {slots: {}, gpus: {}}, g = L.gpus || {}, n = (L.slots || {}).cpu || 2;
+  return {
+    gpu0: `GPU ${g.gpu0 ?? 0}: TRELLIS and the local vision model (scene analysis, briefs, guidance, band materials). One job at a time.\n`
+      + "A job waits, queued, until the GPU has the VRAM it needs. The vision model is unloaded after its job unless another vision job is queued.",
+    comfy: `GPU ${g.comfy ?? 1}: ComfyUI (scenes, reference sheets, cut views, frames, SAM). One job at a time; ComfyUI's own memory counts as free.`,
+    cpu: `CPU: Blender builds and renders, city planning, export, Unreal. Up to ${n} jobs at once; jobs that write the same files (one asset,`
+      + " the greybox, the Unreal project) wait for each other. A vision-model step borrows GPU 0 for its request.",
+    service: "Starting and stopping ComfyUI.",
+  }[lane] || "";
+}
+
+// short: the Jobs panel row (the VRAM note goes in its tooltip)
+const jobWaitText = (j, short = false) => !j.waiting ? "" : j.waiting.reason === "vram" ? (short || !j.note ? "waiting for VRAM" : j.note)
+  : `#${j.waiting.position} in line${j.status === "running" ? ` for ${LANE_NAMES[j.waiting.lane] || j.waiting.lane}` : ""}`;
+
 function renderLanes() {
   // rows are kept and updated in place: a rebuilt bar would restart its animation every poll
   const el = $("#lanes");
   const jobs = data ? data.jobs : [];
   const rows = [];
   for (const [lane, name] of LANES) {
-    const act = jobs.filter(j => j.lane === lane && isActive(j));
-    if (lane === "service" && !act.length) continue;
-    const run = act.find(j => j.status === "running"), queued = act.filter(j => j.status === "queued").length;
+    // on this lane: jobs holding its slot (their own, or borrowed for a VLM request), then the line
+    const holds = j => j.holds || (j.status === "running" ? [j.lane] : []);
+    const holding = jobs.filter(j => isActive(j) && holds(j).includes(lane) && !(j.waiting && j.waiting.lane === lane));
+    const line = jobs.filter(j => isActive(j) && j.waiting && j.waiting.lane === lane)
+      .sort((a, b) => (a.waiting.reason === "vram" ? 0 : a.waiting.position) - (b.waiting.reason === "vram" ? 0 : b.waiting.position));
+    const queuedOld = jobs.filter(j => j.status === "queued" && j.lane === lane && !j.waiting);   // an older server
+    if (lane === "service" && !holding.length && !line.length && !queuedOld.length) continue;
     let row = el.querySelector(`:scope > .lane[data-lane="${lane}"]`);
     if (!row) {
       row = document.createElement("div"); row.className = "lane"; row.dataset.lane = lane;
-      row.innerHTML = `<span class="ln"></span><span class="what"></span><div class="bar-slot"></div><span class="eta"></span><div class="actions"></div>`;
+      row.innerHTML = `<span class="ln"></span><div class="lane-jobs"></div>`;
     }
     rows.push(row);
-    const p = run && jobProgress(run);
-    $(".ln", row).textContent = `${name}:`;
-    const what = $(".what", row);
-    what.title = run ? p.line : "";
-    what.textContent = (run ? jobLabel(run) + (p.count ? ` ${p.done} / ${p.total}` : "") : queued ? "waiting" : "idle") + (queued ? ` (+${queued} queued)` : "");
-    const slot = $(".bar-slot", row), eta = $(".eta", row), actions = $(".actions", row);
-    slot.hidden = eta.hidden = actions.hidden = !run;
-    if (!run) { slot.replaceChildren(); slot.dataset.job = ""; continue; }
-    if (slot.dataset.job !== run.id) { slot.replaceChildren(); slot.dataset.job = run.id; }
-    paintBar(slot, p);
-    eta.textContent = p.stages ? `${p.stageLabel}${p.eta ? ` · ${p.eta}` : ""}` : (p.eta || p.line || "");
-    const sig = `${run.id}|${STOPPABLE(run.kind)}|${act.map(j => j.id).join(",")}`;
-    if (actions.dataset.sig !== sig) {
-      actions.dataset.sig = sig; actions.replaceChildren();
-      const show = document.createElement("button"); show.type = "button"; show.className = "small"; show.textContent = "Details";
-      show.onclick = () => openJobDialog(run.id);
-      actions.append(show);
-      if (STOPPABLE(run.kind)) { const st = stopButton(act); st.classList.add("small"); actions.append(st); }
+    const ln = $(".ln", row); ln.textContent = `${name}:`; ln.title = laneTip(lane);
+    const box = $(".lane-jobs", row);
+    const items = [...holding.map(j => [j, "run"]), ...line.map(j => [j, "wait"]), ...queuedOld.map(j => [j, "wait"])];
+    if (!items.length) { box.innerHTML = `<span class="what idle">idle</span>`; continue; }
+    box.querySelector(":scope > .idle")?.remove();
+    const order = [];
+    for (const [j, mode] of items) {
+      const key = `${j.id}-${mode}`;
+      let r = box.querySelector(`:scope > .lane-job[data-key="${key}"]`);
+      if (!r) {
+        r = document.createElement("div"); r.className = `lane-job ${mode}`; r.dataset.key = key; r.tabIndex = 0;
+        r.setAttribute("role", "button");
+        r.innerHTML = `<span class="what"></span><div class="bar-slot"></div><span class="eta"></span><div class="actions"></div>`;
+        r.onclick = e => { if (!e.target.closest("button")) openJobDialog(j.id); };
+        r.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openJobDialog(j.id); } };
+      }
+      const borrowed = mode === "run" && j.lane !== lane;
+      const p = jobProgress(j);
+      const what = $(".what", r);
+      what.textContent = jobLabel(j) + (borrowed ? " · vision model" : "")
+        + (mode === "run" && p.count ? ` ${p.done} / ${p.total}` : "") + (mode === "wait" ? ` · ${jobWaitText(j, true) || "queued"}` : "");
+      r.title = `${mode === "run" ? (p.line || jobLabel(j)) : jobWaitText(j) || "Queued"}\nClick for the job's window.`;
+      const slot = $(".bar-slot", r), eta = $(".eta", r), actions = $(".actions", r);
+      const showBar = mode === "run" && !borrowed;
+      slot.hidden = eta.hidden = !showBar;
+      if (showBar) {
+        if (slot.dataset.job !== String(j.id)) { slot.replaceChildren(); slot.dataset.job = String(j.id); }
+        paintBar(slot, p);
+        eta.textContent = j.waiting ? jobWaitText(j, true) : p.stages ? `${p.stageLabel}${p.eta ? ` · ${p.eta}` : ""}` : (p.eta || p.line || "");
+      }
+      const sig = `${j.id}|${mode}|${STOPPABLE(j.kind)}|${borrowed}`;
+      if (actions.dataset.sig !== sig) {
+        actions.dataset.sig = sig; actions.replaceChildren();
+        if (STOPPABLE(j.kind) && !borrowed) {
+          const st = stopButton([j]); st.classList.add("small"); st.textContent = mode === "run" ? "Stop" : "Remove";
+          st.title = mode === "run" ? "Stop this job" : "Take this job out of the queue"; actions.append(st);
+        }
+      }
+      actions.hidden = !actions.children.length;
+      order.push(r);                     // holders first, then the line
     }
+    for (const r of [...box.children]) if (!order.includes(r)) r.remove();
+    order.forEach((r, i) => { if (box.children[i] !== r) box.insertBefore(r, box.children[i] || null); });   // moved only when out of place
   }
   for (const r of [...el.children]) if (!rows.includes(r)) r.remove();
   rows.forEach((r, i) => { if (el.children[i] !== r) el.insertBefore(r, el.children[i] || null); });
@@ -412,6 +457,7 @@ function renderLanes() {
   const active = jobs.some(isActive);
   if (active && !polling) polling = setInterval(load, 2000);
   if (!active && polling) { clearInterval(polling); polling = null; }
+  trackJobEnds();
 }
 
 // Progress of a running job: counted by the server from the files the job has written

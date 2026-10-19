@@ -106,14 +106,16 @@ def test_brief_build_runs_brief_when_missing_then_builds(client, store, monkeypa
     calls = []
     monkeypatch.setattr(lr, "rebuild", lambda st, a, log=None: calls.append(("rebuild", a)) or {"images": []})
     r = client.post(f"{U}/library/asset/hall/brief-build", json={}).json()          # has a brief: build only
-    assert r["lane"] == "gpu0" and _wait(client, r)["status"] == "done" and calls == [("rebuild", "hall")]
+    assert r["lane"] == "cpu" and _wait(client, r)["status"] == "done" and calls == [("rebuild", "hall")]   # no VLM: no GPU
     assert client.post(f"{U}/library/asset/stall/brief-build", json={}).status_code == 400   # no brief, no sheets
     from asset_pipeline import building_proc
     monkeypatch.setattr(building_proc, "front_view", lambda st, sh, a: {"best": (sh[0], 1, 0.9), "scores": []})
     monkeypatch.setattr(building_proc, "brief", lambda *a, **k: calls.append(("brief", a[1], a[2], a[3], a[4], a[5])) or {})
     r = client.post(f"{U}/library/asset/hall/brief-build",
                     json={"sheet": "s.png", "force_brief": True, "form": "cube", "dims": [10, 10, 10]}).json()
-    assert _wait(client, r)["status"] == "done"
+    assert r["lane"] == "gpu0"                                   # the brief on GPU 0, then the build on the CPU
+    done = _wait(client, r)
+    assert done["status"] == "done" and done["lane"] == "cpu" and done["holds"] == []
     assert ("brief", "hall", "s.png", 1, "cube", [10.0, 10.0, 10.0]) in calls
 
 
@@ -326,3 +328,17 @@ def test_commit_project_commits_in_the_projects_own_repo(client, store):  # noqa
     r = client.post(f"{U}/git/commit", json={"message": "day one"}).json()
     assert r["committed"].endswith("day one") and client.get(f"{U}/git").json()["changes"] == []
     assert client.post(f"{U}/git/commit", json={"message": "again"}).status_code == 409       # nothing to commit
+
+
+def test_band_materials_are_read_once_on_gpu0(store, monkeypatch):  # noqa: F811
+    from asset_pipeline import building_proc, kit_proc
+    from asset_pipeline.project import write_json
+    seen = []
+    monkeypatch.setattr(building_proc, "band_types", lambda st, b, log=None: seen.append(1) or b["measured"].update(
+        materials={k: {"type": "marble", "why": ""} for k in ("base", "wall", "top")}))
+    sp = kit_proc.spec_path(store, "hall")
+    write_json(sp, {"kind": "building", "form": "cube", "view": "v.png", "measured": {}})
+    assert building_proc.read_band_materials(store, "hall") is True
+    assert building_proc.read_band_materials(store, "hall") is False and seen == [1]   # kept in the brief
+    write_json(sp, {"kind": "building", "form": "cube", "view": "v.png", "measured": {}, "surface": "patch"})
+    assert building_proc.read_band_materials(store, "hall") is False                 # sheet tiles: no VLM

@@ -19,6 +19,28 @@ PLAN.md has the design.
 - The vision model starts by itself when a step needs it (Tools › Start / Stop vision LLM to
   do it by hand). Builds and review renders run on the CPU, TRELLIS on GPU 0, ComfyUI on GPU 1.
 - Every long step is a job: progress in the **Jobs** panel, details and Stop in its dialog.
+  **Run in background** closes the dialog and the app stays usable; click the job in the Jobs
+  panel to open it again. A small notice in the corner says when a background job is done or
+  failed (click it for the details).
+
+### What runs where
+
+| Lane (Jobs panel) | Runs | At once |
+|---|---|---|
+| **GPU 0** | TRELLIS, the local vision model (scene analysis, Brief & build's brief, guidance, band materials) | 1 job |
+| **GPU 1** | ComfyUI: scenes, reference sheets, cut views, frames, SAM checks | 1 job |
+| **CPU** | Blender builds and review renders, city plan, greybox, shot passes, export, Unreal | 2 jobs (config `[jobs] cpu_slots`) |
+
+- A job started on a busy lane waits in line; the Jobs panel shows its place (#1, #2…).
+  Jobs that write the same files (one asset, the greybox and shots, the Unreal project) wait for
+  each other even on the CPU.
+- A GPU job also waits until its GPU has enough free VRAM (config `[jobs.vram_gb]`), for
+  example while your Blender or an Unreal editor holds GPU 0. The job's note says how much is
+  free and what holds it. ComfyUI's own memory counts as free for ComfyUI jobs.
+- The vision model loads for its job and unloads after it, unless another vision job is
+  queued. TRELLIS unloads it before it starts. **Brief & build** writes the brief on GPU 0, then
+  moves to the CPU for Blender, so GPU 0 is free for the next job during the build.
+- Unreal renders pick whichever GPU has room themselves (they run on the CPU lane).
 
 ## 2. Preflight
 

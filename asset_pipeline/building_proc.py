@@ -257,6 +257,22 @@ def band_types(store: ProjectStore, brief: dict, log=print) -> dict:
     return {b: (brief.get("material_types") or {}).get(b) or meas["materials"][b]["type"] for b in ("base", "wall", "top")}
 
 
+def read_band_materials(store: ProjectStore, asset: str, log=print) -> bool:
+    """Read the band materials off the sheet now (vision LLM) and keep them in the brief, as the
+    first build would: Brief & build does it while it holds GPU 0, so the Blender step on the CPU
+    doesn't load the model again. True when it read them."""
+    sp = kit_proc.spec_path(store, asset)
+    brief = read_json(sp, default=None)
+    if not brief or brief.get("kind") != "building" or "view" not in brief or "measured" not in brief \
+            or "materials" in brief["measured"]:
+        return False
+    if (brief.get("surface") or DEFAULT_SURFACE) != "library":
+        return False
+    band_types(store, brief, log)
+    write_json(sp, brief)
+    return True
+
+
 def band_contrast(a: np.ndarray, box) -> float | None:
     """A band's surface spread on the sheet: relative luminance std (linear) of its plain patch
     with the patch's own gradient (light falloff) removed."""

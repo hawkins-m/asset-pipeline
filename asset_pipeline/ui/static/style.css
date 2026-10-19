@@ -556,3 +556,21 @@ details summary { cursor: default; }
 .disk-props .disk-drive-row { display: flex; gap: 10px; align-items: center; }
 .disk-props .disk-drive-row svg { flex: none; }
 .disk-props .disk-actions { justify-content: flex-end; margin-top: 10px; }
+
+/* --- Jobs panel: one row per job on each lane; notices when a background job ends -------------- */
+.lane .ln { cursor: help; }
+.lane .lane-jobs { display: grid; gap: 4px; min-width: 0; }
+.lane .lane-job > * { grid-column: 1; }
+.lane .lane-job { display: grid; gap: 2px; min-width: 0; padding: 1px 2px; cursor: pointer; border: 1px solid transparent; }
+.lane .lane-job:hover, .lane .lane-job:focus-visible { border-color: var(--border-dark); background: var(--panel); outline: none; }
+.lane .lane-job.wait .what { color: var(--muted); }
+.lane .lane-job .eta { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane .what.idle { color: var(--muted); }
+#job-notices { position: fixed; right: 12px; bottom: 32px; display: grid; gap: 6px; z-index: 120; width: min(340px, calc(100vw - 24px)); }
+.job-notice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding: 6px 6px 6px 10px;
+  background: var(--panel); border: 1px solid var(--border-dark); box-shadow: inset 1px 1px var(--hi), 2px 2px 0 rgba(0,0,0,.25); }
+.job-notice .ico { font-weight: 700; color: var(--ready); }
+.job-notice.failed .ico { color: var(--danger); }
+.job-notice .link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; text-align: left; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
+.job-notice .why { grid-column: 2 / 4; color: var(--danger); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.lane .lane-job .what { white-space: normal; overflow-wrap: anywhere; }

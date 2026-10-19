@@ -471,8 +471,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     by default a new queue whose "comfy" lane waits for ComfyUI (comfy_service.Gate)."""
     app = FastAPI(title="Terraformer")
     if jobs is None:
+        from .. import gpu_policy
         comfy_gate = comfy_gate or comfy_service.Gate()
-        jobs = JobQueue(gates={"comfy": comfy_gate})
+        jobs = JobQueue(gates={"comfy": comfy_gate}, slots={"cpu": gpu_policy.settings()["cpu_slots"]},
+                        policy=gpu_policy.GpuPolicy())
     gate = comfy_gate or jobs.gates.get("comfy") or comfy_service.Gate()
     jobs.error_text = messages.app_text             # job failures in app terms, never CLI flags
 
@@ -601,7 +603,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         return {"project": store.load().model_dump(mode="json"),
                 "stars": review.load(store)["stars"],
                 "explore": batches, "derived": derived, "moodboard": s0_style.moodboard(store),
-                "jobs": [j.public() for j in jobs.list(slug)]}
+                "jobs": [j.public() for j in jobs.list(slug)],
+                "lanes": {"slots": jobs.slots, "gpus": jobs.policy.cfg["gpus"] if jobs.policy else {"gpu0": 0, "comfy": 1}}}
 
     @app.post("/api/projects/{slug}/role")
     def frame_role(slug: str, req: RoleReq):
@@ -1389,8 +1392,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_brief_build(slug: str, asset: str, req: BriefBuildReq):
         """Brief & build: the brief from a starred sheet (`ap library brief`), then the build and
         review renders (Save & Rebuild). An existing brief is replaced only with rebrief=true."""
-        from .. import kit_proc, library_review as lr
-        from ..jobs import current_job
+        from .. import building_proc, kit_proc, library_review as lr
+        from ..jobs import current_job, hop
         store = _store(slug)
         e, own = library_entries._entry_of(store, asset)      # an entry, or a kit module of one
         if e is None:
@@ -1422,9 +1425,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                         msg = msg.split(" (pick one")[0] + ". Click Brief & build again and choose the view to measure."
                     raise RuntimeError(msg) from None
                 lr.brief_edited(store, asset)                # a new brief: an Approved asset needs review again
+                building_proc.read_band_materials(store, asset, log=lambda *a: None)   # still on GPU 0
+                at(2, "Waiting for the CPU…")
+                hop("cpu")                                   # GPU 0 (and the VLM) go now; Blender is CPU work
             at(2, "Blender build, then renders…")
             return lr.rebuild(store, asset, log=lambda *a: None) | {"brief": rebrief}
-        return jobs.submit("library.brief_build", slug, run, lane="gpu0",
+        return jobs.submit("library.brief_build", slug, run, lane="gpu0" if rebrief else "cpu",
                            tag={"asset": asset, "sheet": req.sheet, "round": lr.current_round(store)}).public()
 
     @app.post("/api/projects/{slug}/library/asset/{asset}/guide")

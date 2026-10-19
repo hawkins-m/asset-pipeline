@@ -260,3 +260,68 @@ def test_progress_bars_never_go_back_agree_and_are_not_rebuilt(tmp_path, monkeyp
     assert rows[-1]["label"] == "Stage 5 of 7: e"
     assert all(r["same"] for r in rows)                                # bars updated in place, never rebuilt
     assert out["errors"] == []
+
+
+JOBS_SCRIPT = r'''
+import json, sys
+from playwright.sync_api import sync_playwright
+url = sys.argv[1]
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome")
+    pg = b.new_page(viewport={"width": 1400, "height": 800})
+    errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.goto(url); pg.wait_for_selector("#lanes .lane", state="attached", timeout=20000); pg.wait_for_timeout(500)
+    STILL = "() => { clearInterval(polling); polling = null; }"
+    out = pg.evaluate("""() => {
+      const now = Date.now() / 1000, J = (id, kind, lane, status, extra = {}) =>
+        ({id, kind, lane, status, tag: {asset: id}, created: now, note: "", holds: status === "running" ? [lane] : [], waiting: null, ...extra});
+      data.jobs.push(
+        J("b1", "library.build", "cpu", "running", {holds: ["cpu", "gpu0"]}),          // a VLM request borrowing GPU 0
+        J("b2", "library.rebuild", "cpu", "running"),
+        J("b3", "library.rebuild", "cpu", "queued", {waiting: {lane: "cpu", position: 1, reason: "slot"}}),
+        J("t1", "3d.trellis", "gpu0", "queued", {holds: [], waiting: {lane: "gpu0", position: 1, reason: "slot"}}),
+        J("v1", "plan.analyze", "comfy", "queued", {lane: "comfy", holds: ["comfy"],
+          waiting: {lane: "comfy", position: 1, reason: "vram"}, note: "Waiting for 12 GB of free VRAM on GPU 1 (4.0 GB free)"}));
+      renderLanes();
+      const rows = l => [...document.querySelectorAll(`#lanes .lane[data-lane="${l}"] .lane-job`)].map(r => r.querySelector(".what").textContent);
+      return {cpu: rows("cpu"), gpu0: rows("gpu0"), comfy: rows("comfy"),
+              tips: ["gpu0", "comfy", "cpu"].map(l => document.querySelector(`#lanes .lane[data-lane="${l}"] .ln`).title.length > 40),
+              comfyTitle: document.querySelector('#lanes .lane[data-lane="comfy"] .lane-job').title};
+    }""")
+    pg.evaluate(STILL)
+    pg.click('#lanes .lane[data-lane="cpu"] .lane-job.wait .what')           # a queued job reopens its window
+    pg.wait_for_selector(".loader-window"); pg.evaluate(STILL)
+    out["queued_line"] = pg.locator(".loader-window .ld-line2").inner_text()
+    out["buttons"] = pg.locator(".loader-window .ld-btns button").all_inner_texts()
+    pg.click(".loader-window [data-role=background]")
+    out["closed"] = pg.locator(".loader-window").count() == 0
+    pg.click('[role=tab][data-tab="city"]')                                     # usable while jobs run
+    out["tab"] = pg.locator('#tabs [role=tab][aria-selected="true"]').inner_text()
+    pg.evaluate("""() => { const f = id => data.jobs.find(j => j.id === id);
+      Object.assign(f("b3"), {status: "done", finished: Date.now() / 1000, waiting: null});
+      Object.assign(f("t1"), {status: "error", finished: Date.now() / 1000, waiting: null, error: "RuntimeError: out of memory"});
+      renderLanes(); clearInterval(polling); polling = null; }""")
+    out["notices"] = pg.locator(".job-notice").all_inner_texts()
+    pg.locator(".job-notice.failed .link").click()
+    pg.wait_for_selector(".loader-window"); pg.evaluate(STILL)
+    out["failed_line"] = pg.locator(".loader-window .ld-line2").inner_text()
+    out["errors"] = errs
+    b.close()
+print("RESULT " + json.dumps(out))
+'''
+
+
+@pytest.mark.skipif(not BROWSER_PY.exists(), reason="needs the browser-test env (Playwright + system Chrome)")
+def test_jobs_panel_lines_background_dialogs_and_notices(tmp_path, monkeypatch):
+    out = _browse(tmp_path, monkeypatch, JOBS_SCRIPT)
+    assert len(out["cpu"]) == 3 and out["cpu"][2].endswith("· #1 in line")        # two running, one in line
+    assert out["gpu0"][0].endswith("· vision model") and out["gpu0"][1].endswith("· #1 in line")
+    assert out["comfy"][0].endswith("· waiting for VRAM") and "4.0 GB free" in out["comfyTitle"]
+    assert all(out["tips"])
+    assert out["queued_line"] == "Queued: #1 in line for the CPU."
+    assert out["buttons"] == ["Run in background", "Cancel"]
+    assert out["closed"] and out["tab"] == "City"
+    assert len(out["notices"]) == 2 and "done" in out["notices"][0] and "out of memory" in out["notices"][1]
+    assert out["failed_line"].startswith("Failed: RuntimeError: out of memory")
+    assert out["errors"] == []

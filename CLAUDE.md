@@ -975,3 +975,20 @@ Until the deadline, all work follows these rules:
 - `asset_pipeline/trellis_progress.py` reads the stages from trellis.log: loading (2 passes),
   sparse structure, shape (2 passes on cascade modes), texture are counted (passes folded into
   one fraction); decode, UV/bake and export have no usable count and show as striped stages.
+
+## Job lanes and VRAM (2026-10-18)
+- `jobs.JobQueue`: one thread per job, FIFO slots per lane (gpu0 1, comfy 1, cpu `[jobs] cpu_slots`,
+  service 1). Jobs with the same `jobs.exclusive` key (a project's site/greybox, its UE project, one
+  asset) never overlap, even on the CPU: CPU jobs used to run one at a time and some share files.
+- `jobs.hop(lane)` moves a running job (Brief & build: brief on gpu0, then Blender on cpu);
+  `jobs.using("gpu0", "vlm")` wraps every local VLM request (`vlm.AutoLocal`), so CPU jobs that read
+  band materials or draft slots never run the VLM beside TRELLIS. Brief & build reads the band
+  materials (`building_proc.read_band_materials`) before it hops, or the build reloads the model.
+- `gpu_policy.GpuPolicy` keeps a GPU job queued until free VRAM >= `[jobs.vram_gb]` (the VLM: its
+  model's `vram_gb`); memory of the process the job uses counts as free (ComfyUI's, the loaded VLM's).
+  TRELLIS unloads the VLM first; the VLM is unloaded after a VLM job unless another one waits.
+- **amd-smi's per-process `vram_mem` is wrong here**: 368 KB for a ComfyUI holding 2.96 GB on GPU 1
+  (amd-smi 26.2.2). `gpu.vram_by_process` uses `rocm-smi --showpids --json` (VRAM per PID) plus
+  the text of `--showpidgpus` (its devices; that flag has no JSON).
+- Tests that need the old serial CPU lane pass `JobQueue(slots={"cpu": 1})`; `JobQueue()` has no policy
+  (no VRAM checks), the app builds it with one.
