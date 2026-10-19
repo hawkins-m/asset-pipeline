@@ -132,6 +132,7 @@ const ACTIONS = {
   planImage: {run: () => window.open(fileUrl(catalogData.plan_image, catalogData.plan_mtime), "_blank"), enabled: () => !!(catalogData && catalogData.plan_image)},
   shortcuts: {run: () => shortcutsDialog()},
   about: {run: () => aboutDialog()},
+  repo: {run: () => window.open(REPO_URL, "_blank", "noopener")},
 };
 const siteBusy = () => SITE_JOBS.some(k => activeJobs(k).length);
 
@@ -152,7 +153,7 @@ const MENUS = [
     ["Generate missing frames", "frames"], ["Cut views", "cutViews"], ["Make 3D…", "make3d"], "-",
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
   ["Tools", "T", [["ComfyUI status…", "comfyCheck"], ["Vision LLM status…", "vlmStatus"], "-", ["Open city plan image", "planImage"]]],
-  ["Help", "H", [["Keyboard shortcuts", "shortcuts"], "-", ["About Terraformer", "about"]]],
+  ["Help", "H", [["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", ["About Terraformer", "about"]]],
 ];
 
 function buildMenus() {
@@ -355,9 +356,12 @@ function shortcutsDialog() {
        ["1 / 2 / 3", "Frames: shot frame / design reference / reject"]]
       .map(([k, v]) => `<tr><td class="mono">${k}</td><td>${v}</td></tr>`).join("")}</tbody></table>`});
 }
+const REPO_URL = "https://github.com/hawkins-m/terraformer-3d";
 function aboutDialog() {
   dialog({title: "About Terraformer", body: `<p><b>Terraformer</b>, a 3D environment pipeline: concept images, greybox and shots →
-    reviewed frames → asset library → Unreal Engine.</p><p class="hint">Command line: <code>ap</code> (see USAGE.md).
+    reviewed frames → asset library → Unreal Engine.</p>
+    <p>Source: <a href="${REPO_URL}" target="_blank" rel="noopener">github.com/hawkins-m/terraformer-3d</a></p>
+    <p class="hint">Command line: <code>ap</code> (see USAGE.md); Python package <code>asset_pipeline</code>.
     Fonts: MS Sans Serif from 98.css (MIT), Cousine (SIL OFL 1.1).</p>`});
 }
 

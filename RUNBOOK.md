@@ -1,7 +1,8 @@
 # Terraformer runbook
 
 How to produce library assets for one area of a city, day to day, in the app: every step
-below is a click. Nothing needs a terminal after installing (README › Setup); the command line
+below is a click. Nothing needs a terminal after installing (README › Install; the repo is
+[`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraformer-3d)); the command line
 still works and is listed in the appendix. Examples use the placeholders `my-project`,
 `my-area`, `my-asset` and shots `med-a`, `med-b`. USAGE.md has every command's details;
 PLAN.md has the design.

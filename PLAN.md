@@ -1,6 +1,6 @@
 # Terraformer — Project Plan
 
-(Repo `asset-pipeline`, command `ap`; Terraformer is the tool's name in the UI and docs.)
+(Repo `terraformer-3d`, formerly `asset-pipeline`; command `ap`, Python package `asset_pipeline`; Terraformer is the tool's name in the UI and docs.)
 
 ## Goal
 A local-first tool that turns a single concept/scene image into organized, reviewable

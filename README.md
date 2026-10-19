@@ -9,8 +9,9 @@ machine with open-weights models. No partner or API nodes, no hosted services.
 
 Entry for the Comfy "Open Source Higgsfield" challenge, category **Open Weights Only**.
 
-The repo is `asset-pipeline` and the command line is `ap`; the UI (`ap ui`) is called
-Terraformer.
+The repo is [`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraformer-3d) (renamed from `asset-pipeline` on 2026-10-18;
+the old URL redirects). The command line is `ap`, the Python package is `asset_pipeline`, and
+the UI (`ap ui`) is called Terraformer.
 
 ## How it works
 
@@ -100,10 +101,14 @@ mkdir -p "$AP_ROOT"
 
 1. **The pipeline.**
    ```bash
-   git clone <this repo> asset-pipeline && cd asset-pipeline
+   git clone https://github.com/hawkins-m/terraformer-3d.git && cd terraformer-3d
    python3.12 -m venv .venv && source .venv/bin/activate
    pip install -e '.[dev]'
    ```
+   The repo is called `terraformer-3d`, but the command is still `ap` and the Python package is
+   still `asset_pipeline` (pip lists it as `asset-pipeline`): scripts, imports and config keep
+   their names. A checkout cloned under the old name keeps working; point it at the new URL with
+   `git remote set-url origin https://github.com/hawkins-m/terraformer-3d.git`.
    The `[paid]` extra (Gemini and Claude SDKs) is not needed and the paid backends refuse to run
    unless `AP_ALLOW_PAID_APIS=1` is set for a run.
 

@@ -1,7 +1,9 @@
 # CLAUDE.md
 
-The tool is called **Terraformer** in the UI and docs; the repo stays
-`asset-pipeline` and the command stays `ap`.
+The tool is called **Terraformer** in the UI and docs. The GitHub repo is
+`hawkins-m/terraformer-3d` (renamed from `asset-pipeline` on 2026-10-18; the old URL redirects).
+The command stays `ap`, the Python package `asset_pipeline` (pip: `asset-pipeline`), and the local
+checkout and `AP_ROOT` paths keep their `asset-pipeline` names.
 
 **[PLAN.md](PLAN.md) is the source of truth for the design** (goal, architecture, stages,
 milestones). Read it before starting work. This file only covers the machine and the

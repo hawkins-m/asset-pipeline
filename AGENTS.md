@@ -1,6 +1,8 @@
 # AGENTS.md
 
-Guidance for coding agents other than Claude Code. The rules live in
+Guidance for coding agents other than Claude Code, for the repo
+[`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraformer-3d) (formerly `asset-pipeline`; the command is still `ap`, the
+package still `asset_pipeline`). The rules live in
 [CLAUDE.md](CLAUDE.md); read it in full before changing anything. The design source of truth
 is [PLAN.md](PLAN.md); if the two disagree on design, PLAN.md wins.
 
