@@ -20,6 +20,9 @@ reflects what was actually verified.
   - Safety net: `git config core.hooksPath scripts/git-hooks`. Its pre-commit hook refuses
     staged media, project-shaped files, any project slug, and terms listed in
     `$AP_ROOT/private-terms.txt`. Don't bypass it.
+  - The only media it lets through: images directly in `docs/images/` whose file name is in
+    `docs/images/APPROVED.txt` (as committed). **Never add a name to APPROVED.txt without asking
+    Mason first**, even for a neutral starter-project screenshot.
   - Sample and test layouts in code must be neutral (`sw_site.starter_layout()`).
 - Never commit venvs, model weights, caches or generated outputs (images, meshes, GLBs).
   Those live on the storage drive under `$AP_ROOT` (below).

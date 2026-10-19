@@ -3,7 +3,10 @@
 #
 # Blocks staged changes that
 #   - add media / data files (images, video, meshes, .blend, arrays), or project-shaped
-#     files (briefs, layout/shot/greybox/review JSON);
+#     files (briefs, layout/shot/greybox/review JSON). One exception: an image directly in
+#     docs/images/ whose file name is listed in docs/images/APPROVED.txt as committed (the
+#     staged version; one name per line, # comments). Only the repo owner adds names there;
+#     agents ask first;
 #   - mention a project slug (every dir with a project.json under $AP_ROOT/projects) or a
 #     term listed in $AP_ROOT/private-terms.txt (one per line, # comments; kept outside
 #     the repo so the terms themselves never get committed).
@@ -14,7 +17,16 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../ap_root.sh"
 fail=0
 
 files=$(git diff --cached --name-only --diff-filter=ACMR)
-bad_files=$(printf '%s\n' "$files" | grep -iE '\.(png|jpe?g|webp|gif|bmp|tiff?|exr|hdr|psd|pur|mp4|mov|webm|npz|npy|blend1?|glb|gltf|fbx|obj|ply|usd[ac]?|uasset|umap)$|(^|/)[^/]*brief[^/]*\.(md|txt)$|(^|/)(layout|shots|greybox|review|project)\.json$|(^|/)runs\.jsonl$|(^|/)projects/' || true)
+media=$(printf '%s\n' "$files" | grep -iE '\.(png|jpe?g|webp|gif|bmp|tiff?|exr|hdr|psd|pur|mp4|mov|webm|npz|npy|blend1?|glb|gltf|fbx|obj|ply|usd[ac]?|uasset|umap)$|(^|/)[^/]*brief[^/]*\.(md|txt)$|(^|/)(layout|shots|greybox|review|project)\.json$|(^|/)runs\.jsonl$|(^|/)projects/' || true)
+approved=$(git show :docs/images/APPROVED.txt 2>/dev/null | sed 's/#.*//' | awk 'NF {print $1}' || true)
+bad_files=""
+for f in $media; do
+  case "$f" in
+    docs/images/*/*) ;;                                  # never in a subfolder
+    docs/images/*) printf '%s\n' "$approved" | grep -qxF -- "${f#docs/images/}" && continue ;;
+  esac
+  bad_files="$bad_files $f"
+done
 if [ -n "$bad_files" ]; then
   echo "pre-commit: media or project files staged (projects are private, this repo is public):" >&2
   printf '  %s\n' $bad_files >&2

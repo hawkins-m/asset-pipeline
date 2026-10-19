@@ -148,3 +148,36 @@ def test_ap_gpu_vendor_sh(tmp_path):
     r = _sh(f'AP_ROOT=/x; source {REPO}/scripts/build_env_common.sh; ap_gpu_vendor', {"PATH": path})
     expect = "amd" if Path("/opt/rocm/bin/rocm-smi").exists() else "nvidia"
     assert r.stdout.strip() == expect
+
+
+def test_pre_commit_lets_only_approved_docs_images_through(tmp_path):
+    """Images pass only directly in docs/images/ and only when the committed APPROVED.txt names them."""
+    repo, root = tmp_path / "r", tmp_path / "root"
+    repo.mkdir(), root.mkdir()
+    env = {"AP_ROOT": str(root), "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True,
+                              env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), **env})
+    git("init", "-q")
+    git("config", "core.hooksPath", str(REPO / "scripts" / "git-hooks"))
+    img = repo / "docs" / "images"
+    (img / "sub").mkdir(parents=True)
+    for name in ("ok.png", "other.png", "sub/ok.png"):
+        (img / name).write_bytes(b"\x89PNG")
+    (img / "APPROVED.txt").write_text("# list\nok.png   # fine\n")
+
+    def commit(*paths):
+        git("reset", "-q")
+        git("add", *paths)
+        return git("commit", "-qm", "x")
+    assert commit("docs/images/ok.png").returncode != 0                     # the list isn't committed yet
+    r = commit("docs/images/APPROVED.txt", "docs/images/ok.png")
+    assert r.returncode == 0, r.stderr
+    assert commit("docs/images/other.png").returncode != 0                  # not listed
+    assert commit("docs/images/sub/ok.png").returncode != 0                 # a subfolder never passes
+    (repo / "shot.png").write_bytes(b"\x89PNG")
+    assert "shot.png" in commit("shot.png").stderr                          # anywhere else: refused as before
+    (img / "APPROVED.txt").write_text("ok.png\nother.png\n")                # listed but the list not staged
+    assert commit("docs/images/other.png").returncode != 0

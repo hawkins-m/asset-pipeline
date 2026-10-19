@@ -1,0 +1,3 @@
+# Images the privacy hook (scripts/git-hooks/pre-commit) lets into docs/images/: one file name per
+# line. Only the repo owner adds names here; agents ask first. Every other image is refused.
+terraformer-main.png    # main window, starter city (demo-a), approved 2026-10-18

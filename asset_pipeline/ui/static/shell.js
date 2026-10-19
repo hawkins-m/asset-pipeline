@@ -360,6 +360,8 @@ const REPO_URL = "https://github.com/hawkins-m/terraformer-3d";
 function aboutDialog() {
   dialog({title: "About Terraformer", body: `<p><b>Terraformer</b>, a 3D environment pipeline: concept images, greybox and shots →
     reviewed frames → asset library → Unreal Engine.</p>
+    <p>Design: styled after classic Windows XP/Me-era desktop software, in a muted grey palette that avoids
+    near-white glare during long sessions, with an animated icon per job kind (README › Design).</p>
     <p>Source: <a href="${REPO_URL}" target="_blank" rel="noopener">github.com/hawkins-m/terraformer-3d</a></p>
     <p class="hint">Command line: <code>ap</code> (see USAGE.md); Python package <code>asset_pipeline</code>.
     Fonts: MS Sans Serif from 98.css (MIT), Cousine (SIL OFL 1.1).</p>`});

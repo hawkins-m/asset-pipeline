@@ -13,6 +13,17 @@ The repo is [`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraforme
 the old URL redirects). The command line is `ap`, the Python package is `asset_pipeline`, and
 the UI (`ap ui`) is called Terraformer.
 
+## Design
+
+![Terraformer's main window: the starter city's Shots tab, with a shot-pass render running in its job window](docs/images/terraformer-main.png)
+
+Terraformer's interface is deliberately styled after Windows XP/Me-era desktop software: menu
+bar, toolbar, group boxes, tabbed panels, status bar and Tahoma / MS Sans Serif-style type. Its
+muted grey palette avoids near-white glare during long sessions. Each pipeline stage has its own
+small animated job icon (frame generation, greybox building, 3D conversion, Unreal export and
+more), so long GPU jobs stay readable at a glance. The intent is a calm, dense, tool-like
+workspace for artists rather than a web-app look.
+
 ## How it works
 
 One line per stage, in order. **Artist:** marks a decision point; everything else runs unattended.
