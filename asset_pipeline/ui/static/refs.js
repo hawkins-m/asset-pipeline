@@ -16,9 +16,13 @@ function renderRefs() {
   $("#refs-missing").textContent = missingJobs.length ? "Generating…" : `Generate missing (${missing})`;
   setStop("#refs-missing-stop", missingJobs);
   const starred = refs.reduce((k, u) => k + u.sheets.filter(s => data.stars[s]).length, 0);
-  $("#refs-summary").textContent = refs.length ?
-    `${refs.length} assets, ${refs.length - missing} with sheets, ${starred} sheet(s) starred.` :
-    "No included assets yet: analyse a scene in Library › Scene plans.";
+  const pre = !refs.length && libraryPrereq();
+  const sumText = refs.length ? `${refs.length} assets, ${refs.length - missing} with sheets, ${starred} sheet(s) starred.`
+    : pre ? prereqHtml(pre) : "No included assets yet.";
+  if ($("#refs-summary").dataset.sig !== sumText) {          // set only on a change: polling must not rebuild the button
+    $("#refs-summary").dataset.sig = sumText;
+    if (refs.length) $("#refs-summary").textContent = sumText; else { $("#refs-summary").innerHTML = sumText; wireGo($("#refs-summary")); }
+  }
 
   // keyed: a unit is rebuilt only when its sheets, stars or job changed (keyed.js), so sheets never reload
   const plansR = [...new Set(refs.map(u => u.plan))];

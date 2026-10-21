@@ -56,7 +56,7 @@ const ctx = {console, JSON, Object, Set, Array, Math, String, Number,
   libEntries: () => S.libraryData && S.libraryData.plan ? S.libraryData.plan.entries : [],
   libDecision: e => (S.libraryData.decisions[e.id] || {}).decision || null};
 vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(process.argv[1], "utf8") + "\n;globalThis.__wf = workflow().map(s => [s.id, s.status, s.next.ok]);", ctx);
+vm.runInContext(fs.readFileSync(process.argv[1], "utf8") + "\n;globalThis.__wf = " + (S.expr || "workflow().map(s => [s.id, s.status, s.next.ok])") + ";", ctx);
 console.log(JSON.stringify(ctx.__wf));
 """
 
@@ -68,7 +68,8 @@ def _wf(**over):
              "unrealData": {"greybox": False, "export": None, "project": False}}
     state.update(over)
     out = subprocess.run([NODE, "-e", HARNESS, str(STATIC / "workflow.js"), json.dumps(state)], capture_output=True, text=True, check=True)
-    return {k: (st, ok) for k, st, ok in json.loads(out.stdout)}
+    got = json.loads(out.stdout)
+    return got if "expr" in over else {k: (st, ok) for k, st, ok in got}
 
 
 @pytest.mark.skipif(not NODE, reason="needs node")
@@ -155,3 +156,32 @@ def test_unreal_tab_is_numbered_steps_each_with_a_reason():
                      ("render", "4", "Render shots"), ("look", "5", "Match look")]
     js = (STATIC / "unreal.js").read_text()
     assert "Create look preset…" in js and "ue/looks/new" in js and "ue-why" in js
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_library_empty_states_name_the_real_prerequisite():
+    def pre(views=False, **kw):
+        p = _wf(expr=f"libraryPrereq({str(views).lower()})", **kw)
+        return p and (p["text"], p["go"])
+    assert "Scene plans" in pre()[0]                                               # no site layout: scene mode
+    built = {"layout": True, "summary": None, "shots": []}
+    assert pre(siteData=built)[1] == ["site", None] and "greybox" in pre(siteData=built)[0]
+    assert pre(siteData=built, city=True)[1] == ["city", None]
+    built["summary"] = {"slots": 1}
+    assert pre(siteData=built)[1] == ["frames", None]
+    frames = {"shots": [{"id": "a", "mood": False, "locked": "frames/a/b/f.png", "batches": []}]}
+    assert pre(siteData=built, framesData=frames)[1] == ["library", "assets"] and "Discover assets" in pre(siteData=built, framesData=frames)[0]
+    lib = {"plan": {"entries": [{"id": "e1"}], "unseen": []}, "decisions": {}}
+    assert "decide each asset" in pre(siteData=built, framesData=frames, libraryData=lib)[0]
+    lib["decisions"] = {"e1": {"decision": "description"}}
+    assert pre(siteData=built, framesData=frames, libraryData=lib) is None
+    assert pre(True, siteData=built, framesData=frames, libraryData=lib)[1] == ["library", "refs"]
+    for f in ("refs.js", "review.js"):
+        assert "analyse a scene in Library › Scene plans" not in (STATIC / f).read_text()
+
+
+def test_generated_go_buttons_never_carry_data_tab_or_data_sub():
+    """showSub hides every [data-sub] element in the Library tab: an empty-state button carrying
+    data-sub="" vanished as soon as a sub-tab was shown."""
+    wf = (STATIC / "workflow.js").read_text()
+    assert 'data-sub="${' not in wf and 'data-tab="${nextTab}"' not in wf and "data-go-tab" in wf

@@ -73,7 +73,7 @@ const STEP_STATE = {
     const next = {ok: starred > 0 || !!(reviewData && reviewData.assets.some(a => a.results.length)),
       reason: "Star at least one reference sheet (Library › Reference sheets)."};
     if (!plan) return {status: run ? "running" : lockedFrames.length ? "ready" : "none", next,
-      detail: lockedFrames.length ? "discover the assets the locked shots show" : "lock a shot's frame first (Frames)"};
+      detail: lockedFrames.length ? "discover the assets the locked shots show" : (libraryPrereq() || {text: ""}).text.replace(/^No assets yet: /, "")};
     // a frame locked after the plan, or a different frame now locked: the plan never considered it
     // (frames it considered and dropped as an older layout are in candidates too, and stay dropped)
     const considered = new Set((plan.candidates || []).map(c => c.frame));
@@ -126,6 +126,29 @@ function workflow() {
   });
 }
 
+// --- empty states: the real missing prerequisite for the library (Reference sheets, Views and 3D) ---
+// {text, go: [tab, sub], label}: world/city projects go greybox → locked frame → Discover assets →
+// decisions → sheets; a project with no site layout (scene mode) still starts from Scene plans.
+function libraryPrereq(views = false) {
+  const go = (text, tab, sub, label) => ({text, go: [tab, sub], label});
+  if (!siteData || !siteData.layout) return go("No assets yet: analyse a scene in Library › Scene plans.", "library", "plan", "Open Scene plans");
+  const lay = isCity() ? "city" : "site";
+  if (!siteData.summary) return go("No assets yet: build the greybox first.", lay, null, `Open ${TAB_NAMES[lay]}`);
+  const locked = (framesData ? framesData.shots : []).filter(r => r.locked && r.locked !== "greybox" && !r.mood);
+  if (!locked.length) return go("No assets yet: lock a shot on its approved frame (Frames › Use this frame for this shot).", "frames", null, "Open Frames");
+  if (!libraryData || !libraryData.plan) return go("No assets yet: discover them from the locked shots (Library › Discover assets from locked shots).", "library", "assets", "Open Asset review");
+  const ents = libEntries(), included = ents.filter(e => libDecision(e) && libDecision(e) !== "exclude");
+  if (!included.length) return go("No assets included yet: decide each asset in Library › Asset review.", "library", "assets", "Open Asset review");
+  if (views) return go("No views yet: star reference sheets in Library › Reference sheets, then Cut views.", "library", "refs", "Open Reference sheets");
+  return null;
+}
+// the hint as HTML with a button that goes there (wired by wireGo)
+// (data-go-*, never data-tab / data-sub: showTab and showSub hide every element carrying those)
+const prereqHtml = p => `${esc(p.text)} <button type="button" class="small prereq-go" data-go-tab="${p.go[0]}" data-go-sub="${p.go[1] || ""}">${esc(p.label)}</button>`;
+function wireGo(el) {
+  el.querySelectorAll(".prereq-go").forEach(b => b.onclick = () => { showTab(b.dataset.goTab); if (b.dataset.goSub) showSub(b.dataset.goSub); });
+}
+
 // --- header strip ------------------------------------------------------------------------------
 function stepHead(tab) {
   const panel = $(`section.tabpanel[data-tab="${tab}"]`);
@@ -150,11 +173,11 @@ function renderStepHeads() {
       ${s.note ? `<span class="hint sh-note" style="margin:0">${esc(s.note)}</span>` : ""}</div>
     <span class="st-chip st-${s.status}" title="${esc(s.detail)}">${esc(ST[s.status])}</span>
     <span class="sh-detail">${esc(s.detail)}</span>
-    ${behind.map(b => `<span class="sh-behind">${esc(b.name)} is out of date: <button type="button" class="link sh-go" data-tab="${b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]}">revisit ${esc(TAB_NAMES[b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]])}</button></span>`).join("")}
+    ${behind.map(b => `<span class="sh-behind">${esc(b.name)} is out of date: <button type="button" class="link sh-go" data-go-tab="${b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]}">revisit ${esc(TAB_NAMES[b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]])}</button></span>`).join("")}
     <span class="spacer"></span>
     ${nxt ? `<span class="sh-reason">${s.next.ok ? "" : esc(s.next.reason || "")}</span>
-      <button type="button" class="default sh-next" data-tab="${nextTab}" ${s.next.ok ? "" : "disabled"}
+      <button type="button" class="default sh-next" data-go-tab="${nextTab}" ${s.next.ok ? "" : "disabled"}
         title="${esc(s.next.ok ? `Go to ${TAB_NAMES[nextTab]}` : s.next.reason || "")}">Next: ${esc(TAB_NAMES[nextTab])} →</button>`
       : `<span class="sh-reason">${esc(s.next.reason || "")}</span>`}`;
-  el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+  el.querySelectorAll("[data-go-tab]").forEach(b => b.onclick = () => showTab(b.dataset.goTab));
 }

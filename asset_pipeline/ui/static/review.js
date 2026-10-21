@@ -11,9 +11,13 @@ function renderReview() {
   setStop("#cut-stop", cutJobs);
   const withViews = reviewData.assets.filter(a => a.views.length).length;
   const built = reviewData.assets.filter(a => a.results.length).length;
-  $("#review-summary").textContent = reviewData.assets.length ?
-    `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${reviewData.assets.length} assets have views, ${built} have a 3D model.` :
-    "No assets yet: analyse a scene in Library › Scene plans.";
+  const pre = (!reviewData.assets.length || (!reviewData.starred_sheets && !withViews && !built)) && libraryPrereq(true);
+  const sumText = pre ? prereqHtml(pre)
+    : `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${reviewData.assets.length} assets have views, ${built} have a 3D model.`;
+  if ($("#review-summary").dataset.sig !== sumText) {
+    $("#review-summary").dataset.sig = sumText;
+    if (pre) { $("#review-summary").innerHTML = sumText; wireGo($("#review-summary")); } else $("#review-summary").textContent = sumText;
+  }
 
   // keyed: only rows whose data changed are rebuilt, keeping their loaded images (keyed.js)
   const plans = [...new Set(reviewData.assets.map(a => a.plan))];
