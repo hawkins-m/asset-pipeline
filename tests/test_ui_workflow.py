@@ -48,7 +48,7 @@ HARNESS = r"""
 const fs = require("fs"), vm = require("vm");
 const S = JSON.parse(process.argv[2]);
 const ctx = {console, JSON, Object, Set, Array, Math, String, Number, ACTIONS: {},
-  data: S.data, siteData: S.siteData, framesData: S.framesData, libraryData: S.libraryData, reviewData: S.reviewData,
+  data: S.data, statusData: S.statusData || null, siteData: S.siteData, framesData: S.framesData, libraryData: S.libraryData, reviewData: S.reviewData,
   unrealData: S.unrealData, refs: S.refs || [], lr: {list: S.builds ? {assets: S.builds} : null}, slug: "p", currentTab: "city",
   TAB_NAMES: {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library", views: "Views and 3D", unreal: "Unreal"},
   activeJobs: k => (S.jobs || []).filter(j => j === k), isActive: () => false, applyRunning: () => false,
@@ -82,11 +82,18 @@ def test_workflow_states_come_from_project_state_not_single_files():
     built = {"layout": True, "summary": {"slots": 3, "stale": False}, "shots": [
         {"id": "a", "rendered": "2026-10-20T10:00", "stale": False}, {"id": "b", "rendered": None, "stale": False}]}
     w = _wf(siteData=built)
-    assert w["layout"] == ("done", True)
+    assert w["layout"] == ("done", True) and w["greybox"] == ("done", True)    # own layout.json: nothing to generate
     assert w["shots"] == ("stale", True)                         # one fresh pass is enough to go on
+    assert _wf(siteData={"layout": True, "summary": None, "shots": []})["greybox"] == ("ready", False)
+    assert _wf(siteData=built, city=True)["layout"] == ("ready", True)                 # a city with no plan yet
+    assert _wf(siteData=built, city=True, statusData={"plan_mtime": 5})["layout"] == ("done", True)
+    style_text = {"project": {"anchor": {"images": [], "style_text": "ink"}}, "explore": [], "moodboard": {}, "jobs": []}
+    assert _wf(data=style_text, expr="workflow()[0].label") == "Complete (text only)"
 
     w = _wf(siteData=built, ood={"plan": True, "greybox": False, "passes": 1, "any": True}, city=True)
-    assert w["layout"][0] == "stale"
+    assert w["layout"][0] == "stale" and w["greybox"][0] == "done"     # re-planning alone never stales the greybox
+    w = _wf(siteData=built, ood={"plan": True, "greybox": True, "passes": 1, "any": True}, city=True)
+    assert w["greybox"][0] == "stale"
 
     # frames: generated but nothing locked = needs review, Next closed; all locked = complete
     frames = {"shots": [{"id": "a", "mood": False, "locked": None, "batches": [{"archived": False, "frames": [{"key": "frames/a/b/f.png", "role": None}]}]}]}
@@ -125,9 +132,9 @@ def test_stage_list_uses_the_workflow_states_in_tab_order():
     wf = (STATIC / "workflow.js").read_text()
     ids = re.findall(r'\{id: "(\w+)", tabs: \[([^\]]*)\]', wf)
     tabs = [t.strip().strip('"') for _, ts in ids for t in ts.split(",")]
-    assert [i for i, _ in ids] == ["style", "layout", "shots", "frames", "library", "views", "unreal"]
-    assert sorted(tabs) == sorted(re.findall(r'data-tab="(\w+)">', _html())) and '"city", "site"' in wf
-    assert "City = procedural layout, Site = your own Blender layout" in _html()
+    assert [i for i, _ in ids] == ["style", "layout", "greybox", "shots", "frames", "library", "views", "unreal"]
+    assert tabs == re.findall(r'<button role="tab" data-tab="(\w+)">', _html())          # one tab per step, same order
+    assert "one or the other" not in _html() + wf
 
 
 def test_frames_lock_button_star_note_and_discover_assets():
@@ -167,7 +174,7 @@ def test_library_empty_states_name_the_real_prerequisite():
     assert "Scene plans" in pre()[0]                                               # no site layout: scene mode
     built = {"layout": True, "summary": None, "shots": []}
     assert pre(siteData=built)[1] == ["site", None] and "greybox" in pre(siteData=built)[0]
-    assert pre(siteData=built, city=True)[1] == ["city", None]
+    assert pre(siteData=built, city=True)[1] == ["site", None]                  # the greybox is built in Greybox
     built["summary"] = {"slots": 1}
     assert pre(siteData=built)[1] == ["frames", None]
     frames = {"shots": [{"id": "a", "mood": False, "locked": "frames/a/b/f.png", "batches": []}]}

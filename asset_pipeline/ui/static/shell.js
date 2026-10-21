@@ -642,15 +642,15 @@ function renderStages() {
   const ul = $("#stage-list");
   if (!data || typeof workflow !== "function") { ul.replaceChildren(); return; }
   const wf = workflow();
-  const sig = JSON.stringify([currentTab, isCity(), wf.map(s => [s.id, s.status, s.detail])]);
+  const sig = JSON.stringify([currentTab, wf.map(s => [s.id, s.status, s.label, s.detail])]);
   if (ul.dataset.sig === sig) return;
   ul.dataset.sig = sig; ul.replaceChildren();
   wf.forEach((s, i) => {
     const li = document.createElement("li"); li.setAttribute("role", "option");
     li.setAttribute("aria-selected", s.tabs.includes(currentTab));
-    const tab = s.id === "layout" ? (isCity() ? "city" : "site") : s.tabs[0];
-    li.title = `${s.name}: ${ST[s.status]}${s.detail ? ` · ${s.detail}` : ""}${s.note ? `\n${s.note}` : ""}`;
-    li.innerHTML = `<span><span class="n">${i + 1}</span>${esc(s.name)}</span><span class="${STAGE_CLASS[s.status] || ""}">${esc(ST[s.status])}</span>`;
+    const tab = s.tabs[0];
+    li.title = `${s.name}: ${s.label || ST[s.status]}${s.detail ? ` · ${s.detail}` : ""}`;
+    li.innerHTML = `<span><span class="n">${i + 1}</span>${esc(s.name)}</span><span class="${STAGE_CLASS[s.status] || ""}">${esc(s.label || ST[s.status])}</span>`;
     li.onclick = () => showTab(tab);
     ul.append(li);
   });

@@ -5,14 +5,12 @@
 const ST = {none: "Not started", input: "Needs input", ready: "Ready", running: "Running", review: "Needs review",
   stale: "Out of date", done: "Complete"};
 
-// Steps in tab order. Site and City are one step: City is the procedural layout, Site your own
-// Blender layout; a project uses one or the other.
+// Steps in tab order. Layout (tab id "city") sets the rules and generates where every building slot
+// goes; Greybox (tab id "site") builds the block-out from it, which may then be edited in Blender.
 const STEPS = [
   {id: "style", tabs: ["style"], name: "Style", desc: "explore looks and save a style anchor (optional: frames use its style text)."},
-  {id: "layout", tabs: ["city", "site"], name: "Site / City", desc: {
-    city: "lay out the city procedurally from building types and districts, then build the greybox.",
-    site: "build the greybox from your own layout, or edit it in Blender and re-read it."},
-    note: "City = procedural layout, Site = your own Blender layout; use one or the other."},
+  {id: "layout", tabs: ["city"], name: "Layout", desc: "set the rules and generate the layout (where every building slot goes)."},
+  {id: "greybox", tabs: ["site"], name: "Greybox", desc: "build the block-out from the layout; optionally edit it in Blender and re-read it (the .blend then becomes the source of truth)."},
   {id: "shots", tabs: ["shots"], name: "Shots", desc: "render each shot camera's depth, edge and object-id passes from the greybox."},
   {id: "frames", tabs: ["frames"], name: "Frames", desc: "generate concept frames per shot and lock the one to use for each shot."},
   {id: "library", tabs: ["library"], name: "Library", desc: "discover the assets the locked shots show, decide how each is made, and build them."},
@@ -32,18 +30,31 @@ const STEP_STATE = {
     const detail = st === "done" ? ((a.images || []).length ? `anchor saved: ${plural(a.images.length, "image")}${a.style_text ? " and style text" : ""}` : "style text saved (no anchor images)")
       : st === "review" ? "star scenes or objects, then save the style anchor (or just the style text)"
       : st === "none" ? "optional: skip it to work without a style anchor" : "";
-    return {status: st, detail, next: {ok: true}};
+    // an anchor of style text alone is complete, and says so
+    return {status: st, detail, next: {ok: true}, label: st === "done" && !(a.images || []).length ? "Complete (text only)" : null};
   },
   layout() {
+    // a city: generated from the catalog by Update city plan (site/city_plan.png); a project with its own
+    // layout.json (the starter layout or one made in Blender) has no plan to generate
+    const s = siteData, o = outOfDate();
+    const planned = !!(typeof statusData !== "undefined" && statusData && statusData.plan_mtime);
+    const st = anyJob(["site.plan"]) ? "running" : !s.layout ? "input"
+      : !isCity() ? "done" : o.plan ? "stale" : planned ? "done" : "ready";
+    const detail = !s.layout ? "start from the starter city here, or from the starter layout in the Greybox tab to lay it out in Blender"
+      : !isCity() ? "your own layout (site/layout.json): edit it in Blender from the Greybox tab"
+      : o.plan ? "the catalog changed after the last plan: Update city plan" : planned ? "city plan up to date" : "generate the city plan";
+    return {status: st, detail, next: {ok: !!s.layout, reason: "Start a layout first."}};
+  },
+  greybox() {
     const s = siteData, o = outOfDate(), sum = s.summary;
-    const run = anyJob(["site.plan", "site.build", "site.extract", "site.preview"]) || applyRunning();
-    const stale = sum && (sum.stale || o.plan || o.greybox);
-    const st = run ? "running" : !s.layout ? "input" : !sum ? "ready" : stale ? "stale" : "done";
-    const detail = !s.layout ? "start from the starter city (City tab) or the starter layout (Site tab)"
+    const run = anyJob(["site.build", "site.extract", "site.preview"]) || applyRunning();
+    const stale = sum && (sum.stale || o.greybox);
+    const st = run ? "running" : !s.layout ? "none" : !sum ? "ready" : stale ? "stale" : "done";
+    const detail = !s.layout ? "no layout yet (Layout), or start from the starter layout here"
       : !sum ? "layout ready: build the greybox"
-      : stale ? [o.plan && "the catalog changed after the last plan", o.greybox && "the catalog changed after the last greybox",
+      : stale ? [o.greybox && "the catalog changed after the last build",
         sum.stale && "the .blend changed since it was last read (Re-read .blend)"].filter(Boolean).join("; ")
-      : `greybox built: ${plural(sum.slots, "slot")}${isCity() ? " from the city plan" : ""}`;
+      : `greybox built: ${plural(sum.slots, "slot")}${sum.edited ? ", edited in Blender" : ""}`;
     return {status: st, detail, next: {ok: !!sum, reason: "Build the greybox first."}};
   },
   shots() {
@@ -132,8 +143,7 @@ function workflow() {
 function libraryPrereq(views = false) {
   const go = (text, tab, sub, label) => ({text, go: [tab, sub], label});
   if (!siteData || !siteData.layout) return go("No assets yet: analyse a scene in Library › Scene plans.", "library", "plan", "Open Scene plans");
-  const lay = isCity() ? "city" : "site";
-  if (!siteData.summary) return go("No assets yet: build the greybox first.", lay, null, `Open ${TAB_NAMES[lay]}`);
+  if (!siteData.summary) return go("No assets yet: build the greybox first.", "site", null, `Open ${TAB_NAMES.site}`);
   const locked = (framesData ? framesData.shots : []).filter(r => r.locked && r.locked !== "greybox" && !r.mood);
   if (!locked.length) return go("No assets yet: lock a shot on its approved frame (Frames › Use this frame for this shot).", "frames", null, "Open Frames");
   if (!libraryData || !libraryData.plan) return go("No assets yet: discover them from the locked shots (Library › Discover assets from locked shots).", "library", "assets", "Open Asset review");
@@ -167,18 +177,18 @@ function renderGuide() {
   if (el.hidden) return;
   const wf = workflow();
   const nextUp = wf.find(s => s.status !== "done" && !(s.id === "style" && s.status === "none"));
-  const sig = JSON.stringify([currentTab, isCity(), wf.map(s => [s.status, s.detail]), nextUp && nextUp.id]);
+  const sig = JSON.stringify([currentTab, wf.map(s => [s.status, s.label, s.detail]), nextUp && nextUp.id]);
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.innerHTML = `<fieldset><legend>Guide</legend>
       <div class="row" style="margin:0 0 6px"><span class="hint" style="margin:0;flex:1">Ticks itself from the project's state.</span>
         <button type="button" class="small" id="guide-close" title="Help › Show guide turns it back on">Hide</button></div>
       <ol class="guide-steps">${wf.map((s, i) => {
-        const tab = s.id === "layout" ? (isCity() ? "city" : "site") : s.tabs[0];
+        const tab = s.tabs[0];
         return `<li class="${s.status === "done" ? "done" : ""}${nextUp && s.id === nextUp.id ? " next" : ""}${s.tabs.includes(currentTab) ? " here" : ""}">
           <span class="gcheck" aria-hidden="true">${s.status === "done" ? "☑" : "☐"}</span>
-          <div><b>${i + 1}. ${esc(s.name)}</b> <span class="st-chip st-${s.status}">${esc(ST[s.status])}</span>
-            <div class="hint" style="margin:2px 0 0">${esc(s.detail || (typeof s.desc === "string" ? s.desc : s.desc.city))}</div></div>
+          <div><b>${i + 1}. ${esc(s.name)}</b> <span class="st-chip st-${s.status}">${esc(s.label || ST[s.status])}</span>
+            <div class="hint" style="margin:2px 0 0">${esc(s.detail || s.desc)}</div></div>
           <button type="button" class="small guide-go" data-go-tab="${tab}" ${s.tabs.includes(currentTab) ? "disabled" : ""}
             aria-label="Go to ${esc(TAB_NAMES[tab])}">${s.tabs.includes(currentTab) ? "Here" : "Go"}</button></li>`; }).join("")}</ol>
       ${nextUp ? `<p class="hint" style="margin:6px 0 0">Next up: <b>${esc(nextUp.name)}</b>.</p>` : `<p class="hint" style="margin:6px 0 0">Every step is complete.</p>`}
@@ -202,16 +212,16 @@ function renderStepHeads() {
   if (!el || !wf.length) return;
   const i = wf.findIndex(s => s.tabs.includes(tab)), s = wf[i], nxt = wf[i + 1];
   const behind = wf.slice(0, i).filter(x => x.status === "stale");
-  const desc = typeof s.desc === "string" ? s.desc : s.desc[tab];
-  const nextTab = nxt && nxt.tabs[0] === "city" && !isCity() ? "site" : nxt && nxt.tabs[0];
-  const sig = JSON.stringify([tab, s.status, s.detail, s.next, behind.map(x => x.id), nextTab]);
+  const desc = s.desc;
+  const nextTab = nxt && nxt.tabs[0];
+  const sig = JSON.stringify([tab, s.status, s.label, s.detail, s.next, behind.map(x => x.id), nextTab]);
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
   el.innerHTML = `<div class="sh-main"><span class="sh-step">This step:</span> ${esc(desc)}
-      ${s.note ? `<span class="hint sh-note" style="margin:0">${esc(s.note)}</span>` : ""}</div>
-    <span class="st-chip st-${s.status}" title="${esc(s.detail)}">${esc(ST[s.status])}</span>
+</div>
+    <span class="st-chip st-${s.status}" title="${esc(s.detail)}">${esc(s.label || ST[s.status])}</span>
     <span class="sh-detail">${esc(s.detail)}</span>
-    ${behind.map(b => `<span class="sh-behind">${esc(b.name)} is out of date: <button type="button" class="link sh-go" data-go-tab="${b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]}">revisit ${esc(TAB_NAMES[b.tabs[0] === "city" && !isCity() ? "site" : b.tabs[0]])}</button></span>`).join("")}
+    ${behind.map(b => `<span class="sh-behind">${esc(b.name)} is out of date: <button type="button" class="link sh-go" data-go-tab="${b.tabs[0]}">revisit ${esc(TAB_NAMES[b.tabs[0]])}</button></span>`).join("")}
     <span class="spacer"></span>
     ${nxt ? `<span class="sh-reason">${s.next.ok ? "" : esc(s.next.reason || "")}</span>
       <button type="button" class="default sh-next" data-go-tab="${nextTab}" ${s.next.ok ? "" : "disabled"}
