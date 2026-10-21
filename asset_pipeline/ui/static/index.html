@@ -294,19 +294,33 @@
       <!-- Unreal -->
       <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
         <div class="applybar-slot"></div>
-        <fieldset><legend>Export</legend>
-          <p class="hint">The greybox as stand-in GLBs plus the UE manifest, in <code>export/</code> (Blender, CPU).</p>
-          <div class="row"><button type="button" id="ue-export">Export to Unreal</button><span id="ue-export-stop"></span>
-            <span id="ue-export-state" class="hint" style="margin:0"></span></div>
+        <fieldset><legend>Steps</legend>
+          <ol class="ue-steps" id="ue-steps">
+            <li data-step="init"><span class="n">1</span><b>Create UE project</b>
+              <span class="hint">An empty project in the Unreal projects folder, with the plugins the import needs.</span>
+              <span class="ue-do"><button type="button" id="ue-init">Create UE project</button></span><span class="ue-state" id="ue-init-state"></span></li>
+            <li data-step="export"><span class="n">2</span><b>Export</b>
+              <span class="hint">The greybox as stand-in GLBs plus the UE manifest, in <code>export/</code> (Blender, CPU).</span>
+              <span class="ue-do"><button type="button" id="ue-export">Export to Unreal</button><span id="ue-export-stop"></span></span>
+              <span class="ue-state" id="ue-export-state"></span></li>
+            <li data-step="import"><span class="n">3</span><b>Import</b>
+              <span class="hint">The manifest into the UE level, headless (a wholesale relayout is Import with Reset layout and Prune, after a backup).</span>
+              <span class="ue-do"><button type="button" id="ue-import">Import…</button></span><span class="ue-state" id="ue-import-state"></span></li>
+            <li data-step="render"><span class="n">4</span><b>Render shots</b>
+              <span class="hint">Each shot camera rendered in Unreal, offscreen on a GPU with little VRAM in use.</span>
+              <span class="ue-do"><button type="button" id="ue-render">Render shots…</button></span><span class="ue-state" id="ue-render-state"></span></li>
+            <li data-step="look"><span class="n">5</span><b>Match look</b>
+              <span class="hint">A look scene per approved shot: its library builds, light and ground matched to the locked frame.</span>
+              <span class="ue-do"><button type="button" id="ue-look">Match look…</button></span><span class="ue-state" id="ue-look-state"></span></li>
+          </ol>
         </fieldset>
         <fieldset><legend>Back up the UE project</legend>
           <p class="hint">Snapshots <code id="ue-project"></code> without its caches; unchanged files are hard-linked, 10 kept.</p>
           <div class="row"><button type="button" id="ue-backup">Back up now</button><span id="ue-backup-stop"></span>
             <span id="ue-backup-state" class="hint" style="margin:0"></span></div>
         </fieldset>
-        <fieldset><legend>Import, renders, layout</legend>
-          <p class="hint">In the <b>Unreal</b> menu: Import… (a wholesale relayout is Import with Reset layout and Prune, after a
-            backup), Render shots…, Pull layout, Stale report…, Look scene….</p>
+        <fieldset><legend>Layout</legend>
+          <p class="hint">In the <b>Unreal</b> menu: Pull layout (moves made in Unreal back into the greybox), Stale report….</p>
         </fieldset>
       </section>
     </div>

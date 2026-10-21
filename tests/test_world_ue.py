@@ -202,7 +202,8 @@ def test_ui_backs_up_as_a_job_and_confirms_an_open_editor(ue_project, monkeypatc
         raise AssertionError("job did not finish")
     assert client.get("/api/projects/demo-world/unreal").json() | {"backup_dir": None} == {
         "export": None, "uproject": str(ue.uproject(store)), "project": True, "editor_open": False,
-        "backups": [], "backup_dir": None, "greybox": False}
+        "backups": [], "backup_dir": None, "greybox": False,
+        "imported": None, "renders": None, "looks": [], "approved_shots": []}
     assert client.post("/api/projects/demo-world/export", json={}).status_code == 400   # no greybox
     j = wait(client.post("/api/projects/demo-world/ue/backup", json={}).json())
     assert j["kind"] == "ue.backup" and j["lane"] == "cpu" and j["status"] == "done", j

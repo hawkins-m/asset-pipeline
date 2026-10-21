@@ -608,3 +608,16 @@ details summary { cursor: default; }
 .st-chip.st-running { color: var(--select); background: #DCE7F5; }
 .st-chip.st-stale { background: #F0D2C8; border-color: #B06A50; color: #6E1E00; }
 .st-chip.st-done { color: var(--ready); background: #DDE9D6; }
+
+/* Unreal tab: numbered steps */
+.ue-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ue-steps li { display: grid; grid-template-columns: 22px 130px minmax(0, 1fr); gap: 2px 8px; align-items: center;
+  padding: 5px 6px; background: var(--field); border: 1px solid var(--border); }
+.ue-steps li .n { grid-row: span 2; font: 700 13px var(--mono); text-align: center; }
+.ue-steps li .hint { margin: 0; }
+.ue-steps li .ue-do { grid-column: 2; display: flex; gap: 6px; align-items: center; }
+.ue-steps li .ue-state { grid-column: 3; color: var(--muted); }
+.ue-steps li.done .n { color: var(--ready); }
+.ue-steps li.done .n::after { content: " ✓"; font-size: 11px; }
+.ue-why { color: var(--muted); font-style: italic; }
+.ue-why:not(:first-child) { margin-left: 8px; }

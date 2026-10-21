@@ -229,7 +229,9 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
   to the layout (asks first), Unreal landscape tiles, terrain into the Unreal project (asks).
 - **Unreal:** Unreal › Create UE project, **Import…** (reset layout, only stale, prune; reset
   and prune need a backup first and ask before discarding), Stale report…, Render shots…,
-  Look scene…, Pull layout. Backups: the Unreal tab or Pipeline › Back up Unreal project.
+  Look scene…, Pull layout. The Unreal tab has the same as numbered steps (create, export, import,
+  render shots, match look; it creates a look preset from an approved shot when there is none).
+  Backups: the Unreal tab or Pipeline › Back up Unreal project.
 - **Other library tools:** Library › Pending slots…, Silhouette check….
 - **Demo:** Help › Run demo… (the starter project, or one area end to end).
 

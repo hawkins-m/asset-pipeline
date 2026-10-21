@@ -19,7 +19,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - [x] 5. Frames: "Use this frame for this shot" (lock), a note that starring ≠ locking, then
       "Discover assets →".
 - [x] 6. Library opens on Areas (a sub-tab with its Next column).
-- [ ] 7. Unreal tab as numbered steps; creates a look preset from the approved shot when none exists.
+- [x] 7. Unreal tab as numbered steps; creates a look preset from the approved shot when none exists.
 - [ ] 8. Empty states in Reference sheets and Views and 3D name the real prerequisite.
 - [ ] 9. Versions: which version export/Unreal will use, next to Approve.
 - [ ] 10. Labels (Frame crop, Description only, …); RUNBOOK.md and tests.
@@ -37,5 +37,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
   at the end of renderShell(). Library "Out of date" = a locked frame not in the plan's
   `candidates` (not `sources`: frame_fit drops old-layout frames on purpose). Tests:
   tests/test_ui_workflow.py runs workflow.js in node with stubbed data.
+- Phase 7 adds Python: /unreal returns imported, renders, looks and approved_shots, and
+  POST /ue/looks/new (look.new_preset) is new. The user's `ap ui` needs a restart to serve them.
 
 - Before screenshots: taken from a worktree of b549843 on port 8701 (scratchpad, not in the repo).

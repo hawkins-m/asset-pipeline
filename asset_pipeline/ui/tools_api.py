@@ -131,6 +131,10 @@ class UeLookReq(BaseModel):
     name: str
 
 
+class UeLookNewReq(BaseModel):
+    shot: str
+
+
 class TerrainReq(BaseModel):
     confirm: bool = False                # apply and ue change the layout / the UE project
 
@@ -463,6 +467,16 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         from .. import look
         d = look.preset_dir(store_of(slug))
         return {"looks": sorted(p.stem for p in d.glob("*.json") if p.stem != "defaults")} if d.is_dir() else {"looks": []}
+
+    @app.post("/api/projects/{slug}/ue/looks/new")
+    def ue_look_new(slug: str, req: UeLookNewReq):
+        from .. import look
+        try:
+            return {"name": look.new_preset(store_of(slug), req.shot)}
+        except FileExistsError as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/projects/{slug}/ue/init")
     def ue_init(slug: str):

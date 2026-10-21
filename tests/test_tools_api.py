@@ -342,3 +342,33 @@ def test_band_materials_are_read_once_on_gpu0(store, monkeypatch):  # noqa: F811
     assert building_proc.read_band_materials(store, "hall") is False and seen == [1]   # kept in the brief
     write_json(sp, {"kind": "building", "form": "cube", "view": "v.png", "measured": {}, "surface": "patch"})
     assert building_proc.read_band_materials(store, "hall") is False                 # sheet tiles: no VLM
+
+
+def test_unreal_steps_state_and_a_look_preset_from_the_approved_shot(client, store, monkeypatch):  # noqa: F811
+    """The Unreal tab's numbered steps read /unreal: last import, shot renders, look presets and the
+    approved shots; with no preset, one is created for a shot locked on a frame (never a greybox lock)."""
+    import json as _json
+    from asset_pipeline.stages import s0_frames, s7_export
+    monkeypatch.setattr(s0_frames, "locked", lambda st: {"med-a": "frames/med-a/batch_001/f.png", "med-b": "greybox"})
+    monkeypatch.setattr(s0_frames, "mood_shots", lambda st: set())
+    monkeypatch.setattr(ue, "uproject", lambda st: Path("/nonexistent.uproject"))
+    u = client.get(f"{U}/unreal").json()
+    assert u["imported"] is None and u["renders"] is None and u["looks"] == []
+    assert u["approved_shots"] == (["med-a"] if u["greybox"] else [])
+    work = s7_export.export_dir(store) / "ue"
+    (work / "shots").mkdir(parents=True)
+    (work / "ap_import_report.json").write_text(_json.dumps({"ok": True}))
+    (work / "shots" / "med-a.png").write_bytes(b"")
+    u = client.get(f"{U}/unreal").json()
+    assert u["imported"]["ok"] is True and u["renders"]["count"] == 1
+    assert client.post(f"{U}/ue/looks/new", json={"shot": "med-b"}).status_code == 400            # greybox lock: no frame
+    assert client.post(f"{U}/ue/looks/new", json={"shot": "nope"}).status_code == 400
+    assert client.post(f"{U}/ue/looks/new", json={"shot": "med-a"}).json() == {"name": "med-a"}
+    assert _json.loads((store.root / "site/look_tests/med-a.json").read_text()) == {"shot": "med-a"}   # no class map: no from_frame
+    assert client.post(f"{U}/ue/looks/new", json={"shot": "med-a"}).status_code == 409
+    assert client.get(f"{U}/unreal").json()["looks"] == [{"name": "med-a", "shot": "med-a", "runs": 0}]
+    (store.root / "site/reconcile/med-a").mkdir(parents=True)
+    (store.root / "site/reconcile/med-a/classes.png").write_bytes(b"")
+    from asset_pipeline import look
+    assert look.new_preset(store, "med-a", "second") == "second"
+    assert _json.loads((store.root / "site/look_tests/second.json").read_text())["backdrop"] == {"from_frame": True}

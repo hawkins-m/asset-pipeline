@@ -402,6 +402,37 @@ def backdrop(store: ProjectStore, p: dict, shot: dict) -> tuple[dict | None, dic
             {"mode": "from_frame", "points": len(crest), "z": [min(c[1] for c in crest), max(c[1] for c in crest)]})
 
 
+def presets(store: ProjectStore) -> list[dict]:
+    """The project's look presets: [{name, shot, runs}] (defaults.json is not one)."""
+    d = preset_dir(store)
+    out = []
+    for p in sorted(d.glob("*.json")) if d.is_dir() else []:
+        if p.stem == "defaults":
+            continue
+        own = read_json(p, default={}) or {}
+        out.append({"name": p.stem, "shot": own.get("shot"), "runs": len(own.get("history") or [])})
+    return out
+
+
+def new_preset(store: ProjectStore, shot_id: str, name: str | None = None) -> str:
+    """A look preset for an approved shot (one locked on a frame): {"shot": id}, plus the backdrop
+    read from that frame when its class map exists (site/reconcile/<shot>/classes.png; without one
+    a from_frame backdrop would fail the run). Refuses an existing name."""
+    from .stages import s0_frames
+    lock = s0_frames.locked(store).get(shot_id)
+    if not lock or lock == s0_frames.LOCK_GREYBOX:
+        raise ValueError(f"{shot_id} is not locked on a frame: lock its approved frame first (Frames)")
+    name = name or shot_id
+    path = preset_dir(store) / f"{name}.json"
+    if path.exists():
+        raise FileExistsError(f"look preset {name} exists")
+    own = {"shot": shot_id}
+    if (store.root / "site" / "reconcile" / shot_id / "classes.png").is_file():
+        own["backdrop"] = {"from_frame": True}
+    write_json(path, own)
+    return name
+
+
 def comfy_running() -> bool:
     import socket
     for port in (8188, 8189):

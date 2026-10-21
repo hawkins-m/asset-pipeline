@@ -145,3 +145,13 @@ def test_library_opens_on_areas_as_its_first_sub_tab():
     assert ': "areas");' in shell and 'localStorage.getItem("ap.sub")' not in shell     # every load opens on Areas
     areas = (STATIC / "areas.js").read_text()
     assert "<th>Next</th>" in areas and 'showSub("areas")' in areas
+
+
+def test_unreal_tab_is_numbered_steps_each_with_a_reason():
+    html = _html()
+    tab = re.search(r'<section class="tabpanel" data-tab="unreal".*?</section>', html, re.S).group(0)
+    steps = re.findall(r'<li data-step="(\w+)"><span class="n">(\d)</span><b>([^<]+)</b>', tab)
+    assert steps == [("init", "1", "Create UE project"), ("export", "2", "Export"), ("import", "3", "Import"),
+                     ("render", "4", "Render shots"), ("look", "5", "Match look")]
+    js = (STATIC / "unreal.js").read_text()
+    assert "Create look preset…" in js and "ue/looks/new" in js and "ue-why" in js

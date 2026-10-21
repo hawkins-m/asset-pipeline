@@ -1514,6 +1514,17 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if out["project"]:
             out["editor_open"] = ue.editor_running(up)
             out["backups"] = [p.name for p in ue.backups(store)]
+        # the numbered steps' state: last import, shot renders, look presets, approved shots
+        from .. import look
+        rep = ue.work_dir(store) / "ap_import_report.json"
+        out["imported"] = ({"mtime": rep.stat().st_mtime, "ok": bool((read_json(rep, default={}) or {}).get("ok"))}
+                           if rep.is_file() else None)
+        renders = sorted((ue.work_dir(store) / "shots").glob("*.png"))
+        out["renders"] = {"count": len(renders), "mtime": max(p.stat().st_mtime for p in renders)} if renders else None
+        out["looks"] = look.presets(store)
+        mood = s0_frames.mood_shots(store) if out["greybox"] else set()
+        out["approved_shots"] = sorted(s for s, k in s0_frames.locked(store).items()
+                                       if k != s0_frames.LOCK_GREYBOX and s not in mood) if out["greybox"] else []
         return out
 
     @app.post("/api/projects/{slug}/export")

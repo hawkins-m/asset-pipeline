@@ -139,8 +139,15 @@ desktop app:
   shortcuts*. The *Pipeline* menu holds every long action, including *Export to Unreal*
   (`ap export`, Ctrl+E) and *Back up Unreal project* (`ap ue backup`; it asks before
   backing up while an editor has the project open). Both are CPU jobs with a progress
-  dialog counting meshes or files, and also have buttons in the *Unreal* tab. UE import,
-  renders and *pull-layout* stay on the command line.
+  dialog counting meshes or files, and also have buttons in the *Unreal* tab.
+- **Unreal tab:** numbered steps, each enabled only when it can run and saying why not beside
+  it: 1 *Create UE project*, 2 *Export*, 3 *Import…* (needs the project and an export, and the
+  editor closed), 4 *Render shots…* (needs an import), 5 *Match look…* (needs an import and a
+  shot locked on its approved frame). With no look preset yet, step 5 is *Create look preset…*:
+  it writes `site/look_tests/<shot>.json` for the approved shot you pick (with
+  `"backdrop": {"from_frame": true}` when the shot has a reconcile class map) and opens Look
+  scene. A step is ticked when its result is newer than the one before (import after export,
+  renders after import, a look scene run).
 - **Toolbar:** the project, *New…*, the project's size on disk, *Stop jobs*. Stage buttons sit in
   their tab (and in the Pipeline menu): City has *Update plan, greybox & passes…*, *Update city
   plan* and *Rebuild greybox*; Site has *Build greybox* and *Update greybox & passes…*; Shots has
