@@ -210,3 +210,11 @@ def test_confusing_labels_are_renamed():
     for new in ('"Frame crop"', '"Description only"', '"Description + chosen image"', "<th>Build method</th>",
                 "Extract reference views", '"Stop keeping" : "Keep"', '"Build method:"'):
         assert new in ui, new
+
+
+def test_base_text_is_12px_and_secondary_text_11px():
+    css = (STATIC / "style.css").read_text()
+    assert "body { margin: 0; font: 12px/1.35 var(--ui);" in css
+    assert re.search(r"\.hint \{[^}]*font-size: 11px;", css)
+    sizes = [int(x) for x in re.findall(r"font-size: (\d+)px", css)]
+    assert min(sizes) >= 10 and sizes.count(10) <= 1          # only the dialog close glyph stays at 10px
