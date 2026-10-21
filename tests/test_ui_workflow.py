@@ -185,3 +185,18 @@ def test_generated_go_buttons_never_carry_data_tab_or_data_sub():
     data-sub="" vanished as soon as a sub-tab was shown."""
     wf = (STATIC / "workflow.js").read_text()
     assert 'data-sub="${' not in wf and 'data-tab="${nextTab}"' not in wf and "data-go-tab" in wf
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_approve_says_which_version_export_and_unreal_use():
+    js = (STATIC / "versions.js").read_text()
+    fn = js[js.index("function versionUseLine"):js.index("async function versionJob")]
+    run = lambda cur, ok: subprocess.run([NODE, "-e", fn + f";console.log(versionUseLine({json.dumps(cur)}, {str(ok).lower()}))"],
+                                         capture_output=True, text=True, check=True).stdout
+    assert "v3 (procedural)" in run({"n": 3, "kind": "procedural"}, False) and "only once it is Approved" in run({"n": 3, "kind": "procedural"}, False)
+    assert "only once" not in run({"n": 3, "kind": "procedural"}, True)
+    assert "attached to an Approved building" in run({"n": 2, "kind": "trellis"}, False)
+    assert "No version in use" in run(None, False)
+    assert all("greybox stand-ins" in run(c, False) for c in (None, {"n": 1, "kind": "procedural"}, {"n": 1, "kind": "trellis"}))
+    for f in ("review.js", "library_review.js"):
+        assert "versionUseLine(" in (STATIC / f).read_text()

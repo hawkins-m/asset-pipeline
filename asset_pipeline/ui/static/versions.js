@@ -27,6 +27,18 @@ const verSource = v => {
   return bits.join(" · ");
 };
 
+// Beside Approve: which version export and Unreal take. Cleanup takes the version in use; Unreal
+// look scenes place only Approved builds; Export sends greybox stand-ins (s7_export: real assets
+// are not exported yet). cur: {n, kind} or null.
+function versionUseLine(cur, approved) {
+  if (!cur) return "No version in use yet: Unreal look scenes keep the greybox here. Export always sends greybox stand-ins.";
+  if (cur.kind === "trellis")       // look scenes place TRELLIS models only as pieces attached to a placed building
+    return `Cleanup uses v${cur.n} (TRELLIS), the version marked “Used by the pipeline”; Unreal look scenes place it only as a piece ` +
+      "attached to an Approved building. Export sends greybox stand-ins.";
+  return `Cleanup and Unreal look scenes use v${cur.n} (${cur.kind}), the version marked “Used by the pipeline”` +
+    `${approved ? "" : "; look scenes place it only once it is Approved"}. Export sends greybox stand-ins.`;
+}
+
 async function versionJob(job) {        // a started job: wait (api() has opened its progress dialog), then say if it failed
   const j = await jobDone(job);
   if (j.status === "error") alert(errorText(j.error));

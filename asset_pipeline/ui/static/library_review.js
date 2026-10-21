@@ -156,6 +156,7 @@ function lrRenderReview() {
   box.innerHTML = `<legend>Review</legend>
     <div class="row" role="radiogroup" aria-label="Status">${opts.map(([k, l]) => `<label class="check"><input type="radio" name="lr-st" value="${k}" ${rv.status === k ? "checked" : ""}>${l}</label>`).join("")}
       ${rv.status === "ready" || rv.status === "needs_review" ? `<span class="hint" style="margin:0">now: ${esc(d.statuses[rv.status])}</span>` : ""}</div>
+    <p class="hint ver-uses">${esc(versionUseLine(d.current, rv.status === "approved"))}</p>
     <textarea id="lr-note" aria-label="Notes" placeholder="What to change, or the feature it needs">${esc(rv.note || "")}</textarea>
     <div class="row end"><span class="hint" style="margin:0;flex:1">Saved to site/library_review.json with this round's images; Library › Review round: task list shows it.</span>
       <button type="button" class="default" id="lr-save-review">Save review</button></div>

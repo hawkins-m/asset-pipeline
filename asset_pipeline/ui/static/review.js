@@ -47,7 +47,8 @@ function assetReview(a) {
         ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}">${esc((a.review || "not reviewed").replace("_", " "))}</span>
           <button type="button" class="secondary approve" ${a.results.length ? "" : "disabled title=\"Make 3D first\""}>Approve</button>
           <button type="button" class="secondary changes">Needs changes</button>` : ""}</span>
-    </div>`;
+    </div>
+    ${a.plan === "library" ? `<p class="hint ver-uses">${esc(versionUseLine(a.current, a.review === "approved"))}</p>` : ""}`;
   const me = $(".manage-entry", el);
   if (me) me.onclick = () => manageEntry(assetEntry(x.id));
   for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {

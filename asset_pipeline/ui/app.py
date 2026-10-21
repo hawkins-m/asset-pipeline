@@ -1208,6 +1208,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                              "storey_m": typ.storey_m or (layout.city.storey_m if layout.city else 3.4)} if typ else None),
                 "entry": e and {k: e.get(k) for k in ("id", "tier", "typology", "district", "material", "size_m", "instances")},
                 "usage": lr.usage(store, asset), "images": lr.images(store, asset), "review": lr.get(store, asset),
+                "current": _current_brief(store, asset),     # the version in use (beside Approve: what Unreal takes)
                 "silhouette": silhouette.load(store, asset),
                 "round": lr.current_round(store), "statuses": lr.STATUSES, "sheets": views,
                 "jobs": [j.public() for j in jobs.list(slug_of(store)) if j.kind == "library.rebuild"

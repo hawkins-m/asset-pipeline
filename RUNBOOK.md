@@ -128,7 +128,10 @@ for good; **Delete** removes one (asks first; never the Approved one). The last 
 versions are kept (Tools › **Settings…**); when there are more, the strip offers to remove the
 old ones. Pinned, Approved and current versions are never removed. Tools › **Storage…** shows
 the space per asset and per project, with "Delete unpinned versions" per asset or for the
-whole project.
+whole project. Beside **Approve** (Views and 3D, and the build review) one line says which version
+Unreal takes: cleanup and look scenes use the version marked "Used by the pipeline", look scenes
+only once the asset is Approved (a TRELLIS model only as a piece attached to an Approved
+building), and Export sends greybox stand-ins.
 
 The review round: Library › **Review round: task list…** lists every Needs changes and Needs
 new feature note (what Claude Code works from); **Review round: mark done…** marks the handled
