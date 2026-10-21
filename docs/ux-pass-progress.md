@@ -25,7 +25,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - [x] 10. Labels (Frame crop, Description only, …); RUNBOOK.md and tests.
 - [x] 11. Base text 12–13px (secondary 11–12px), checked at 100% zoom.
 - [x] 12. Optional guide panel (Help › Show guide).
-- [ ] Final: before/after screenshots of every tab in a private artifact.
+- [x] Final: before/after screenshots of every tab in a private artifact.
 
 ## Notes
 
@@ -40,4 +40,4 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - Phase 7 adds Python: /unreal returns imported, renders, looks and approved_shots, and
   POST /ue/looks/new (look.new_preset) is new. The user's `ap ui` needs a restart to serve them.
 
-- Before screenshots: taken from a worktree of b549843 on port 8701 (scratchpad, not in the repo).
+- Before/after screenshots: private artifact https://claude.ai/artifact/7LVBoTJ7Kb5Eo3wxhGTVAk (before = b549843, after = c0605c9).
