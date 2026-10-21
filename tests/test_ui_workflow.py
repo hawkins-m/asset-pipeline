@@ -225,3 +225,11 @@ def test_guide_panel_is_optional_and_toggled_from_help():
     assert '<aside class="side guide" id="guide" aria-label="Guide" hidden>' in html     # never shown by default
     assert '["Show guide", "guide"' in shell[shell.index('["Help"'):]
     assert 'localStorage.getItem("ap.guide") === "1"' in wf and "guide-go" in wf and "toggleGuide(false)" in wf
+
+
+def test_tabs_run_style_layout_greybox_and_old_links_still_open():
+    tabs = re.findall(r'<button role="tab" data-tab="(\w+)">([^<]+)</button>', _html())
+    assert tabs[:4] == [("style", "Style"), ("city", "Layout"), ("site", "Greybox"), ("shots", "Shots")]
+    shell = (STATIC / "shell.js").read_text()
+    assert 'const TABS = ["style", "city", "site", "shots"' in shell
+    assert 'TAB_ALIASES = {layout: "city", greybox: "site", review: "views"}' in shell and "TAB_ALIASES[tab] || tab" in shell

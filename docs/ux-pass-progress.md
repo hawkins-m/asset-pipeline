@@ -41,3 +41,15 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
   POST /ue/looks/new (look.new_preset) is new. The user's `ap ui` needs a restart to serve them.
 
 - Before/after screenshots: private artifact https://claude.ai/artifact/7LVBoTJ7Kb5Eo3wxhGTVAk (before = b549843, after = c0605c9).
+
+## Round 2: Layout / Greybox (2026-10-21)
+
+Internal tab ids stay `city` (now labelled Layout) and `site` (now Greybox), so old deep links and
+saved tabs keep working; `?tab=layout` and `?tab=greybox` are aliases.
+
+- [x] A. Tab order Style → Layout → Greybox → Shots → …; labels; `?tab=layout|greybox` aliases.
+- [ ] B. Layout tab: catalog, Update city plan, Update plan, greybox & passes…; Greybox tab: Rebuild
+      greybox, Re-read .blend, aerial previews, starter layout for a project with no layout. Headers.
+- [ ] C. Stage list: Layout and Greybox as two steps with honest states; "use one or the other" gone;
+      Style shows "Complete (text only)" without anchor images.
+- [ ] D. RUNBOOK/USAGE, tests, screenshots on a second instance; report on brief → layout.

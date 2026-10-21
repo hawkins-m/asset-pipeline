@@ -17,7 +17,7 @@ async function runTool(path, body, title, {show = true, id = "tool-result"} = {}
 
 const shotIds = () => ((siteData && siteData.shots) || []).map(s => s.id);
 const optionList = (items, sel) => items.map(x => `<option${x === sel ? " selected" : ""}>${esc(x)}</option>`).join("");
-const needShots = () => { if (noProject()) return true; if (!shotIds().length) { alert("No shots yet: build the greybox in the City tab first."); return true; } return false; };
+const needShots = () => { if (noProject()) return true; if (!shotIds().length) { alert("No shots yet: build the greybox in the Greybox tab first."); return true; } return false; };
 
 function formDialog({title, id, html, buttons}) {
   const form = document.createElement("form"); form.className = "form"; form.innerHTML = html;

@@ -50,7 +50,7 @@ const STEP_STATE = {
     const sh = siteData.shots || [], bad = sh.filter(r => !r.rendered || r.stale), fresh = sh.length - bad.length;
     const st = !sh.length ? "none" : anyJob(["shots.render", "shots.camera"]) ? "running"
       : !sh.some(r => r.rendered) ? "ready" : bad.length ? "stale" : "done";
-    const detail = !sh.length ? "no shots yet: build the greybox (Site / City)"
+    const detail = !sh.length ? "no shots yet: build the greybox (Greybox)"
       : st === "ready" ? `${plural(sh.length, "shot")} to render` : bad.length ? `${bad.length} of ${plural(sh.length, "shot")}: passes missing or stale`
       : `${plural(sh.length, "shot")}, every pass current`;
     return {status: st, detail, next: {ok: fresh > 0, reason: "Render the shot passes first."}};
@@ -102,14 +102,14 @@ const STEP_STATE = {
       : [r.pending_sheets.length && `${plural(r.pending_sheets.length, "starred sheet")} to extract views from`,
         waiting && `${plural(waiting, "asset")} with views but no 3D model`, unapproved && `${unapproved} not approved`]
         .filter(Boolean).join(" · ") || `${plural(with3d.length, "asset")} with a 3D model`;
-    return {status: st, detail, next: {ok: !!siteData.summary, reason: "Build the greybox first (Site / City)."}};
+    return {status: st, detail, next: {ok: !!siteData.summary, reason: "Build the greybox first (Greybox)."}};
   },
   unreal() {
     const u = unrealData;
     if (!u) return {status: "none", detail: "", next: {ok: false}};
     const run = (data.jobs || []).some(j => isActive(j) && j.kind.startsWith("ue."));
     const st = run ? "running" : !u.greybox ? "none" : !u.export ? "ready" : ueExportStale() ? "stale" : !u.project ? "input" : "done";
-    const detail = !u.greybox ? "build the greybox first (Site / City)" : !u.export ? "export the greybox and library for Unreal"
+    const detail = !u.greybox ? "build the greybox first (Greybox)" : !u.export ? "export the greybox and library for Unreal"
       : ueExportStale() ? "the greybox changed after the export: export again" : !u.project ? "create the UE project"
       : "exported, UE project ready: import, render and match the look";
     return {status: st, detail, next: {ok: false, reason: "This is the last step."}};

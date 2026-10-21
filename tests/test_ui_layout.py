@@ -324,7 +324,7 @@ def test_jobs_panel_lines_background_dialogs_and_notices(tmp_path, monkeypatch):
     assert all(out["tips"])
     assert out["queued_line"] == "Queued: #1 in line for the CPU."
     assert out["buttons"] == ["Run in background", "Cancel"]
-    assert out["closed"] and out["tab"] == "City"
+    assert out["closed"] and out["tab"] == "Layout"
     assert len(out["notices"]) == 2 and "done" in out["notices"][0] and "out of memory" in out["notices"][1]
     assert out["failed_line"].startswith("Failed: RuntimeError: out of memory")
     assert out["errors"] == []

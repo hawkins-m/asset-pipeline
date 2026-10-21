@@ -66,7 +66,7 @@ async function saveDraft(d = fr.draft) {
     const before = landmarkTypes(d.key);
     if (JSON.stringify([...before].sort()) !== JSON.stringify([...d.landmark].sort())) {
       if (typeof isDirty === "function" && isDirty("typologies") &&
-          !confirm("The City tab has unsaved building-type edits; saving the landmark reference reloads them. Continue?")) return false;
+          !confirm("The Layout tab has unsaved building-type edits; saving the landmark reference reloads them. Continue?")) return false;
       const rows = catalogData.typologies.map(t => d.landmark.includes(t.id) ? {...t, ref: d.key}
         : t.ref === d.key ? {...t, ref: null} : t);
       await api(`/api/projects/${slug}/catalog/typologies`, rows, "PUT");
@@ -123,7 +123,7 @@ function renderFrames() {
   renderShotTree();
   const rows = shotRows(), main = $("#frames-main"), right = $("#frames-right");
   if (!rows.length) {
-    main.innerHTML = `<p class="hint">No shots yet: build the greybox and render its passes (Site, Shots).</p>`; right.hidden = true; return;
+    main.innerHTML = `<p class="hint">No shots yet: build the greybox and render its passes (Greybox, Shots).</p>`; right.hidden = true; return;
   }
   right.hidden = false;
   if (!shotById(fr.shot)) {

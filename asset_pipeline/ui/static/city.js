@@ -1,4 +1,4 @@
-// City tab: the catalog as a table plus a grouped detail form, one section at a time
+// Layout tab (id "city"): the catalog as a table plus a grouped detail form, one section at a time
 // (building types, districts, materials, zones, rules) and the plan report. Edits stay in a
 // per-section draft until Save (the 2 s job polling never touches it); Save writes the whole
 // section through the existing catalog API, which validates it.

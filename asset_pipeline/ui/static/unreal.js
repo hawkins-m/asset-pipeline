@@ -14,7 +14,7 @@ function ueSteps(u) {
   const fresh = exp && !ueExportStale();
   return {
     init: [u.project ? `Created: ${u.uproject}` : "", !!u.project, u.project ? "Already created." : ""],
-    export: [null, !!fresh, !u.greybox ? "Build the greybox first (Site / City)." : ""],
+    export: [null, !!fresh, !u.greybox ? "Build the greybox first (Greybox)." : ""],
     import: [imp ? `Imported ${when(imp.mtime)}${imp.ok ? "" : " (with errors)"}${exp && imp.mtime < exp.mtime ? " · the export is newer: import again" : ""}` : "",
       !!(imp && exp && imp.mtime >= exp.mtime && imp.ok),
       !u.project ? "Create the UE project first (step 1)." : !exp ? "Export first (step 2)." : u.editor_open ? "Close the Unreal Editor first." : ""],

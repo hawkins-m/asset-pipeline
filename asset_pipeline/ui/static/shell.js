@@ -1,9 +1,11 @@
 // Window chrome: tabs, menu bar (dropdowns, mnemonics, shortcuts), toolbar, side panel
 // (status, stages, jobs per lane), status bar and classic dialogs. Pages render their own
 // content (app.js, site.js, edit.js, frames.js...); render() calls renderShell() last.
-const TABS = ["style", "site", "city", "shots", "frames", "library", "views", "unreal"];
-const TAB_NAMES = {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library",
+// Tab ids stay "city" (shown as Layout) and "site" (shown as Greybox): old links and saved tabs keep working.
+const TABS = ["style", "city", "site", "shots", "frames", "library", "views", "unreal"];
+const TAB_NAMES = {style: "Style", city: "Layout", site: "Greybox", shots: "Shots", frames: "Frames", library: "Library",
   views: "Views and 3D", unreal: "Unreal"};
+const TAB_ALIASES = {layout: "city", greybox: "site", review: "views"};
 const LANES = [["gpu0", "GPU 0"], ["comfy", "GPU 1"], ["cpu", "CPU"], ["service", "Comfy"]];   // "service" shows only while active
 let currentTab = "style";
 const saveHandlers = {};      // tab -> () => void: Edit › Save (Ctrl+S) on that tab
@@ -14,6 +16,7 @@ const statusRight = {};       // tab -> () => text for the right cell (default: 
 
 // --- tabs ------------------------------------------------------------------------------
 function showTab(tab) {
+  tab = TAB_ALIASES[tab] || tab;
   if (!TABS.includes(tab)) tab = "style";
   currentTab = tab;
   document.querySelectorAll("#tabs [role=tab]").forEach(b => {
@@ -49,7 +52,6 @@ tabKeys($("#lib-tabs"), "sub", s => showSub(s));
   try { t = t || localStorage.getItem("ap.tab"); } catch (_) { /* ignore */ }
   // links from the earlier UI: plan/refs live in Library now, review is Views and 3D
   if (t === "plan" || t === "refs") { sub = t; t = "library"; }
-  if (t === "review") t = "views";
   showTab(t || "style");
   showSub(["areas", "assets", "plan", "refs"].includes(sub) ? sub : "areas");
 }
