@@ -43,8 +43,6 @@
       </fieldset>
     </aside>
 
-    <aside class="side" id="side-frames" aria-label="Shots" hidden></aside>
-
     <div class="workspace">
       <div role="tablist" id="tabs" aria-label="Workspace">
         <button role="tab" data-tab="style">Style</button>
@@ -181,6 +179,7 @@
           <button type="button" id="frames-missing" title="Frames for every shot that has none yet (GPU 1)">Generate missing frames</button>
         </div>
         <div class="frames-layout">
+          <div class="frames-shots" id="frames-shots" aria-label="Shots"></div>
           <div class="frames-main" id="frames-main"></div>
           <div class="frames-right" id="frames-right"></div>
         </div>

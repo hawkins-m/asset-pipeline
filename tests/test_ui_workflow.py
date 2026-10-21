@@ -107,3 +107,11 @@ def test_workflow_states_come_from_project_state_not_single_files():
     ue = {"greybox": True, "export": {"mtime": 1}, "project": True}
     assert _wf(siteData=built, unrealData=ue)["unreal"][0] == "done"
     assert _wf(siteData=built, unrealData=ue, ueStale=True)["unreal"][0] == "stale"
+
+
+def test_left_panel_is_the_same_on_every_tab_and_frames_has_its_shot_list_inside():
+    html = _html()
+    assert 'id="side-frames"' not in html and html.count('<aside class="side"') == 1
+    frames = re.search(r'<section class="tabpanel" data-tab="frames".*?</section>', html, re.S).group(0)
+    assert 'id="frames-shots"' in frames
+    assert "side-default" not in (STATIC / "shell.js").read_text()      # showTab no longer swaps panels

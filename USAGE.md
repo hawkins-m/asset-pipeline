@@ -151,7 +151,7 @@ desktop app:
   - *Jobs*: one row per lane (GPU 0, GPU 1, CPU) with a progress bar, time left, *Details*
     and *Stop*.
 
-  On the Frames tab it shows the shot tree instead.
+  It is the same on every tab; the Frames tab has its shot tree in its own left column.
 - **Tabs:** Style, Site, City, Shots, Frames, Library (scene plans and reference sheets),
   Views and 3D, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's

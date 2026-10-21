@@ -21,7 +21,6 @@ function showTab(tab) {
     b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll(".tabpanel[data-tab]").forEach(m => { m.hidden = m.dataset.tab !== tab; });
-  $("#side-default").hidden = tab === "frames"; $("#side-frames").hidden = tab !== "frames";
   try { localStorage.setItem("ap.tab", tab); } catch (_) { /* private window */ }
   if (data) renderShell();
 }

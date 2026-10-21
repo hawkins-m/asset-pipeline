@@ -1,4 +1,4 @@
-// Frames tab: review concept frames shot by shot. Shot tree (side panel), one large viewer
+// Frames tab: review concept frames shot by shot. Shot tree (the tab's left column), one large viewer
 // (frame, greybox, depth, edges or split), a filmstrip per batch, and per frame: what it's
 // used as (shot frame = asset-library source, design reference, reject), star, the
 // typologies it is the landmark reference for, and a note for the next round.
@@ -93,9 +93,9 @@ async function saveAndNext() {
   await load();
 }
 
-// --- side panel: shot tree ---------------------------------------------------------------
+// --- shot tree (left column of the tab) -----------------------------------------------------
 function renderShotTree() {
-  const side = $("#side-frames");
+  const side = $("#frames-shots");
   const rows = shotRows();
   if (!side.dataset.built) {
     side.innerHTML = `<fieldset class="shots-box"><legend>Shots</legend>
