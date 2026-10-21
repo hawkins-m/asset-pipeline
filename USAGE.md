@@ -141,8 +141,10 @@ desktop app:
   backing up while an editor has the project open). Both are CPU jobs with a progress
   dialog counting meshes or files, and also have buttons in the *Unreal* tab. UE import,
   renders and *pull-layout* stay on the command line.
-- **Toolbar:** the project, *New…*, *Apply changes*, *Re-plan*, *Rebuild greybox*, *Render
-  passes*, *Generate missing frames*, *Stop jobs*.
+- **Toolbar:** the project, *New…*, the project's size on disk, *Stop jobs*. Stage buttons sit in
+  their tab (and in the Pipeline menu): City has *Update plan, greybox & passes…*, *Update city
+  plan* and *Rebuild greybox*; Site has *Build greybox* and *Update greybox & passes…*; Shots has
+  *Render all passes*; Frames has *Generate missing frames*.
 - **Side panel:**
   - *Status*: ready or working, and whether ComfyUI is reachable.
   - *Stages*: 1 Style … 7 Unreal, each Done, Out of date or Running; click one to open it.
@@ -155,9 +157,10 @@ desktop app:
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
   job, and ComfyUI or the tab's keys.
 
-**Apply changes.** An amber bar says what's out of date, e.g. "Catalog changed: the plan and
-the greybox are out of date". *Apply changes* (Ctrl+Enter) runs only the steps needed, one
-job after the other: re-plan → rebuild greybox → render passes.
+**Update plan, greybox & passes.** An amber bar says what's out of date, e.g. "Catalog changed:
+the plan and the greybox are out of date". *Update plan, greybox & passes…* (Ctrl+Enter) first
+lists the steps it will run and why, then runs only those, one job after the other: re-plan →
+rebuild greybox → render passes.
 - A catalog edit counts once it's saved from this browser; the browser remembers the save
   time per project.
 - Passes are stale per shot, which the server knows.
@@ -281,7 +284,7 @@ ap site build my-project                            # then the greybox
 variation) are editable and saved to `site/layout.json`. Each is a table plus a detail form
 (building types: Massing, Placement, Look, Limits); *Plan report* shows the report and the
 plan image. Fields you changed are marked
-*yours*; imported or generated ones are *auto*. Saved edits apply after *Re-plan*, and
+*yours*; imported or generated ones are *auto*. Saved edits apply after *Update city plan*, and
 show in the shots after *Rebuild greybox*.
 
 ## Editor workflow (UI)
@@ -296,8 +299,8 @@ per district.
    - The fields you changed are marked *yours*.
    - Nothing else changes yet. Unsaved edits survive the page refreshing while jobs run
      (the status bar lists them); *Revert* drops them.
-   - Steps 2–4 are what *Apply changes* runs.
-2. **Re-plan** (F5, about 3 s, no Blender).
+   - Steps 2–4 are what *Update plan, greybox & passes…* runs.
+2. **Update city plan** (F5, about 3 s, no Blender).
    - Rewrites `site/city_plan.png` and the report (`site/city.json`): type shares,
      diversity, runs, columns, warnings.
    - Iterate steps 1–2 until the report and the plan image look right; this is the cheap
@@ -312,7 +315,7 @@ per district.
    running):
    - *Regenerate shot* asks for the number of frames and an optional extra reference,
      re-renders the shot's passes if they're stale, then makes the frames;
-   - *Generate missing frames* (toolbar or Pipeline menu) covers shots without frames.
+   - *Generate missing frames* (Frames tab or Pipeline menu) covers shots without frames.
 6. **Review** each frame in the Frames tab:
    - pick the shot in the tree (*★2* = starred frames, *4 new* = not reviewed, *redo* =
      stale passes or every frame rejected);

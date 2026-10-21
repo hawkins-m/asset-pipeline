@@ -17,12 +17,6 @@
   <div class="toolbar" role="toolbar" aria-label="Toolbar">
     <label>Project: <select id="project"></select></label>
     <button type="button" id="tb-new">New…</button>
-    <span class="sep"></span>
-    <button type="button" id="tb-apply" class="default" title="Re-plan → rebuild greybox → render passes (Ctrl+Enter)">Apply changes</button>
-    <button type="button" id="tb-replan" title="Re-plan the city only (F5)">Re-plan</button>
-    <button type="button" id="tb-build">Rebuild greybox</button>
-    <button type="button" id="tb-render">Render passes</button>
-    <button type="button" id="tb-frames">Generate missing frames</button>
     <span class="spacer"></span>
     <button type="button" id="tb-disk" class="disk-button" hidden>Project: …</button>
     <button type="button" id="tb-stop" class="stop" title="Stop every running job (Esc)">Stop jobs</button>
@@ -138,6 +132,7 @@
             <button id="site-build" type="button" class="default">Build greybox</button>
             <button id="site-extract" type="button">Re-read .blend</button>
             <button id="site-preview" type="button">Aerial previews</button>
+            <button id="site-apply" type="button" title="Shows what it will run first (Ctrl+Enter)">Update greybox &amp; passes…</button>
             <button type="button" id="site-stop" class="stop" hidden>Stop</button>
           </div>
           <p id="site-summary"></p>
@@ -148,6 +143,11 @@
       <!-- City catalog -->
       <section class="tabpanel" data-tab="city" id="city-tab" hidden>
         <div class="applybar-slot"></div>
+        <div class="row stage-actions" id="city-actions">
+          <button type="button" id="city-apply" class="default" title="Shows what it will run first (Ctrl+Enter)">Update plan, greybox &amp; passes…</button>
+          <button type="button" id="city-replan" title="Re-plan the city from the catalog (F5)">Update city plan</button>
+          <button type="button" id="city-build" title="Rebuild the Blender greybox from the plan (CPU)">Rebuild greybox</button>
+        </div>
         <p id="city-none" class="hint">This project has no city layout yet. <button type="button" id="city-init" class="small">Start from the starter city</button></p>
         <div id="catalog" class="city" hidden>
           <div class="row city-top">
@@ -177,6 +177,9 @@
       <!-- Frames -->
       <section class="tabpanel" data-tab="frames" id="frames-tab" hidden>
         <div class="applybar-slot"></div>
+        <div class="row stage-actions" id="frames-actions">
+          <button type="button" id="frames-missing" title="Frames for every shot that has none yet (GPU 1)">Generate missing frames</button>
+        </div>
         <div class="frames-layout">
           <div class="frames-main" id="frames-main"></div>
           <div class="frames-right" id="frames-right"></div>

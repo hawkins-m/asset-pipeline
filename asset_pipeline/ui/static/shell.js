@@ -148,7 +148,7 @@ const MENUS = [
     ["Refresh", "refresh"]]],
   ["Edit", "E", [["Save", "save", "Ctrl+S"], ["Revert", "revert"], "-", ["Find…", "find", "Ctrl+F"]]],
   ["View", "V", () => TABS.map(t => [TAB_NAMES[t], () => showTab(t), null, () => currentTab === t])],
-  ["Pipeline", "P", [["Apply all changes", "applyAll", "Ctrl+Enter"], ["Re-plan only", "replan", "F5"],
+  ["Pipeline", "P", [["Update plan, greybox & passes…", "applyAll", "Ctrl+Enter"], ["Update city plan", "replan", "F5"],
     ["Rebuild greybox", "build"], ["Render shot passes", "render"], ["Re-read .blend", "extract"], ["Aerial previews", "previews"], "-",
     ["Generate missing frames", "frames"], ["Cut views", "cutViews"], ["Make 3D…", "make3d"], "-",
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
@@ -250,9 +250,12 @@ document.addEventListener("keydown", e => {
 });
 
 // --- toolbar -------------------------------------------------------------------------------
-const TOOLBAR = {"#tb-new": "newProject", "#tb-apply": "applyAll", "#tb-replan": "replan", "#tb-build": "build",
-  "#tb-render": "render", "#tb-frames": "frames", "#tb-stop": "stopAll"};
-for (const [sel, act] of Object.entries(TOOLBAR)) $(sel).onclick = () => ACTIONS[act].run();
+// The toolbar is global (project, New…, storage, Stop jobs); stage buttons live in their own tab
+// (and in the Pipeline menu), enabled by the same ACTIONS.
+const TOOLBAR = {"#tb-new": "newProject", "#tb-stop": "stopAll"};
+const STAGE_BUTTONS = {"#city-apply": "applyAll", "#city-replan": "replan", "#city-build": "build", "#site-apply": "applyAll",
+  "#frames-missing": "frames"};
+for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) $(sel).onclick = () => ACTIONS[act].run();
 
 // --- info dialogs ----------------------------------------------------------------------------
 async function comfyDialog() {
@@ -349,7 +352,7 @@ async function vlmDialog() {
 }
 function shortcutsDialog() {
   dialog({title: "Keyboard shortcuts", body: `<table class="grid-table"><tbody>
-    ${[["Ctrl+Enter", "Apply all changes (re-plan → rebuild greybox → render passes)"], ["F5", "Re-plan the city"],
+    ${[["Ctrl+Enter", "Update plan, greybox & passes (shows the steps first)"], ["F5", "Update the city plan"],
        ["Ctrl+S", "Save the current form"], ["Ctrl+F", "Find in the current list"], ["Esc", "Stop all jobs (asks first)"],
        ["Ctrl+N / Ctrl+O", "New / open project"], ["Alt+F, E, V, P, T, H", "Open a menu; arrows move, Enter runs"],
        ["S", "Frames: star the frame"], ["← →", "Frames: previous / next frame"], ["↑ ↓", "Frames: previous / next shot"],
@@ -559,7 +562,9 @@ async function applyChanges() {
   if (steps.length) steps.push(["Rendering shot passes", "shots/render", {shots: null}]);
   else if (o.passes) steps.push(["Rendering shot passes", "shots/render",
     {shots: siteData.shots.filter(r => !r.rendered || r.stale).map(r => r.id)}]);
-  if (!steps.length) { dialog({title: "Apply changes", body: "<p>Nothing is out of date.</p>"}); return; }
+  if (!steps.length) { dialog({title: "Update plan, greybox & passes", body: "<p>Nothing is out of date.</p>"}); return; }
+  if (!(await applyPreview(steps, o))) return;
+  if (applyState) return;
   applyState = {steps, i: 0, job: null, canceled: false};
   renderShell();
   try {
@@ -582,8 +587,23 @@ async function applyChanges() {
       }
       if (job.status !== "done") { applyState.canceled = job.status === "canceled"; if (job.status === "error") throw new Error(job.error); break; }
     }
-  } catch (err) { alert(`Apply changes stopped: ${errorText(err)}`); }
+  } catch (err) { alert(`Update stopped: ${errorText(err)}`); }
   finally { applyState = null; await load(); }
+}
+
+// What Apply will run, and why, before it runs anything. Resolves true to go ahead.
+function applyPreview(steps, o) {
+  const why = {"site/plan": "the catalog was saved after the last plan", "site/build": o.plan ? "the plan changes" : "the catalog was saved after the last build",
+    "shots/render": steps.length > 1 ? "the greybox changes" : `${o.passes} shot${o.passes === 1 ? " has" : "s have"} missing or stale passes`};
+  const where = {"site/plan": "CPU, seconds", "site/build": "Blender on the CPU", "shots/render": "Blender on the CPU, a few seconds per shot"};
+  return new Promise(resolve => {
+    let chosen = false;
+    dialog({title: "Update plan, greybox & passes", body: `<p>This will run, in order:</p>
+      <ol id="apply-steps">${steps.map(([label, path, body]) => `<li><b>${esc(label)}</b>${path === "shots/render" && body.shots ? ` (${body.shots.length})` : ""}<span class="hint" style="margin:0">: ${esc(why[path])}; ${esc(where[path])}</span></li>`).join("")}</ol>
+      <p class="hint">Each step waits for the one before; Stop jobs ends it.</p>`,
+      buttons: [{label: "Run", default: true, onClick: () => { chosen = true; resolve(true); }}, {label: "Cancel"}],
+      onClose: () => { if (!chosen) resolve(false); }});
+  });
 }
 
 function renderApplyBar() {
@@ -603,8 +623,8 @@ function renderApplyBar() {
     const what = [o.plan && "the plan", o.greybox && "the greybox", o.passes && `${o.passes} shot pass${o.passes === 1 ? "" : "es"}`].filter(Boolean);
     const list = what.length > 1 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : what[0];
     bar.innerHTML = `<span class="msg">${o.plan ? `Catalog changed: ${esc(list)}` : esc(list.replace(/^./, c => c.toUpperCase()))} ${what.length > 1 || o.passes > 1 ? "are" : "is"} out of date.</span>`;
-    const b = document.createElement("button"); b.type = "button"; b.className = "default"; b.textContent = "Apply changes";
-    b.title = "Re-plan → rebuild greybox → render passes, each only if needed (Ctrl+Enter)";
+    const b = document.createElement("button"); b.type = "button"; b.className = "default"; b.textContent = isCity() ? "Update plan, greybox & passes…" : "Update greybox & passes…";
+    b.title = "Re-plan → rebuild greybox → render passes, each only if needed; shows the steps first (Ctrl+Enter)";
     b.disabled = !ACTIONS.applyAll.enabled() || siteBusy();
     b.onclick = () => applyChanges();
     bar.append(b);
@@ -660,8 +680,9 @@ function renderShell() {
   $("#city-none").hidden = isCity();
   renderStages();
   renderLanes();
-  for (const [sel, act] of Object.entries(TOOLBAR)) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
-  $("#tb-replan").hidden = !isCity();
+  for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
+  $("#city-actions").hidden = !isCity();
+  $("#site-apply").textContent = isCity() ? "Update plan, greybox & passes…" : "Update greybox & passes…";
   const comfyRun = active.find(j => j.lane === "comfy" && j.status === "running");
   const cp = comfyRun && jobProgress(comfyRun);
   $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";
