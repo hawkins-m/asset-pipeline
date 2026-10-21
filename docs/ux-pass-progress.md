@@ -22,7 +22,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - [x] 7. Unreal tab as numbered steps; creates a look preset from the approved shot when none exists.
 - [x] 8. Empty states in Reference sheets and Views and 3D name the real prerequisite.
 - [x] 9. Versions: which version export/Unreal will use, next to Approve.
-- [ ] 10. Labels (Frame crop, Description only, …); RUNBOOK.md and tests.
+- [x] 10. Labels (Frame crop, Description only, …); RUNBOOK.md and tests.
 - [ ] 11. Base text 12–13px (secondary 11–12px), checked at 100% zoom.
 - [ ] 12. Optional guide panel (Help › Show guide).
 - [ ] Final: before/after screenshots of every tab in a private artifact.

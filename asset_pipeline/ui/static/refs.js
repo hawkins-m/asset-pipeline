@@ -139,7 +139,7 @@ async function generateRefs(body) {
 $("#refs-missing").onclick = () => generateRefs({});
 
 // Next step once a sheet of a library asset is starred: procedural assets get Brief & build (the
-// brief from the sheet, then the Blender build and review renders), TRELLIS ones Cut views.
+// brief from the sheet, then the Blender build and review renders), TRELLIS ones Extract reference views.
 // With several starred sheets the newest one (highest sheet number) is used; the title says which.
 function refsNextStep(u, el) {
   const nx = u.next; if (!nx) return;
@@ -155,7 +155,7 @@ function refsNextStep(u, el) {
     btn.title = `Brief from ${short}${starred.length > 1 ? ` (the newest of ${starred.length} starred sheets)` : ""}, then build in Blender and render the review`;
     btn.onclick = () => refsBriefBuild(u, sheet, nx);
   } else {
-    btn.textContent = running.length ? "Cutting…" : "Cut views"; btn.classList.add("next-cut");
+    btn.textContent = running.length ? "Extracting…" : "Extract reference views"; btn.classList.add("next-cut");
     btn.title = `Cut the views of ${short}${starred.length > 1 ? ` (the newest of ${starred.length} starred sheets)` : ""} for TRELLIS`;
     btn.onclick = async () => {
       try { await api(`/api/projects/${slug}/views/cut`, {sheet}); await load(); } catch (err) { alert(errorText(err)); }

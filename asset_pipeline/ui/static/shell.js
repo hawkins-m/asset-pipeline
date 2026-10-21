@@ -151,7 +151,7 @@ const MENUS = [
   ["View", "V", () => TABS.map(t => [TAB_NAMES[t], () => showTab(t), null, () => currentTab === t])],
   ["Pipeline", "P", [["Update plan, greybox & passes…", "applyAll", "Ctrl+Enter"], ["Update city plan", "replan", "F5"],
     ["Rebuild greybox", "build"], ["Render shot passes", "render"], ["Re-read .blend", "extract"], ["Aerial previews", "previews"], "-",
-    ["Generate missing frames", "frames"], ["Cut views", "cutViews"], ["Make 3D…", "make3d"], "-",
+    ["Generate missing frames", "frames"], ["Extract reference views", "cutViews"], ["Make 3D…", "make3d"], "-",
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
   ["Tools", "T", [["ComfyUI status…", "comfyCheck"], ["Vision LLM status…", "vlmStatus"], "-", ["Open city plan image", "planImage"]]],
   ["Help", "H", [["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", ["About Terraformer", "about"]]],

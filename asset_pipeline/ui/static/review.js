@@ -7,7 +7,7 @@ function renderReview() {
   const pending = reviewData.pending_sheets.length;
   const cutJobs = activeJobs("views.cut");
   $("#cut-views").disabled = !pending || !!cutJobs.length;
-  $("#cut-views").textContent = cutJobs.length ? "Cutting…" : `Cut views (${pending} new sheet${pending === 1 ? "" : "s"})`;
+  $("#cut-views").textContent = cutJobs.length ? "Extracting…" : `Extract reference views (${pending} new sheet${pending === 1 ? "" : "s"})`;
   setStop("#cut-stop", cutJobs);
   const withViews = reviewData.assets.filter(a => a.views.length).length;
   const built = reviewData.assets.filter(a => a.results.length).length;
@@ -36,7 +36,7 @@ function assetReview(a) {
   el.innerHTML = `<div class="head">
       ${a.current ? `<span class="cur-version" title="The version used by the pipeline (cleanup, export)">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}
       <span class="title">${a.plan === "library" ? assetLabelHtml(x.id) : esc(x.name)}</span>
-      ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, route, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
+      ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
@@ -64,7 +64,7 @@ function assetReview(a) {
   });
 
   const g = document.createElement("div"); g.className = "grid views";
-  if (!a.views.length) g.innerHTML = `<span class="hint">No views yet: star a sheet in Library › Reference sheets, then <em>Cut views</em>.</span>`;
+  if (!a.views.length) g.innerHTML = `<span class="hint">No views yet: star a sheet in Library › Reference sheets, then <em>Extract reference views</em>.</span>`;
   for (const v of a.views) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "view" + (v.key === a.chosen ? " chosen" : "");

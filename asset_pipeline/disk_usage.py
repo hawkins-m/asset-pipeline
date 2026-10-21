@@ -20,7 +20,7 @@ from .project import ProjectStore
 
 CATEGORIES = [
     ("sheets", "Reference sheets"),
-    ("views", "Cut views"),
+    ("views", "Reference views"),
     ("models", "3D models (versions)"),
     ("textures", "Textures and materials"),
     ("frames", "Frames and shot passes"),

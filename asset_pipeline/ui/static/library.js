@@ -28,8 +28,8 @@ function libFilterNow(filters) {
   if (!lib.filter || !filters[lib.filter]) lib.filter = currentArea() ? `area:${currentArea()}` : "all";
   return lib.filter;
 }
-const LIB_DECISIONS = [["source", "Good source"], ["description", "Use description"],
-  ["reference", "Description + reference frame"], ["exclude", "Exclude"], ["kit", "Facade kit"]];
+const LIB_DECISIONS = [["source", "Frame crop"], ["description", "Description only"],
+  ["reference", "Description + chosen image"], ["exclude", "Exclude"], ["kit", "Facade kit"]];
 const LIB_TIERS = {A: "landmark / kit monument", B: "singular civic", C: "fill typology", D: "prop / vegetation"};
 
 async function loadLibrary() {
@@ -62,9 +62,9 @@ const libDecision = e => (libraryData.decisions[e.id] || {}).decision || null;
 const LIB_FILTERS = {
   all: ["All assets", () => true], todo: ["Not decided", e => !libDecision(e)],
   flagged: ["Flagged crops", e => !e.unseen && e.flags.some(f => !f.startsWith("approximate"))],
-  seen: ["With a crop", e => !e.unseen], unseen: ["Without a crop", e => e.unseen], source: ["Good source", e => libDecision(e) === "source"],
-  description: ["Use description", e => libDecision(e) === "description"],
-  reference: ["Description + reference frame", e => libDecision(e) === "reference"],
+  seen: ["With a crop", e => !e.unseen], unseen: ["Without a crop", e => e.unseen], source: ["Frame crop", e => libDecision(e) === "source"],
+  description: ["Description only", e => libDecision(e) === "description"],
+  reference: ["Description + chosen image", e => libDecision(e) === "reference"],
   exclude: ["Excluded", e => libDecision(e) === "exclude"]};
 const shortFrame = k => k.split("/").slice(1).join(" / ").replace(/batch_0*/, "b").replace(/frame_0*(\d)/, "f$1").replace(/\.png$/, "");
 
@@ -83,7 +83,7 @@ function libCard(e) {
     <div class="asset-body">
       <div class="asset-name"><a href="#" class="jump-link" data-jump="refs" data-asset="${esc(e.id)}" title="Show its reference sheets"><b>${esc((libraryData.decisions[e.id] || {}).name || e.name || e.id)}</b></a>${((libraryData.decisions[e.id] || {}).name || e.name) ? ` <span class="hint" style="margin:0">${esc(e.id)}</span>` : ""} <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span>
         ${libRoute(e) ? `<button type="button" class="chip route route-${libRoute(e)}" data-route="${libRoute(e)}"
-          title="3D route${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
+          title="Build method${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
         · ${e.instances ? `${e.instances}× placed` : "not placed"}${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
@@ -94,7 +94,7 @@ function libCard(e) {
           return `<button type="button" class="small" data-review="${esc(a)}" title="Build review: reference vs build, brief, rebuild">Build review${lrAssetsOf(e.id).length > 1 ? `: ${esc(a.slice(e.id.length + 1))}` : ""}</button>${st ? ` <span class="mark ${LR_STATUS_CLASS[st]}">${esc(lr.list.statuses[st])}</span>` : ""}`;
         }).join(" ")}</div>` : ""}
       <div class="asset-manage"><button type="button" class="small" data-manage="${esc(e.id)}"
-        title="Name, description, route and decision; duplicate or rename">Manage entry…</button>${e.custom ? ` <span class="chip" title="Made in Library › Entries: a re-plan keeps it">yours</span>` : ""}</div>
+        title="Name, description, build method and decision; duplicate or rename">Manage entry…</button>${e.custom ? ` <span class="chip" title="Made in Library › Entries: a re-plan keeps it">yours</span>` : ""}</div>
       <div class="asset-actions" role="group" aria-label="Decision for ${esc(e.id)}">
         ${LIB_DECISIONS.filter(([k]) => k !== "kit" || d === "kit").map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
           title="${d === k && (libraryData.decisions[e.id] || {}).auto ? "Set automatically: no usable crop" : ""}"
@@ -244,7 +244,7 @@ function newEntryDialog() {
     ${entryField("en-name", "Name:", `<input id="en-name" name="name" placeholder="Stone counter">`)}
     ${entryField("en-desc", "Description:", `<textarea id="en-desc" name="description" rows="3" placeholder="What the sheets should show"></textarea>`)}
     ${entryField("en-kind", "Kind:", `<select id="en-kind" name="kind"><option value="prop">prop</option><option value="building">building</option></select>`)}
-    ${entryField("en-route", "3D route:", `<select id="en-route" name="route"><option value="">default for the kind (props TRELLIS, buildings procedural)</option>
+    ${entryField("en-route", "Build method:", `<select id="en-route" name="route"><option value="">default for the kind (props TRELLIS, buildings procedural)</option>
       <option value="procedural">procedural</option><option value="trellis">TRELLIS</option></select>`)}
     ${entryField("en-size", "Size (m):", `<input id="en-size" name="size" placeholder="w d h, e.g. 3 1 1 (optional)">`)}
     ${entryField("en-tier", "Tier:", `<select id="en-tier" name="tier"><option value="">default (prop D, building B)</option>${Object.keys(LIB_TIERS).map(t => `<option>${t}</option>`).join("")}</select>`)}`;
@@ -474,7 +474,7 @@ async function manageEntry(id) {
     ${entryField("en-name", "Name:", `<input id="en-name" value="${esc(nm)}" placeholder="${esc(id.replace(/-/g, " "))}">`)}
     ${entryField("en-desc", "Description:", `<textarea id="en-desc" rows="4" placeholder="${esc(ent.description_auto || "")}">${esc(dec.description || "")}</textarea>
       <span></span><span class="hint" style="margin:0">${dec.description ? "Yours" : "Automatic"}: <button type="button" id="en-desc-reset" class="small"${dec.description ? "" : " disabled"}>Reset to auto</button></span>`)}
-    ${entryField("en-route", "3D route:", `<select id="en-route"><option value="">auto (${LIB_ROUTES[ent.route_auto] || "none"})</option>
+    ${entryField("en-route", "Build method:", `<select id="en-route"><option value="">auto (${LIB_ROUTES[ent.route_auto] || "none"})</option>
       <option value="procedural"${dec.route === "procedural" ? " selected" : ""}>procedural</option><option value="trellis"${dec.route === "trellis" ? " selected" : ""}>TRELLIS</option></select>`)}
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
       .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}
@@ -514,7 +514,7 @@ async function manageEntry(id) {
         if (kids) await kids.save();
         const decision = $("#en-decision", body).value || null;
         if (decision !== (dec.decision || null)) {
-          if (decision === "reference") { alert("Pick the reference frame with the card's 'Description + reference frame' button."); }
+          if (decision === "reference") { alert("Pick the image with the card's 'Description + chosen image' button."); }
           else await api(`/api/projects/${slug}/library/decision`, {entry: id, decision});
         }
       } catch (err) { alert(errorText(err)); return false; }

@@ -1,4 +1,4 @@
-"""Library › Entries: create, duplicate, rename, describe; Brief & build / Cut views next steps."""
+"""Library › Entries: create, duplicate, rename, describe; Brief & build / Extract reference views next steps."""
 import json
 import time
 

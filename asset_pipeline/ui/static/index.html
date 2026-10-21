@@ -200,8 +200,9 @@
           <div data-sub="assets" id="assets-tab" hidden>
             <p class="hint">World mode: the assets the locked shot frames show, from their object-id passes. Each card
               crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky,
-              something else over the asset). Decide each one before the pilot sheets: <b>Good source</b> (the crop
-              guides its sheets), <b>Use description</b> (built from its description only) or <b>Exclude</b>.
+              something else over the asset). Decide each one before the pilot sheets: <b>Frame crop</b> (the crop
+              guides its sheets), <b>Description only</b> (built from its description), <b>Description + chosen image</b>
+              (its description plus a frame you pick) or <b>Exclude</b>.
               Pressing a chosen button again clears it.</p>
             <div class="row">
               <button id="lib-plan" type="button" title="Finds the assets the locked shot frames show (CPU, seconds); decisions are kept">Discover assets from locked shots</button>
@@ -276,10 +277,10 @@
       <section class="tabpanel" data-tab="views" id="review-tab" hidden>
         <div class="applybar-slot"></div>
         <fieldset><legend>Views and 3D</legend>
-          <p class="hint">Starred sheets are cut into views (SAM 3.1). Per asset, pick the view to build from, tag it
+          <p class="hint">Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it
             game, cine or hero, then <em>Make 3D</em> (TRELLIS.2 on GPU 0, about 2.5 min).</p>
           <div class="row">
-            <button id="cut-views" type="button" class="default">Cut views</button>
+            <button id="cut-views" type="button" class="default">Extract reference views</button>
             <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
             <label>3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
             <span id="review-summary" class="hint" style="margin:0"></span>

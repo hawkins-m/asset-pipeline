@@ -246,7 +246,7 @@ def form_gaps(store: ProjectStore, rows: list[dict]) -> list[dict]:
             if matched or (e or ent or {}).get("kind") != "building":
                 fixes.append(form_fix)
             else:                                       # an irregular building: TRELLIS from a sheet view
-                fixes += [{"kind": "route", "route": "trellis", "label": "Use the TRELLIS route",
+                fixes += [{"kind": "route", "route": "trellis", "label": "Build with TRELLIS",
                            "why": "no building form matches its description: TRELLIS makes it from a sheet view"},
                           form_fix]
         if not size or ("size" in r["missing"] and not fixes):

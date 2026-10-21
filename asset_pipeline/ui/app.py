@@ -1404,7 +1404,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if e is None:
             raise HTTPException(404, f"no library entry {asset}")
         if sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
-            raise HTTPException(400, f"{asset} is on the TRELLIS route: use Cut views")
+            raise HTTPException(400, f"{asset} is on the TRELLIS build method: use Extract reference views")
         try:
             review.rel(store, req.sheet)
         except (ValueError, FileNotFoundError) as ex:

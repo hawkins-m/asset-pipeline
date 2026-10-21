@@ -636,7 +636,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   gives one (`size_source` "kit piece").
 - **Form gaps** (Library › Areas, above the table; `gaps` in `/areas/status`): procedural assets
   with no form or size, each with fixes as buttons, the suggested one first: *Form: …* (sets the
-  entry's form and size), *Use the TRELLIS route* (a building no form describes), *Set size…*. A
+  entry's form and size), *Build with TRELLIS* (a building no form describes), *Set size…*. A
   city wall run gets *Arched wall* at one wall bay's size (`city.WALL_BAY_M` × the enclosure's
   wall depth × height), not the whole run's.
 - **Variant sets** (`asset_pipeline/variants.py`; Manage entry… › Variant set on a prop; `ap
@@ -648,16 +648,16 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   and 3D. `variants.assign(store, base[, area])` gives each place with its entry (for placement).
   API: `GET|POST|DELETE /api/projects/{slug}/library/variants/{entry}`.
 - **Library › Entries** (browser): *New entry…* adds an entry of your own (id, name,
-  description, prop/building, route, size, tier); it is kept in `site/library_custom.json`, so a
+  description, prop/building, build method, size, tier); it is kept in `site/library_custom.json`, so a
   re-discovery (*Discover assets from locked shots*) never wipes it. *Manage entry…* on a card edits name, description (*Reset to auto*),
-  route and decision, and offers *Duplicate…* (copies the description, route, decision, sheets,
+  build method and decision, and offers *Duplicate…* (copies the description, build method, decision, sheets,
   views, brief, build, TRELLIS results and review renders to a new id; the copy starts
   unreviewed) and *Rename…* (your own entries: the files move and the review stays; plan entries:
   display name only). API: `/api/projects/{slug}/library/entries[/{id}/duplicate|rename|description]`.
 - **Next step per sheet** (Library › Reference sheets): once a sheet is starred (the newest
   starred one is used), a procedural asset's row shows *Brief & build* (the brief from that
   sheet, as `ap library brief ... front`, then the build and review renders; job
-  `library.brief_build`) and a TRELLIS asset's row *Cut views*, with links on to Asset review or
+  `library.brief_build`) and a TRELLIS asset's row *Extract reference views*, with links on to Asset review or
   Views and 3D.
 - **Guidance for the next build** (procedural assets): the Brief & build dialog and Asset review
   (*Guidance…*) take a few words ("taller windows, open arcade below"). The local vision model
@@ -872,7 +872,7 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
 
 **In the browser:** the **Views and 3D** tab.
 
-1. Star the good sheets in **References**, then click **Cut views** here. Each starred sheet
+1. Star the good sheets in **References**, then click **Extract reference views** here. Each starred sheet
    is cut into its separate views (SAM 3.1 finds them; each view is cropped on white so
    thin or white parts like flowers and snow stay). About 2 s per sheet.
    - Object sheets give views 1–3. Each records the view it was *asked* for (front, side,
@@ -991,15 +991,15 @@ Every build of a library asset is kept as a numbered version under
 version's brief, build settings and thumbnails). A TRELLIS version keeps no copy: its GLB, stats
 and input image stay where TRELLIS wrote them. A procedural version holds no GLB unless pinned.
 
-- Library › Asset review (detail view) and Views and 3D show a version strip: Restore, Pin or
-  Unpin, Delete, and tick two versions for Compare. Restoring a procedural version puts its brief
-  back and rebuilds (or copies back the GLB of a pinned version); restoring a TRELLIS version makes
+- Library › Asset review (detail view) and Views and 3D show a version strip: Restore, Keep or
+  Stop keeping (the CLI and API call it pin / unpin), Delete, and tick two versions for Compare. Restoring a procedural version puts its brief
+  back and rebuilds (or copies back the GLB of a version marked Keep); restoring a TRELLIS version makes
   it the newest result.
-- The last N unpinned versions are kept (Tools › Settings…, per project, default 3). Older ones are
+- The last N versions not marked Keep stay (Tools › Settings…, per project, default 3). Older ones are
   never removed silently: after a build the strip offers "N old versions can be removed". The
-  Approved, pinned and current versions are never removed.
+  Approved, Keep and current versions are never removed.
 - Tools › Storage… shows the size of builds and versions per asset and project, and deletes
-  unpinned versions after a confirmation.
+  versions not marked Keep after a confirmation.
 - Existing builds become version 1 of their asset the first time the strip is opened, or all at
   once with `ap library versions migrate PROJECT` (safe to repeat). `ap library versions show
   PROJECT` prints the sizes.

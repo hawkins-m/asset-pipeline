@@ -200,3 +200,13 @@ def test_approve_says_which_version_export_and_unreal_use():
     assert all("greybox stand-ins" in run(c, False) for c in (None, {"n": 1, "kind": "procedural"}, {"n": 1, "kind": "trellis"}))
     for f in ("review.js", "library_review.js"):
         assert "versionUseLine(" in (STATIC / f).read_text()
+
+
+def test_confusing_labels_are_renamed():
+    ui = "".join((STATIC / f).read_text() for f in ("index.html", "library.js", "review.js", "refs.js", "areas.js", "versions.js", "shell.js"))
+    for old in ('"Good source"', '"Use description"', '"Description + reference frame"', "<th>Route</th>", '"Cut views"',
+                '`Cut views (', '"Unpin" : "Pin"', '"3D route:"'):
+        assert old not in ui, old
+    for new in ('"Frame crop"', '"Description only"', '"Description + chosen image"', "<th>Build method</th>",
+                "Extract reference views", '"Stop keeping" : "Keep"', '"Build method:"'):
+        assert new in ui, new

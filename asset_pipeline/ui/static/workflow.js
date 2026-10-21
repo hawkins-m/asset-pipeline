@@ -139,7 +139,7 @@ function libraryPrereq(views = false) {
   if (!libraryData || !libraryData.plan) return go("No assets yet: discover them from the locked shots (Library › Discover assets from locked shots).", "library", "assets", "Open Asset review");
   const ents = libEntries(), included = ents.filter(e => libDecision(e) && libDecision(e) !== "exclude");
   if (!included.length) return go("No assets included yet: decide each asset in Library › Asset review.", "library", "assets", "Open Asset review");
-  if (views) return go("No views yet: star reference sheets in Library › Reference sheets, then Cut views.", "library", "refs", "Open Reference sheets");
+  if (views) return go("No views yet: star reference sheets in Library › Reference sheets, then Extract reference views.", "library", "refs", "Open Reference sheets");
   return null;
 }
 // the hint as HTML with a button that goes there (wired by wireGo)

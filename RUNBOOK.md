@@ -58,15 +58,15 @@ what it has (sheets, brief, build, review) and its **next step as a button**. Wo
 list, largest frame share first:
 
 1. **Decide** (undecided entries): the button opens Library › Asset review at the entry.
-   **Manage entry…** on its card: decision (good source, description, reference frame,
-   exclude), route (procedural or TRELLIS), description (yours / auto), and for procedural
+   **Manage entry…** on its card: decision (**Frame crop**, **Description only**, **Description +
+   chosen image**, Exclude), **Build method** (procedural or TRELLIS), description (yours / auto), and for procedural
    entries **Form** and **Size**. The area panel marks entries with *no form* or *no size*
    (its **Set form…** button opens this) so they're fixed before Brief & build. See section 7 for new,
    duplicated and renamed entries.
    - **Form gaps** (the box above the area's table) lists those assets with their fixes as
      buttons, the suggested one first: *Form: …, size* (from the entry's words: a portico, an
      arcade block, a courtyard; kit modules take their kit piece's size; a city wall one wall bay),
-     or *Use the TRELLIS route* for a building no form describes. Hover a button for why.
+     or *Build with TRELLIS* for a building no form describes. Hover a button for why.
 2. **Sheets.** The area's **Sheets for missing…** makes two sheets for every decided,
    unapproved entry that has none (about 55 s each; it shows the count first). For another try:
    Library › Reference sheets › **+2 more** on the asset.
@@ -95,7 +95,7 @@ list, largest frame share first:
      and your edits carried over, each with a tick box. Untick an edit to drop it (from scratch
      starts with none ticked; band patches picked on another sheet start unticked). Then
      **Open in Asset review**: every brief field is marked **sheet**, **my edit** or **default**.
-   - **Cut views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
+   - **Extract reference views** (TRELLIS: props and irregular landmarks), then **Choose view in Views and
      3D**: click the view to use and **Make 3D** there. Tick **New seed** for another try
      from the same view; to steer the result with words, reroll the sheet with guidance
      (step 2) instead.
@@ -123,11 +123,11 @@ are skipped.
 in Asset review and in Views and 3D: thumbnail, date, source (sheet, view, form, guidance,
 seed) and size. Tick two and **Compare** (side by side, with the source and brief fields that
 differ); **Restore** brings one back (a procedural version is rebuilt from its saved brief; a
-pinned one, or a TRELLIS one, comes back as it was); **Pin** keeps a version and its 3D model
-for good; **Delete** removes one (asks first; never the Approved one). The last 3 unpinned
-versions are kept (Tools › **Settings…**); when there are more, the strip offers to remove the
-old ones. Pinned, Approved and current versions are never removed. Tools › **Storage…** shows
-the space per asset and per project, with "Delete unpinned versions" per asset or for the
+one marked Keep, or a TRELLIS one, comes back as it was); **Keep** keeps a version and its 3D model
+for good; **Delete** removes one (asks first; never the Approved one). The last 3 versions not
+marked Keep stay (Tools › **Settings…**); when there are more, the strip offers to remove the
+old ones. Versions marked Keep, the Approved one and the current one are never removed. Tools › **Storage…** shows
+the space per asset and per project, with "Delete versions not marked Keep" per asset or for the
 whole project. Beside **Approve** (Views and 3D, and the build review) one line says which version
 Unreal takes: cleanup and look scenes use the version marked "Used by the pipeline", look scenes
 only once the asset is Approved (a TRELLIS model only as a piece attached to an Approved
@@ -191,7 +191,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 | Brief & build: "no near-front view" | No view on the sheet is frontal enough (curved buildings) | Brief & build again and choose the left, middle or right view |
 | Brief & build: "has no building form" / "has no size" | The entry's catalog type has no generator, or no size | Choose Form / Size in the Brief & build dialog, or Manage entry… › Form, Size |
 | "no view chosen" (TRELLIS) | No view clicked | Views and 3D › click a view of the asset |
-| "not decided yet" (sheets) | No source decision | Manage entry… › Decision |
+| "not decided yet" (sheets) | No source decision | Manage entry… › Decision (Frame crop, Description only, …) |
 | "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the Jobs panel |
 | A wall or strip renders black | Two faces in one plane | The builder pulls these apart; if one remains, review it as Needs new feature |
 | Planters look bare | Plants come from PCG; reviews show proxies | Nothing to do |
@@ -260,7 +260,7 @@ Everything above also runs from a terminal (`ap --help`, USAGE.md):
 | Sheets for missing… / +2 more (with guidance) | `ap library sheets my-project --area my-area`; `--unit my-asset --guidance "..."`; `--view three-quarter` |
 | Brief & build | `ap library brief my-project my-asset refs/library/my-asset/sheet_000.png front` (or a view number 0 / 1 / 2), then `ap library build my-project my-asset --renders` |
 | Build all… / TRELLIS all… / Instances… | `ap library build|trellis|instances my-project --area my-area` |
-| Manage entry… (decision, route, form and size, variant set) | `ap library decide my-project ENTRY ...`; `ap library route my-project ENTRY procedural|trellis`; `ap library form my-project ENTRY FORM --size W D H`; `ap library variants my-project ENTRY --member OTHER=WEIGHT` |
+| Manage entry… (decision, build method, form and size, variant set) | `ap library decide my-project ENTRY ...`; `ap library route my-project ENTRY procedural|trellis`; `ap library form my-project ENTRY FORM --size W D H`; `ap library variants my-project ENTRY --member OTHER=WEIGHT` |
 | Review round task list / mark done | `ap library review apply my-project [--done ASSET ...]` |
 | Pending slots… / Silhouette check… | `ap library pending my-project --shot SHOT`; `ap library silhouette my-project my-asset --shot SHOT` |
 | World › Generate frames… / Lock a shot… | `ap frames generate my-project SHOT -n 4`; `ap frames lock my-project SHOT [--greybox]` |

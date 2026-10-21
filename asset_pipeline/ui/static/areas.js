@@ -84,7 +84,7 @@ async function areasPanel(host) {
     areaGaps(d, table);
     box.className = "";
     if (!areaState.rows.length) { box.innerHTML = `<p class="hint">No assets in this area.</p>`; return; }
-    box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr><th>Asset</th><th>Tier</th><th>Route</th><th>Share</th>
+    box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr><th>Asset</th><th>Tier</th><th>Build method</th><th>Share</th>
       <th>Sheets</th><th>Brief</th><th>Build</th><th>Review</th><th>Next</th></tr></thead><tbody>${areaState.rows.map((r, i) => {
         const st = areaStep(r);
         return `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(assetName(r.variant_of))}</span>` : ""}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
