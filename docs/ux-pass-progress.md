@@ -11,7 +11,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 
 - [x] 1. Toolbar: only project, New…, storage and Stop jobs. Stage buttons move into City / Site /
       Shots / Frames, and stay in the menus. "Update plan, greybox & passes" shows its steps first.
-- [ ] 2. Header strip on every tab: "This step: …", an honest status, and "Next: <tab> →" (disabled
+- [x] 2. Header strip on every tab: "This step: …", an honest status, and "Next: <tab> →" (disabled
       with a reason). Points back to an earlier tab that is out of date.
 - [ ] 3. The left panel is the same on every tab. The Frames shot list moves into the tab.
 - [ ] 4. The stage sidebar follows the tab order and uses the same states. Site and City are one
@@ -32,5 +32,10 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - Phase 1: toolbar buttons moved to City (Update plan, greybox & passes…, Update city plan, Rebuild
   greybox), Site (Update greybox & passes…) and Frames (Generate missing frames). Shots already had
   Render all passes. Apply opens a step list (applyPreview) before running anything.
+- Phase 2: asset_pipeline/ui/static/workflow.js holds STEPS (tab order; Site and City are one step)
+  and STEP_STATE (status, detail and what Next needs, from loaded data). renderStepHeads() is called
+  at the end of renderShell(). Library "Out of date" = a locked frame not in the plan's
+  `candidates` (not `sources`: frame_fit drops old-layout frames on purpose). Tests:
+  tests/test_ui_workflow.py runs workflow.js in node with stubbed data.
 
 - Before screenshots: taken from a worktree of b549843 on port 8701 (scratchpad, not in the repo).

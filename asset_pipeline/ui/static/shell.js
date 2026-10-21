@@ -699,5 +699,6 @@ function renderShell() {
     : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
   renderComfyControls();
   renderApplyBar();
+  if (typeof renderStepHeads === "function") renderStepHeads();
   updateJobDialog();
 }

@@ -585,3 +585,23 @@ details summary { cursor: default; }
 .src-sheet { background: var(--ready); color: #fff; border-color: var(--ready); }
 .src-default { color: var(--muted); }
 .lr-src-legend .src { margin: 0 2px 0 6px; }
+
+/* Step header on every tab: what this step is, its status, and the Next button */
+.step-head { flex: none; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 0 0 8px; padding: 5px 8px;
+  background: var(--panel); border: 1px solid; border-color: var(--hi) var(--border-dark) var(--border-dark) var(--hi); }
+.step-head .sh-main { flex: 1 1 100%; }
+.step-head .spacer { flex: 1; }
+.step-head .sh-step { font-weight: 700; }
+.step-head .sh-note { margin-left: 6px; }
+.step-head .sh-detail { color: var(--muted); }
+.step-head .sh-reason { color: var(--muted); font-style: italic; }
+.step-head .sh-behind { background: var(--stale); border: 1px solid var(--stale-line); padding: 0 6px; }
+.step-head button.link, .guide button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91;
+  text-decoration: underline; font: inherit; cursor: pointer; }
+.st-chip { border: 1px solid var(--border-dark); padding: 0 6px; background: var(--field); white-space: nowrap; font-weight: 700; }
+.st-chip.st-none { color: var(--muted); font-weight: 400; }
+.st-chip.st-input, .st-chip.st-review { background: var(--stale); border-color: var(--stale-line); color: #4D3F00; }
+.st-chip.st-ready { color: var(--select); }
+.st-chip.st-running { color: var(--select); background: #DCE7F5; }
+.st-chip.st-stale { background: #F0D2C8; border-color: #B06A50; color: #6E1E00; }
+.st-chip.st-done { color: var(--ready); background: #DDE9D6; }
