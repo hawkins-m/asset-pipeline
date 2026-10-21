@@ -48,8 +48,8 @@ Internal tab ids stay `city` (now labelled Layout) and `site` (now Greybox), so 
 saved tabs keep working; `?tab=layout` and `?tab=greybox` are aliases.
 
 - [x] A. Tab order Style → Layout → Greybox → Shots → …; labels; `?tab=layout|greybox` aliases.
-- [ ] B. Layout tab: catalog, Update city plan, Update plan, greybox & passes…; Greybox tab: Rebuild
-      greybox, Re-read .blend, aerial previews, starter layout for a project with no layout. Headers.
+- [x] B. Layout tab: catalog, Update city plan, Update plan, greybox & passes…; Greybox tab: Rebuild
+      greybox, Re-read .blend, aerial previews, starter layout for a project with no layout. (Headers: C.)
 - [ ] C. Stage list: Layout and Greybox as two steps with honest states; "use one or the other" gone;
       Style shows "Complete (text only)" without anchor images.
 - [ ] D. RUNBOOK/USAGE, tests, screenshots on a second instance; report on brief → layout.

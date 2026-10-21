@@ -257,8 +257,7 @@ document.addEventListener("keydown", e => {
 // The toolbar is global (project, New…, storage, Stop jobs); stage buttons live in their own tab
 // (and in the Pipeline menu), enabled by the same ACTIONS.
 const TOOLBAR = {"#tb-new": "newProject", "#tb-stop": "stopAll"};
-const STAGE_BUTTONS = {"#city-apply": "applyAll", "#city-replan": "replan", "#city-build": "build", "#site-apply": "applyAll",
-  "#frames-missing": "frames"};
+const STAGE_BUTTONS = {"#city-apply": "applyAll", "#city-replan": "replan", "#frames-missing": "frames"};
 for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) $(sel).onclick = () => ACTIONS[act].run();
 
 // --- info dialogs ----------------------------------------------------------------------------
@@ -666,12 +665,15 @@ function renderShell() {
   $("#empty").hidden = true;
   const active = allActive();
   $("#status-line").textContent = `${active.length ? "Working" : "Ready"} · ${active.length ? `${active.length} job${active.length === 1 ? "" : "s"} running` : "no jobs"}`;
-  $("#city-none").hidden = isCity();
   renderStages();
   renderLanes();
   for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
-  $("#city-actions").hidden = !isCity();
-  $("#site-apply").textContent = isCity() ? "Update plan, greybox & passes…" : "Update greybox & passes…";
+  // Layout: the city's catalog and plan; a project with its own layout.json (no city) only gets Update greybox & passes
+  $("#city-actions").hidden = !(siteData && siteData.layout);
+  $("#city-replan").hidden = !isCity();
+  $("#city-apply").textContent = isCity() ? "Update plan, greybox & passes…" : "Update greybox & passes…";
+  $("#city-none").hidden = isCity() || !!(siteData && siteData.layout);
+  $("#city-own").hidden = isCity() || !(siteData && siteData.layout);
   const comfyRun = active.find(j => j.lane === "comfy" && j.status === "running");
   const cp = comfyRun && jobProgress(comfyRun);
   $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";

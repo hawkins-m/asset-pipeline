@@ -5,7 +5,7 @@ function renderSite() {
   const s = siteData;
   const busy = SITE_JOBS.flatMap(k => activeJobs(k));
   const sum = s.summary;
-  $("#site-init").hidden = s.layout;
+  $("#site-init").hidden = s.layout; $("#site-byo").hidden = s.layout;
   $("#site-build").disabled = !s.layout || !!busy.length;
   $("#site-build").textContent = sum ? "Rebuild greybox" : "Build greybox";
   for (const id of ["#site-extract", "#site-preview", "#shots-render"]) $(id).disabled = !sum || !!busy.length;

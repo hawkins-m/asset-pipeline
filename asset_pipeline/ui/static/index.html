@@ -120,34 +120,17 @@
         </fieldset>
       </section>
 
-      <!-- Site: layout and greybox -->
-      <section class="tabpanel" data-tab="site" id="site-tab" hidden>
-        <div class="applybar-slot"></div>
-        <fieldset><legend>Site and greybox</legend>
-          <p class="hint"><code>site/layout.json</code> builds a Blender greybox; after that the .blend is the source of
-            truth: move buildings or cameras in Blender, then <em>Re-read .blend</em>. Blender runs on the CPU.</p>
-          <div class="row">
-            <button id="site-init" type="button">Start from the starter layout</button>
-            <button id="site-build" type="button" class="default">Build greybox</button>
-            <button id="site-extract" type="button">Re-read .blend</button>
-            <button id="site-preview" type="button">Aerial previews</button>
-            <button id="site-apply" type="button" title="Shows what it will run first (Ctrl+Enter)">Update greybox &amp; passes…</button>
-            <button type="button" id="site-stop" class="stop" hidden>Stop</button>
-          </div>
-          <p id="site-summary"></p>
-        </fieldset>
-        <fieldset><legend>Aerial previews</legend><div id="site-previews" class="grid"></div></fieldset>
-      </section>
-
-      <!-- City catalog -->
+      <!-- Layout (tab id "city"): catalog, rules and the city plan -->
       <section class="tabpanel" data-tab="city" id="city-tab" hidden>
         <div class="applybar-slot"></div>
         <div class="row stage-actions" id="city-actions">
           <button type="button" id="city-apply" class="default" title="Shows what it will run first (Ctrl+Enter)">Update plan, greybox &amp; passes…</button>
           <button type="button" id="city-replan" title="Re-plan the city from the catalog (F5)">Update city plan</button>
-          <button type="button" id="city-build" title="Rebuild the Blender greybox from the plan (CPU)">Rebuild greybox</button>
         </div>
-        <p id="city-none" class="hint">This project has no city layout yet. <button type="button" id="city-init" class="small">Start from the starter city</button></p>
+        <p id="city-none" class="hint">This project has no city layout yet. <button type="button" id="city-init" class="small">Start from the starter city</button>
+          <span id="city-none-own">To lay out the site yourself in Blender, use the starter layout in the Greybox tab.</span></p>
+        <p id="city-own" class="hint" hidden>This project's layout is <code>site/layout.json</code> (the starter layout or your own), not a
+          generated city: build and edit it in the Greybox tab.</p>
         <div id="catalog" class="city" hidden>
           <div class="row city-top">
             <label>Edit: <select id="city-section" aria-label="Catalog section"></select></label>
@@ -163,6 +146,26 @@
             <div id="city-detail" class="city-detail"></div>
           </div>
         </div>
+      </section>
+
+      <!-- Greybox (tab id "site"): the block-out built from the layout -->
+      <section class="tabpanel" data-tab="site" id="site-tab" hidden>
+        <div class="applybar-slot"></div>
+        <fieldset><legend>Greybox</legend>
+          <p class="hint">The layout (<code>site/layout.json</code>) builds a Blender greybox. Optionally move buildings or
+            cameras in Blender, then <em>Re-read .blend</em>: the .blend is then the source of truth. Blender runs on the CPU.</p>
+          <p class="hint" id="site-byo">No layout yet. To lay out the site yourself in Blender instead of generating a city,
+            start from the small starter layout, build its greybox and edit that.</p>
+          <div class="row">
+            <button id="site-init" type="button">Start from the starter layout</button>
+            <button id="site-build" type="button" class="default">Build greybox</button>
+            <button id="site-extract" type="button">Re-read .blend</button>
+            <button id="site-preview" type="button">Aerial previews</button>
+            <button type="button" id="site-stop" class="stop" hidden>Stop</button>
+          </div>
+          <p id="site-summary"></p>
+        </fieldset>
+        <fieldset><legend>Aerial previews</legend><div id="site-previews" class="grid"></div></fieldset>
       </section>
 
       <!-- Shots: per-shot control passes -->
