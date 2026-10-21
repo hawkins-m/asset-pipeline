@@ -10,7 +10,7 @@ from its own patch of the sheet), trim (cornices, slabs, string courses), frame 
 rails: a dark metal), glass, planting (planters, roof gardens), wood, roof, vault.
 
 Walls with openings are cut into convex prisms (`pierced`): arched walls built any other way came
-out solid (CLAUDE.md, "Arched walls were solid until 2026-10-08").
+out solid (docs/notes/world-and-city.md, "Arched walls were solid until 2026-10-08").
 
 Vegetation zones (`zone` parts: no geometry) mark where plants go: planter tops, garden strips,
 roof-edge planters, courtyard and terrace beds. The build writes them next to the GLB

@@ -1,6 +1,6 @@
 # Source this before building HIP/torch extensions:  source scripts/rocm_build_env.sh
 #
-# Why it exists (see CLAUDE.md "Machine"):
+# Why it exists (see docs/notes/machine-and-gpu.md "Machine"):
 # - /opt/rocm is AMD ROCm 7.2.4 but has no hipcc; the only hipcc is Ubuntu's 7.1.1
 #   (/usr/bin/hipcc, clang 21). torch then picks ROCM_HOME=/usr and would compile
 #   against 7.1 headers. A shim ROCM_HOME mirrors /opt/rocm and adds bin/hipcc, and

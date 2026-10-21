@@ -17,7 +17,7 @@ os.environ.setdefault("ATTN_BACKEND", "sdpa")
 os.environ.setdefault("SPARSE_ATTN_BACKEND", "sdpa")
 os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")
 os.environ.setdefault("TORCH_BLAS_PREFER_HIPBLASLT", "0")
-# expandable_segments produces silent NaNs on this stack (see CLAUDE.md).
+# expandable_segments produces silent NaNs on this stack (see CLAUDE.md, docs/notes/machine-and-gpu.md).
 if "expandable_segments" in os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""):
     raise SystemExit("Unset PYTORCH_CUDA_ALLOC_CONF=expandable_segments: silent NaNs on gfx1201")
 
@@ -52,7 +52,7 @@ def write_rocm_config() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("image", type=Path)
-    ap.add_argument("--type", default="1024_cascade",  # 1536_cascade: OOM, see CLAUDE.md
+    ap.add_argument("--type", default="1024_cascade",  # 1536_cascade: OOM, see docs/notes/machine-and-gpu.md
                     choices=["512", "1024", "1024_cascade", "1536_cascade"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--decimate", type=int, default=1_000_000)

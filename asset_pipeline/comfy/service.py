@@ -151,7 +151,7 @@ def listener_pid(port: int) -> int | None:
 def looks_like_comfy(argv: list[str]) -> bool:
     """A ComfyUI server: python running a main.py, or a comfyui / comfy executable. Judged by
     program names, not substrings: a substring match on the whole command line also hits
-    test runs and editors with "comfy" in a path (the pkill -f trap in CLAUDE.md)."""
+    test runs and editors with "comfy" in a path (the pkill -f trap in CLAUDE.md and docs/notes/world-and-city.md)."""
     names = [os.path.basename(a).lower() for a in argv[:3]]
     return "main.py" in names or any(n in ("comfyui", "comfy") for n in names)
 

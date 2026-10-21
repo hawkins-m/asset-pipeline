@@ -8,7 +8,7 @@ SPEC: {"out": "piece.glb", "repeat": 1, "parts": [...], "materials": {name: {...
     box      x0 x1 y0 y1 z0 z1
     archwall x0 x1 y0 y1 z0 z1 cx span spring seg    wall with a round-arched opening, from
                                                       convex pieces (piers plus a comb of
-                                                      trapezoids over the arch: see CLAUDE.md)
+                                                      trapezoids over the arch: see docs/notes/world-and-city.md)
     archband cx span spring width y0 y1 seg          an archivolt: a band around the arch (also a
                                                       barrel vault: width = its thickness)
     lathe    x y z profile [[r, dz], ...] seg        a round turned piece (column shafts, bases)

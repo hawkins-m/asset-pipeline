@@ -1,6 +1,6 @@
 """An object-level id pass for some slots through a shot camera: each mesh object of those slots
 gets its own colour (index + 1 as 24-bit RGB), every other object one occluder colour (white),
-sky black. Cycles, 1 sample, box filter, Raw: exact (CLAUDE.md "data passes").
+sky black. Cycles, 1 sample, box filter, Raw: exact (docs/notes/world-and-city.md, data passes).
 
     blender -b greybox.blend --factory-startup --python scripts/blender_instance_ids.py -- JOB.json
 

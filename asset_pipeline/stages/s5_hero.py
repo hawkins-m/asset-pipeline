@@ -11,7 +11,7 @@ See PLAN.md "Hero tier". Steps 1-2 only (no multi-view 3D backend yet):
   frame after the midpoint most like frame 0 to find where a full turn closes. If it
   closes, frames at 0/90/180/270 degrees are picked assuming constant speed.
 
-Findings (2026-10-05, CLAUDE.md): the orbits are visually consistent, but the picks are
+Findings (2026-10-05, docs/notes/stages-0-6.md): the orbits are visually consistent, but the picks are
 NOT at the angles they claim. Wan eases in and out (not constant speed), may swing back
 rather than complete a turn, and front/back-similar objects (stalls, gable houses) fool
 every image-only angle check. Frame angles need an independent source before a

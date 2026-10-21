@@ -1,5 +1,5 @@
 """Library crop refinement: what of a greybox slot's id-pass region a painted frame actually
-draws as that building (A/B in CLAUDE.md "Asset library plan").
+draws as that building (A/B in docs/notes/library.md "Asset library plan").
 
   1. R  the slot's id-pass region
   2. L  R and ADE20K building-like labels (OneFormer Swin-L, MIT): trees, sky, people,

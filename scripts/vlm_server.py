@@ -27,7 +27,7 @@ import gfx1201_guard  # noqa: E402
 import torch  # noqa: E402
 from PIL import Image  # noqa: E402
 
-gfx1201_guard.install()  # tall GEMMs silently corrupt on gfx1201 (CLAUDE.md)
+gfx1201_guard.install()  # tall GEMMs silently corrupt on gfx1201 (docs/notes/machine-and-gpu.md)
 
 AP_ROOT = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline"))
 JSON_INSTRUCTION = ("Answer with only a single JSON object, no prose and no code fences. "

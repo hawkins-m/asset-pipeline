@@ -13,7 +13,7 @@ DEFAULT_AP_ROOT = "/mnt/storage/asset-pipeline"
 
 
 def ap_root() -> Path:
-    """Storage root for everything that must not live in the repo (see CLAUDE.md): env
+    """Storage root for everything that must not live in the repo (see docs/notes/machine-and-gpu.md, Storage layout): env
     AP_ROOT > [paths] ap_root in the repo's backends.toml (the local toml lives inside
     AP_ROOT, so it can't set this) > the default."""
     if os.environ.get("AP_ROOT"):

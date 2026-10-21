@@ -241,7 +241,7 @@ details. Measured times are in Status above; the per-building instances are the 
 
 ## ROCm notes
 
-Short version; details are in [CLAUDE.md](CLAUDE.md).
+Short version; details are in [CLAUDE.md](CLAUDE.md) and [docs/notes/](docs/notes/).
 
 - Tall GEMMs silently return corrupt results on gfx1201. `scripts/gfx1201_guard.py` chunks
   `F.linear` in any torch process that installs it.
@@ -302,7 +302,7 @@ Paid backends (Gemini, Claude) exist but are off by default and refuse to run wi
 - [USAGE.md](USAGE.md): running the tools and the UI.
 - [RUNBOOK.md](RUNBOOK.md): the daily asset loop for one area, matching a sheet with brief fields, common failures.
 - [PLAN.md](PLAN.md): design, stages and milestones.
-- [CLAUDE.md](CLAUDE.md): machine facts, measured findings and pitfalls.
+- [CLAUDE.md](CLAUDE.md): working rules; [docs/notes/](docs/notes/): machine facts, measured findings and pitfalls.
 
 ## Credits
 

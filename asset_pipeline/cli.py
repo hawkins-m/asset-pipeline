@@ -302,7 +302,7 @@ def cmd_hero_orbit(a) -> None:
     print(f"drift {r['drift_frac']:.0%}, closes at frame {r['closure_frame']} "
           f"(similarity {r['closure_similarity']}), picks {r['picks'] or '-'}; contact sheet: "
           f"{out / 'contact.png'}")
-    print("prototype: the picked frames' angles are approximate (see CLAUDE.md)")
+    print("prototype: the picked frames' angles are approximate (see docs/notes/stages-0-6.md)")
 
 
 def cmd_hero_angles(a) -> None:
@@ -314,7 +314,7 @@ def cmd_hero_angles(a) -> None:
     r = s5_hero.match_angles(orbit, tt)
     print(f"mesh {glb.name}; turned {r['rotation_deg']} deg (reach {r['max_reach_deg']}), "
           f"fit {r['mean_fit']}, sides {r['picks']}")
-    print("experimental: on real Wan orbits these angles are unreliable (see CLAUDE.md)")
+    print("experimental: on real Wan orbits these angles are unreliable (see docs/notes/stages-0-6.md)")
 
 
 def cmd_hero_mesh(a) -> None:

@@ -3,7 +3,7 @@
 Guidance for coding agents other than Claude Code, for the repo
 [`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraformer-3d) (formerly `asset-pipeline`; the command is still `ap`, the
 package still `asset_pipeline`). The rules live in
-[CLAUDE.md](CLAUDE.md); read it in full before changing anything. The design source of truth
+[CLAUDE.md](CLAUDE.md); read it in full before changing anything, and the `docs/notes/` file it lists for the area you work in. The design source of truth
 is [PLAN.md](PLAN.md); if the two disagree on design, PLAN.md wins.
 
 Headline rules (CLAUDE.md has the details):

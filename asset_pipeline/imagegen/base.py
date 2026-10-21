@@ -37,7 +37,7 @@ class GenRequest(BaseModel):
     steps: int | None = None         # backend default when None
     control: list[ControlImage] = Field(default_factory=list)
     # union: Flux ControlNet Union Pro 2.0 (depth and/or canny); depth_lora: BFL
-    # FLUX.1-Depth-dev LoRA (depth only, strict). See CLAUDE.md "Concept frames".
+    # FLUX.1-Depth-dev LoRA (depth only, strict). See docs/notes/world-and-city.md "Concept frames".
     control_model: Literal["union", "depth_lora"] = "union"
     regional: list[RegionalRef] = Field(default_factory=list)  # union only
     # img2img: start from this image instead of noise and only resample the last `denoise`

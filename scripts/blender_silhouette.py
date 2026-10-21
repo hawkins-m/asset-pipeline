@@ -1,6 +1,6 @@
 """Silhouette masks of library builds through a shot camera: each GLB placed at its look pose
 (yaw about Z, then moved to x, y, z in Blender world metres) and rendered alone as white on
-black (Cycles, 1 sample, box filter, Raw: an exact mask, see CLAUDE.md "data passes").
+black (Cycles, 1 sample, box filter, Raw: an exact mask, see docs/notes/world-and-city.md, data passes).
 
     blender -b --python scripts/blender_silhouette.py -- JOB.json
 

@@ -18,7 +18,7 @@ class StyleAnchor(BaseModel):
     images: list[Path] = Field(default_factory=list)
     # Total Flux Redux strength (attn_bias), split across images. Measured 2026-10-04:
     # <= 0.06 barely styles, ~0.08 styles while keeping the prompt's subject, >= 0.12
-    # replaces the subject with the anchor's content. See CLAUDE.md.
+    # replaces the subject with the anchor's content. See docs/notes/stages-0-6.md (Style anchor).
     strength: float = 0.08
     # Editable style descriptor (medium, palette, linework...) appended to every prompt.
     # It carries most of the style, since Redux alone can't without leaking content.
@@ -40,7 +40,7 @@ class ViewControl(BaseModel):
 
 
 # Views from above follow the layout poorly at the eye-level settings: their plain depth
-# image is mostly the ground's ramp. A/B in CLAUDE.md "Concept frames: views from above".
+# image is mostly the ground's ramp. A/B in docs/notes/world-and-city.md "Concept frames: views from above".
 # Raised: relief at 0.75 kept the layout (mean edge match 0.49 vs 0.16) with real
 # buildings; adding canny scored 0.71 but drew the greybox. Aerial: nothing held the plan;
 # relief 0.75 turned it into a white scale model, relief at 0.6 keeps the look (0.13 vs 0.08).
@@ -52,7 +52,7 @@ DEFAULT_VIEWS: dict[str, ViewControl] = {
 
 class FrameSettings(BaseModel):
     """World mode concept frames: which structure control and how hard it holds.
-    Defaults from the A/B in CLAUDE.md "Concept frames". `views` overrides them for
+    Defaults from the A/B in docs/notes/world-and-city.md "Concept frames". `views` overrides them for
     raised and aerial shots; level shots use the values here."""
     model: Literal["union", "depth_lora"] = "union"
     depth_strength: float = Field(default=0.6, ge=0, le=2)

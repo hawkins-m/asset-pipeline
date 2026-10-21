@@ -760,7 +760,7 @@ ap set my-project --backend references=gemini   # image backend per stage
 
 | Model | Engine | GPU 0 while loaded | Per scene | Notes |
 |---|---|---|---|---|
-| 32B (default) | llama.cpp, Q5_K_M | ~27 GB | 55–105 s | Much better plans and boxes (A/B in CLAUDE.md) |
+| 32B (default) | llama.cpp, Q5_K_M | ~27 GB | 55–105 s | Much better plans and boxes (A/B in docs/notes/vlm.md) |
 | 8B (fallback) | transformers, bf16 | ~18 GB | 45–75 s | Used when the 32B's files are missing or it fails to start |
 
 - **It never runs alongside TRELLIS.** `trellis` stops the VLM before it starts (waiting

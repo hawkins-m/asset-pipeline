@@ -100,7 +100,7 @@ Done and verified:
 - **Stage 2 (reference sheets):** `ap refs generate` / the References tab draw every
   included asset on white with the style anchor: objects as a three-up sheet, kits in one
   sheet, terrain as a top-down swatch. Flux.1-dev keeps the three copies consistent but
-  rarely gives true side/back views (see CLAUDE.md).
+  rarely gives true side/back views (see docs/notes/stages-0-6.md).
 
 - **Stages 3-4 (views, review, 3D):** starred sheets are cut into views (SAM 3.1 finds
   them, full-height band crops keep thin/white parts); the Review tab chooses a view per
@@ -151,7 +151,7 @@ Status (2026-10-06):
 | Step | State |
 |---|---|
 | 1–2 Site, greybox, shots | Done, verified (`ap site`, `ap shots`, UI Site · Shots) |
-| 3 Concept frames | Done (`ap frames`, `ap moodboard`, UI Frames); frames generated for every shot. Default: Union depth alone, 0.6 strength to 60% of the steps (A/B in CLAUDE.md "Concept frames") |
+| 3 Concept frames | Done (`ap frames`, `ap moodboard`, UI Frames); frames generated for every shot. Default: Union depth alone, 0.6 strength to 60% of the steps (A/B in docs/notes/world-and-city.md "Concept frames") |
 | 4 Asset library | Frames done (every shot locked, 2026-10-10). Step 1 (library plan) done; reference sheets wait for the user's review of the list |
 | 5–6 Export and UE 5.8 import | Proven early with the greybox as stand-in assets (UE 5.8.3, live). `ap export`, `ap ue import / render / pull-layout / backup`. Real assets will replace the stand-ins by asset id. |
 
@@ -216,13 +216,13 @@ Open items after frame review round 2 (2026-10-08):
 - **Raised and aerial shots** (2026-10-09): raised mediums now use the relief depth image
   at 0.75 by default (`FrameSettings.views`; edge match 0.16 -> 0.49), level shots are
   unchanged. Still open: the harbour raised shot drifts, and the aerial follows no
-  setting without turning into a white scale model (CLAUDE.md "Concept frames: views
+  setting without turning into a white scale model (docs/notes/world-and-city.md "Concept frames: views
   from above"). Next options for the aerial: a lower camera, or a plan-image control.
 - **Masked references** (2026-10-09): each one costs ~+40 s a frame whatever its size, so
   those under 5% of the frame are skipped (`min_ref_coverage`); this drops them on the far
   wides and on several eye-level shots where they were small.
 - **The moodboard anchor is off.** It made frames ornate and palm-heavy and lowered the
-  edge match (CLAUDE.md "Frame review round 2").
+  edge match (docs/notes/world-and-city.md "Frame review round 2").
 
 ## Phase 3 plan: asset library from the typology catalog (draft 2026-10-07; step 1 done 2026-10-10; build split 2026-10-10)
 
@@ -247,7 +247,7 @@ differently:
 **Build split (decided 2026-10-10, after the pilot): sheets are the design brief, Blender
 builds architecture.** From one image, TRELLIS guesses depth. On simple architecture it
 collapses walls, drops back walls and invents proportions, even from three-quarter views.
-Procedural pieces built at real size beat it on every kit piece tried (CLAUDE.md "Library 3D").
+Procedural pieces built at real size beat it on every kit piece tried (docs/notes/library.md "Library 3D").
 So:
 
 | Route | Assets | Geometry | Surfaces |
@@ -525,7 +525,7 @@ turns with the "quick complete turn" prompt, ~2.5-3 min per orbit). Step 2's ang
 does not: frames labelled 90/180/270 are really ~45/90/135 (non-constant speed, possible
 swing-back, front/back-similar objects). Render matching (frames vs renders of the asset's TRELLIS mesh, smoothed over time) was
 tried and fails on real orbits: Wan barely changes the silhouette while "turning", and the
-mesh's and the orbit's unseen sides are different inventions (details in CLAUDE.md). The
+mesh's and the orbit's unseen sides are different inventions (details in docs/notes/stages-0-6.md). The
 tracker itself is verified on synthetic data. Hunyuan3D-2mv turbo now runs in ComfyUI:
 with hand-picked frames a 4-view shape beats front-only from the sides but is untextured
 and less detailed than TRELLIS. The hero path stays experimental (`ap hero orbit|angles|
@@ -552,7 +552,7 @@ Open items:
 ## Revisit when models improve
 Parked ideas, each tracked as a GitHub issue labelled `revisit`
 (`scripts/create_revisit_issues.sh` creates them). Details of what was tried are in
-CLAUDE.md. Rerun commands use placeholders (PROJECT, PLAN, ASSET): pick a comparable
+docs/notes/. Rerun commands use placeholders (PROJECT, PLAN, ASSET): pick a comparable
 asset and test on a scratch copy, not a live project.
 
 | Idea | What we found | Retry when | Rerun |

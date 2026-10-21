@@ -36,7 +36,7 @@ DOCS = "RUNBOOK.md"
 # Preflight check name (prefix) -> how to fix it: the install command and the doc to read.
 INSTALL_HINTS = [
     ("ComfyUI models", "scripts/fetch_models.sh", "README.md (models and licenses)"),
-    ("Vision LLM", "scripts/install_llamacpp_vlm.sh 8b    # or: scripts/install_qwen_vl.sh", "CLAUDE.md (Vision LLM)"),
+    ("Vision LLM", "scripts/install_llamacpp_vlm.sh 8b    # or: scripts/install_qwen_vl.sh", "docs/notes/vlm.md"),
     ("Segmentation/depth", "scripts/install_segdepth.sh", "RUNBOOK.md"),
     ("TRELLIS.2", "scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify",
      "USAGE.md (TRELLIS)"),

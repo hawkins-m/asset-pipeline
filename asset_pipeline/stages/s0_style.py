@@ -4,7 +4,7 @@
 2. derive():  for a starred scene, SAM 3 cuts out named objects (real pixels in the
               scene's style); each cutout is regenerated as a whole object on pure white,
               conditioned on the cutout itself (an object anchor, which leaks far less
-              than a scene anchor; see CLAUDE.md "Style anchor findings").
+              than a scene anchor; see docs/notes/stages-0-6.md "Style anchor").
 3. save_anchor(): starred derived objects + style text -> project.anchor.
 
 Layout under the project:

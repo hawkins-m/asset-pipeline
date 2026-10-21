@@ -17,7 +17,7 @@ issue() {  # title, body
   gh issue create --title "$1" --label revisit --body "$2"
 }
 
-FOOT='Details: PLAN.md "Revisit when models improve" and CLAUDE.md. Test on a scratch copy of a project, not a live one.'
+FOOT='Details: PLAN.md "Revisit when models improve" and docs/notes/. Test on a scratch copy of a project, not a live one.'
 
 issue "Revisit: hero tier / multi-view 3D" "**What we found.** Flux reference sheets don't give true side/back views. Wan 2.2 orbit frames + Hunyuan3D-2mv (frames picked by hand) give a shape slightly cleaner from the sides than front-only, but untextured, on a ground slab, with stray spikes, and less detailed than single-image TRELLIS.2. Hero assets currently use single-image TRELLIS like the rest.
 
