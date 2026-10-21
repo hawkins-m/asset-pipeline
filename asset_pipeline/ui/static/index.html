@@ -190,12 +190,14 @@
       <section class="tabpanel" data-tab="library" id="library-tab" hidden>
         <div class="applybar-slot"></div>
         <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
+          <button role="tab" data-sub="areas">Areas</button>
           <button role="tab" data-sub="assets">Asset review</button>
           <button role="tab" data-sub="plan">Scene plans</button>
           <button role="tab" data-sub="refs">Reference sheets</button>
         </div>
         <div class="tabpanel lib-body">
-          <div data-sub="assets" id="assets-tab">
+          <div data-sub="areas" id="areas-tab" class="scroll-list" hidden></div>
+          <div data-sub="assets" id="assets-tab" hidden>
             <p class="hint">World mode: the assets the locked shot frames show, from their object-id passes. Each card
               crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky,
               something else over the asset). Decide each one before the pilot sheets: <b>Good source</b> (the crop

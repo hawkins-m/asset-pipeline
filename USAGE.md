@@ -155,7 +155,8 @@ desktop app:
     and *Stop*.
 
   It is the same on every tab; the Frames tab has its shot tree in its own left column.
-- **Tabs:** Style, Site, City, Shots, Frames, Library (scene plans and reference sheets),
+- **Tabs:** Style, Site, City, Shots, Frames, Library (Areas first, then Asset review, scene plans
+  and reference sheets),
   Views and 3D, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
   job, and ComfyUI or the tab's keys.
@@ -626,7 +627,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   and an edit to one (even to the template's value) switches the part on (`switch_on` in the row).
 - **Kit modules' sizes** come from their kit decision (`pieces.<piece>.size`) when nothing else
   gives one (`size_source` "kit piece").
-- **Form gaps** (Library › Areas…, above the table; `gaps` in `/areas/status`): procedural assets
+- **Form gaps** (Library › Areas, above the table; `gaps` in `/areas/status`): procedural assets
   with no form or size, each with fixes as buttons, the suggested one first: *Form: …* (sets the
   entry's form and size), *Use the TRELLIS route* (a building no form describes), *Set size…*. A
   city wall run gets *Arched wall* at one wall bay's size (`city.WALL_BAY_M` × the enclosure's

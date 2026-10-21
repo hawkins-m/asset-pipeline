@@ -40,16 +40,18 @@ function showSub(sub) {
   document.querySelectorAll("#lib-tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.sub === sub));
   document.querySelectorAll("#library-tab [data-sub]:not([role=tab])").forEach(el => { el.hidden = el.dataset.sub !== sub; });
   try { localStorage.setItem("ap.sub", sub); } catch (_) { /* ignore */ }
+  if (sub === "areas" && typeof areasRefresh === "function") areasRefresh();
 }
 tabKeys($("#lib-tabs"), "sub", s => showSub(s));
 {
+  // Library opens on Areas (its first sub-tab) on every page load; old links still open plan / refs
   let t = URL_ARGS.get("tab"), sub = null;
-  try { t = t || localStorage.getItem("ap.tab"); sub = localStorage.getItem("ap.sub"); } catch (_) { /* ignore */ }
+  try { t = t || localStorage.getItem("ap.tab"); } catch (_) { /* ignore */ }
   // links from the earlier UI: plan/refs live in Library now, review is Views and 3D
   if (t === "plan" || t === "refs") { sub = t; t = "library"; }
   if (t === "review") t = "views";
   showTab(t || "style");
-  showSub(["assets", "plan", "refs"].includes(sub) ? sub : "assets");
+  showSub(["areas", "assets", "plan", "refs"].includes(sub) ? sub : "areas");
 }
 
 // --- classic dialogs ---------------------------------------------------------------------

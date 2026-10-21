@@ -95,6 +95,8 @@ with sync_playwright() as p:
     pg.click("button[data-sub=refs]"); pg.wait_for_timeout(300)
     out["refs_back"] = rl.evaluate("e => e.scrollTop")
     pg.reload(); pg.wait_for_timeout(2500)
+    out["reload_sub"] = pg.locator("#lib-tabs [aria-selected=true]").inner_text()      # Library opens on Areas
+    pg.click("button[data-sub=refs]"); pg.wait_for_timeout(300)
     out["after_reload"] = [pg.locator("#refs-list").evaluate("e => e.scrollTop"), pg.locator("#lib-filter").input_value()]
     j = pg.locator("#refs-jump"); j.fill("academy-prop-12"); j.press("Enter"); pg.wait_for_timeout(300)
     u = pg.locator('#refs-list .unit[data-unit="academy-prop-12"]')
@@ -143,6 +145,7 @@ def test_fixed_headers_scroll_memory_jump_and_links_in_a_browser(tmp_path, monke
     assert out["first_section"] == "academy"
     assert out["bar_fixed"] and out["panel_scroll"] == 0                           # only the list scrolls
     assert out["assets_back"] == 600 and out["refs_back"] == 450                   # one position per sub-tab
+    assert out["reload_sub"] == "Areas"
     assert out["after_reload"] == [450, "all"]                                     # remembered, with the filter
     assert 0 <= out["jump_offset"] <= 8
     assert out["link_sub"] == "Asset review" and 0 <= out["link_offset"] <= 8

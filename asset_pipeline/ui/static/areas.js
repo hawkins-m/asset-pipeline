@@ -1,4 +1,5 @@
-// Library › Areas…: what `ap area define|status|checklist` and the area batch commands do.
+// Library › Areas (the Library tab's first sub-tab; Library › Areas… in the menu opens it): what
+// `ap area define|status|checklist` and the area batch commands do.
 // An area is a set of shots and/or districts; the table shows what each asset of it has and its
 // next step, with a button that performs the step. Server side: tools_api.py (/areas...).
 const AREA_BATCHES = {
@@ -31,8 +32,21 @@ function areaStep(r) {
 const areaBuildText = r => r.built ? (r.fresh ? "fresh" : "stale") : r.trellis ? "TRELLIS" : "–";
 const areaScope = () => areaState.sel && areaState.sel.startsWith("d:") ? {district: areaState.sel.slice(2)} : {area: (areaState.sel || "").slice(2)};
 
-async function areasDialog() {
+// Rendered when the sub-tab is shown (or the project changes), not on every poll: the table is
+// loaded from /areas/status, and steps and batches reload it themselves.
+const areasShown = {slug: null};
+function areasDialog() {          // the menu item: open the sub-tab
   if (noProject()) return;
+  showTab("library"); showSub("areas");
+}
+function areasRefresh(force = false) {
+  const host = $("#areas-tab");
+  if (!host || host.hidden || !slug) return;
+  if (!force && areasShown.slug === slug && host.children.length) return;
+  areasShown.slug = slug;
+  areasPanel(host);
+}
+async function areasPanel(host) {
   const body = document.createElement("div"); body.id = "areas-body";
   body.innerHTML = `<div class="row"><label for="area-select">Area:</label><select id="area-select"></select>
       <button type="button" id="area-new" class="small">New area…</button>
@@ -43,8 +57,10 @@ async function areasDialog() {
     <div class="row" id="area-batches">${Object.entries(AREA_BATCHES).map(([k, v]) =>
       `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}: ${esc(v[2])}">${v[0]}…</button>`).join("")}
       <button type="button" class="small" id="area-checklist">Write checklist</button></div>`;
-  const d = dialog({title: "Areas", body, className: "tool-window areas-window", buttons: [{label: "Close", default: true}]});
-  d.win.id = "areas-dialog";
+  body.insertAdjacentHTML("afterbegin", `<p class="hint" style="margin-top:0">An area is a set of shots and/or districts. Each row
+    is one asset of it, with what it has and its <b>Next</b> step: the button does that step.</p>`);
+  host.replaceChildren(body);
+  const d = {win: host, close() {}};      // the steps that open another tab "close" the panel: nothing to do
   const reload = async () => {
     try { areaState.data = await api(`/api/projects/${slug}/areas`, undefined, "GET"); }
     catch (err) { $("#area-table-box", d.win).innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }

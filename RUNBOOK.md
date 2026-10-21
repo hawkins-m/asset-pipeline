@@ -52,7 +52,7 @@ command). Optional checks only warn.
 
 ## 3. The daily loop for one area
 
-Library › **Areas…** is the area panel. An area is a set of shots and/or districts: **New
+**Areas**, the Library tab's first sub-tab (also Library › **Areas…** in the menu), is the area panel. An area is a set of shots and/or districts: **New
 area…** defines one (tick its shots or districts). The table lists every asset of the area with
 what it has (sheets, brief, build, review) and its **next step as a button**. Work down the
 list, largest frame share first:
@@ -199,7 +199,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 
 1. World › **Shots…** lists the shots, with **Render passes for checked** for those without
    passes. World › **Add shot…** adds one.
-2. Library › Areas… › **New area…**: tick the district (or the shots that cover it).
+2. Library › Areas › **New area…**: tick the district (or the shots that cover it).
 3. Run section 3 on it. Types already approved in another area are skipped; a new material of
    an approved type needs only its own brief (copy the closest brief's fields in the form).
 4. **Instances…** in the area panel for the per-building builds.

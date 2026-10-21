@@ -134,6 +134,7 @@ function render() {
   renderMoodboard();
   renderUnreal();
   renderLibrary();
+  areasRefresh();
   renderPlan();
   renderRefs();
   renderReview();

@@ -135,3 +135,13 @@ def test_frames_lock_button_star_note_and_discover_assets():
     lib = (STATIC / "library.js").read_text()
     assert "Discover assets from locked shots" in lib and "Discover assets from locked shots" in _html()
     assert ">Re-plan<" not in _html()
+
+
+def test_library_opens_on_areas_as_its_first_sub_tab():
+    html = _html()
+    subs = re.findall(r'<button role="tab" data-sub="(\w+)"', html)
+    assert subs[0] == "areas" and 'id="areas-tab"' in html
+    shell = (STATIC / "shell.js").read_text()
+    assert ': "areas");' in shell and 'localStorage.getItem("ap.sub")' not in shell     # every load opens on Areas
+    areas = (STATIC / "areas.js").read_text()
+    assert "<th>Next</th>" in areas and 'showSub("areas")' in areas
