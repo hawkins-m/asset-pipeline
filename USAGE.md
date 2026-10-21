@@ -147,7 +147,10 @@ desktop app:
   *Render all passes*; Frames has *Generate missing frames*.
 - **Side panel:**
   - *Status*: ready or working, and whether ComfyUI is reachable.
-  - *Stages*: 1 Style … 7 Unreal, each Done, Out of date or Running; click one to open it.
+  - *Stages*: 1 Style, 2 Site / City, 3 Shots … 7 Unreal, in tab order, each with the status its
+    tab header shows (Not started, Needs input, Ready, Running, Needs review, Out of date,
+    Complete); click one to open it. Site and City are one stage: City is the procedural layout,
+    Site your own Blender layout; a project uses one or the other.
   - *Jobs*: one row per lane (GPU 0, GPU 1, CPU) with a progress bar, time left, *Details*
     and *Stop*.
 

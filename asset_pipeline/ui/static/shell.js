@@ -631,37 +631,22 @@ function renderApplyBar() {
   slot.append(bar);
 }
 
-// Stage list: what each stage needs. state: "Done", "Out of date", "Running" or "".
-function stageStates() {
-  const jobs = kinds => kinds.some(k => activeJobs(k).length);
-  const sh = siteData ? siteData.shots : [];
-  const passesStale = sh.filter(r => !r.rendered || r.stale).length;
-  const fr = framesData ? framesData.shots : [];
-  const ood = outOfDate();
-  const anyStar = pre => Object.keys(data.stars).some(k => data.stars[k] && k.startsWith(pre));
-  return [
-    ["style", "Style", jobs(["style.explore", "style.derive", "style.draft"]) ? "Running" : data.project.anchor ? "Done" : ""],
-    ["city", "City", jobs(["site.plan", "site.build", "site.extract"]) ? "Running" : !siteData.layout ? "" :
-      !siteData.summary || siteData.summary.stale || ood.plan || ood.greybox ? "Out of date" : "Done"],
-    ["shots", "Shots", jobs(["shots.render", "shots.camera"]) ? "Running" : !sh.length ? "" : passesStale ? "Out of date" : "Done"],
-    ["frames", "Frames", jobs(["frames.generate"]) ? "Running" : !fr.length ? "" :
-      fr.some(r => !r.batches.length) ? "Out of date" : anyStar("frames/") ? "Done" : ""],
-    ["library", "Library", jobs(["plan.analyze", "plan.refine", "refs.generate"]) ? "Running" : plans.length ? "Done" : ""],
-    ["views", "Views and 3D", jobs(["views.cut", "3d.trellis", "cleanup"]) ? "Running" :
-      reviewData && reviewData.assets.some(a => a.results.length) ? "Done" : ""],
-    ["unreal", "Unreal", jobs(["ue.export", "ue.backup"]) ? "Running" : !unrealData || !unrealData.export ? "" :
-      ueExportStale() ? "Out of date" : "Done"],
-  ];
-}
-
+// Stage list: the workflow's steps in tab order, with the statuses the tab headers show
+// (workflow.js: computed from the project's state, never from one file existing).
+const STAGE_CLASS = {done: "state-ready", stale: "state-stale", input: "state-stale", review: "state-stale", running: "state-running", ready: "state-next"};
 function renderStages() {
-  const ul = $("#stage-list"); ul.replaceChildren();
-  if (!data) return;
-  stageStates().forEach(([tab, name, state], i) => {
+  const ul = $("#stage-list");
+  if (!data || typeof workflow !== "function") { ul.replaceChildren(); return; }
+  const wf = workflow();
+  const sig = JSON.stringify([currentTab, isCity(), wf.map(s => [s.id, s.status, s.detail])]);
+  if (ul.dataset.sig === sig) return;
+  ul.dataset.sig = sig; ul.replaceChildren();
+  wf.forEach((s, i) => {
     const li = document.createElement("li"); li.setAttribute("role", "option");
-    li.setAttribute("aria-selected", tab === currentTab || (currentTab === "site" && tab === "city"));
-    const cls = state === "Done" ? "state-ready" : state === "Out of date" ? "state-stale" : "";
-    li.innerHTML = `<span><span class="n">${i + 1}</span>${esc(name)}</span><span class="${cls}">${esc(state)}</span>`;
+    li.setAttribute("aria-selected", s.tabs.includes(currentTab));
+    const tab = s.id === "layout" ? (isCity() ? "city" : "site") : s.tabs[0];
+    li.title = `${s.name}: ${ST[s.status]}${s.detail ? ` · ${s.detail}` : ""}${s.note ? `\n${s.note}` : ""}`;
+    li.innerHTML = `<span><span class="n">${i + 1}</span>${esc(s.name)}</span><span class="${STAGE_CLASS[s.status] || ""}">${esc(ST[s.status])}</span>`;
     li.onclick = () => showTab(tab);
     ul.append(li);
   });

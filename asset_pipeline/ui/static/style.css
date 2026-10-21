@@ -129,7 +129,9 @@ button.secondary { /* kept for the older pages: same look as a normal button */ 
 .list [aria-selected="true"], .list .sel { background: var(--select); color: var(--select-text); }
 .list .state-ready { color: var(--ready); }
 .list .state-stale { color: #6B5A10; }
-.list [aria-selected="true"] .state-ready, .list [aria-selected="true"] .state-stale { color: var(--select-text); }
+.list .state-running, .list .state-next { color: var(--select); }
+.stage-note { margin: 4px 0 0; }
+.list [aria-selected="true"] .state-ready, .list [aria-selected="true"] .state-stale, .list [aria-selected="true"] .state-running, .list [aria-selected="true"] .state-next { color: var(--select-text); }
 table.grid-table { border-collapse: collapse; width: 100%; background: var(--field); }
 table.grid-table th { text-align: left; font-weight: 400; background: var(--panel); border: 1px solid var(--border);
   box-shadow: inset 1px 1px var(--hi); padding: 2px 6px; position: sticky; top: 0; cursor: default; user-select: none; }

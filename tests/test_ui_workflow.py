@@ -115,3 +115,14 @@ def test_left_panel_is_the_same_on_every_tab_and_frames_has_its_shot_list_inside
     frames = re.search(r'<section class="tabpanel" data-tab="frames".*?</section>', html, re.S).group(0)
     assert 'id="frames-shots"' in frames
     assert "side-default" not in (STATIC / "shell.js").read_text()      # showTab no longer swaps panels
+
+
+def test_stage_list_uses_the_workflow_states_in_tab_order():
+    shell = (STATIC / "shell.js").read_text()
+    assert "function stageStates" not in shell and "workflow()" in shell[shell.index("function renderStages"):]
+    wf = (STATIC / "workflow.js").read_text()
+    ids = re.findall(r'\{id: "(\w+)", tabs: \[([^\]]*)\]', wf)
+    tabs = [t.strip().strip('"') for _, ts in ids for t in ts.split(",")]
+    assert [i for i, _ in ids] == ["style", "layout", "shots", "frames", "library", "views", "unreal"]
+    assert sorted(tabs) == sorted(re.findall(r'data-tab="(\w+)">', _html())) and '"city", "site"' in wf
+    assert "City = procedural layout, Site = your own Blender layout" in _html()
