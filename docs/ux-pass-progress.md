@@ -52,4 +52,4 @@ saved tabs keep working; `?tab=layout` and `?tab=greybox` are aliases.
       greybox, Re-read .blend, aerial previews, starter layout for a project with no layout. (Headers: C.)
 - [x] C. Stage list: Layout and Greybox as two steps with honest states; "use one or the other" gone;
       Style shows "Complete (text only)" without anchor images.
-- [ ] D. RUNBOOK/USAGE, tests, screenshots on a second instance; report on brief → layout.
+- [x] D. RUNBOOK/USAGE, tests, screenshots on a second instance; report on brief → layout.

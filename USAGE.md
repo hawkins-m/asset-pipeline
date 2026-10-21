@@ -155,20 +155,22 @@ desktop app:
 - **Guide** (Help › Show guide, off unless you turn it on; remembered in this browser): a panel on
   the right listing the steps, each ticked from the project's state, with *Go* to open its tab.
 - **Toolbar:** the project, *New…*, the project's size on disk, *Stop jobs*. Stage buttons sit in
-  their tab (and in the Pipeline menu): City has *Update plan, greybox & passes…*, *Update city
-  plan* and *Rebuild greybox*; Site has *Build greybox* and *Update greybox & passes…*; Shots has
-  *Render all passes*; Frames has *Generate missing frames*.
+  their tab (and in the Pipeline menu): Layout has *Update plan, greybox & passes…* and *Update city
+  plan*; Greybox has *Build / Rebuild greybox*, *Re-read .blend*, *Aerial previews* (and *Start from
+  the starter layout* while there is no layout); Shots has *Render all passes*; Frames has
+  *Generate missing frames*.
 - **Side panel:**
   - *Status*: ready or working, and whether ComfyUI is reachable.
-  - *Stages*: 1 Style, 2 Site / City, 3 Shots … 7 Unreal, in tab order, each with the status its
-    tab header shows (Not started, Needs input, Ready, Running, Needs review, Out of date,
-    Complete); click one to open it. Site and City are one stage: City is the procedural layout,
-    Site your own Blender layout; a project uses one or the other.
+  - *Stages*: 1 Style, 2 Layout, 3 Greybox, 4 Shots … 8 Unreal, in tab order, each with the status
+    its tab header shows (Not started, Needs input, Ready, Running, Needs review, Out of date,
+    Complete; Style says "Complete (text only)" for an anchor of style text alone); click one to
+    open it. Layout is complete when the city plan is current (or the project has its own
+    layout.json); Greybox when the greybox is built and neither the catalog nor the .blend changed since.
   - *Jobs*: one row per lane (GPU 0, GPU 1, CPU) with a progress bar, time left, *Details*
     and *Stop*.
 
   It is the same on every tab; the Frames tab has its shot tree in its own left column.
-- **Tabs:** Style, Site, City, Shots, Frames, Library (Areas first, then Asset review, scene plans
+- **Tabs:** Style, Layout, Greybox, Shots, Frames, Library (Areas first, then Asset review, scene plans
   and reference sheets),
   Views and 3D, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
@@ -297,7 +299,7 @@ ap site build my-project                            # then the greybox
 
   The generator itself backs off a type as it nears its cap; what's left are warnings.
 
-**In the UI** (City tab): building types, districts, materials, zones and rules (checks and
+**In the UI** (Layout tab): building types, districts, materials, zones and rules (checks and
 variation) are editable and saved to `site/layout.json`. Each is a table plus a detail form
 (building types: Massing, Placement, Look, Limits); *Plan report* shows the report and the
 plan image. Fields you changed are marked
@@ -310,7 +312,7 @@ From a catalog edit to new frames. Each step only redoes what the previous one c
 Hover any field in the editors for what it does, its unit, and whether it's city-wide or
 per district.
 
-1. **Edit and Save** (Ctrl+S) in the City tab: pick a section, pick a row, edit the form.
+1. **Edit and Save** (Ctrl+S) in the Layout tab: pick a section, pick a row, edit the form.
    - Saved to `site/layout.json` and validated: an unknown typology or material name is
      refused and nothing is saved.
    - The fields you changed are marked *yours*.
@@ -682,7 +684,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   garden strips, roof-edge planters, terrace and courtyard beds (type, centre, size, yaw in the
   building's frame). Review renders draw proxies on them.
 - **Street-tree slots** (`site/vegetation.json`) come from the plan with their own random
-  stream, so the city never moves. Their settings are in City › Rules › Street trees.
+  stream, so the city never moves. Their settings are in Layout › Rules › Street trees.
 - `ap export` writes `export/vegetation.json` (every point, with Unreal transforms), and
   `ap ue import --vegetation` places them as TargetPoints tagged `ap:veg=<type>` for a PCG
   graph. That step is not yet tested in Unreal.

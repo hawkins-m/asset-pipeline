@@ -24,6 +24,21 @@ PLAN.md has the design.
   panel to open it again. A small notice in the corner says when a background job is done or
   failed (click it for the details).
 
+### The tabs, in order
+Each tab's header says what the step is, its status and **Next: <tab> →** (disabled, with the
+reason, until the step can go on). The Stages list in the side panel shows the same statuses.
+
+1. **Style**: concept scenes and the style anchor (optional; "Complete (text only)" when the anchor
+   is style text without images).
+2. **Layout**: the catalog and rules; **Update city plan** generates where every building slot goes,
+   **Update plan, greybox & passes…** runs everything after a catalog change (it lists the steps first).
+3. **Greybox**: **Rebuild greybox** builds the block-out from the layout. Optionally edit it in Blender
+   and **Re-read .blend**: the .blend then becomes the source of truth. A project with no layout can
+   **Start from the starter layout** here to lay the site out in Blender instead of generating a city.
+4. **Shots**, 5. **Frames**, 6. **Library**, 7. **Views and 3D**, 8. **Unreal**.
+
+Old links with `?tab=city` / `?tab=site` still open Layout / Greybox.
+
 ### What runs where
 
 | Lane (Jobs panel) | Runs | At once |
@@ -109,7 +124,7 @@ list, largest frame share first:
    **Instances…** for every building at its own footprint and storeys.
 6. **Vegetation.** Planters, garden strips and beds are tagged as vegetation zones on every
    build; review renders show proxies. Street and plaza tree slots: World › **Vegetation
-   slots…** (with a preview shot; settings in City › Rules › Street trees). The plants come from
+   slots…** (with a preview shot; settings in Layout › Rules › Street trees). The plants come from
    a PCG graph in Unreal later.
 7. **Close the day.** **Write checklist** in the area panel refreshes `areas/my-area.md` in the
    project (text outside the table is kept). Then File › **Commit project…** commits the
