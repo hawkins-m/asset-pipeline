@@ -621,3 +621,15 @@ details summary { cursor: default; }
 .ue-steps li.done .n::after { content: " ✓"; font-size: 11px; }
 .ue-why { color: var(--muted); font-style: italic; }
 .ue-why:not(:first-child) { margin-left: 8px; }
+
+/* Guide panel (Help › Show guide): a third column, only while it is on */
+.body.with-guide { grid-template-columns: 250px minmax(0, 1fr) 260px; }
+.guide-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.guide-steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 6px; align-items: start; padding: 4px;
+  border: 1px solid transparent; }
+.guide-steps li.here { background: var(--field); border-color: var(--border); }
+.guide-steps li.next { border-color: var(--select); }
+.guide-steps li.done .gcheck { color: var(--ready); }
+.guide-steps .gcheck { font-size: 13px; line-height: 1.1; }
+.guide-steps .st-chip { font-size: 11px; }
+@media (max-width: 1100px) { .body.with-guide { grid-template-columns: 250px minmax(0, 1fr); } .body.with-guide .guide { display: none; } }

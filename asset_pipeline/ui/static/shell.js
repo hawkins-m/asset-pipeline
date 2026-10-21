@@ -154,7 +154,8 @@ const MENUS = [
     ["Generate missing frames", "frames"], ["Extract reference views", "cutViews"], ["Make 3D…", "make3d"], "-",
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
   ["Tools", "T", [["ComfyUI status…", "comfyCheck"], ["Vision LLM status…", "vlmStatus"], "-", ["Open city plan image", "planImage"]]],
-  ["Help", "H", [["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", ["About Terraformer", "about"]]],
+  ["Help", "H", [["Show guide", "guide", null, () => typeof guideOn === "function" && $("#guide") && !$("#guide").hidden],
+    ["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", ["About Terraformer", "about"]]],
 ];
 
 function buildMenus() {
@@ -685,6 +686,6 @@ function renderShell() {
     : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
   renderComfyControls();
   renderApplyBar();
-  if (typeof renderStepHeads === "function") renderStepHeads();
+  if (typeof renderStepHeads === "function") { renderStepHeads(); renderGuide(); }
   updateJobDialog();
 }

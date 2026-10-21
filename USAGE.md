@@ -148,6 +148,12 @@ desktop app:
   `"backdrop": {"from_frame": true}` when the shot has a reconcile class map) and opens Look
   scene. A step is ticked when its result is newer than the one before (import after export,
   renders after import, a look scene run).
+- **Header strip** on every tab: "This step: …", the step's status (Not started, Needs input,
+  Ready, Running, Needs review, Out of date, Complete) with what it is based on, and *Next: <tab>
+  →*, disabled with the reason beside it until the step's prerequisites are met. An earlier step
+  that is out of date is named, with a link back to its tab.
+- **Guide** (Help › Show guide, off unless you turn it on; remembered in this browser): a panel on
+  the right listing the steps, each ticked from the project's state, with *Go* to open its tab.
 - **Toolbar:** the project, *New…*, the project's size on disk, *Stop jobs*. Stage buttons sit in
   their tab (and in the Pipeline menu): City has *Update plan, greybox & passes…*, *Update city
   plan* and *Rebuild greybox*; Site has *Build greybox* and *Update greybox & passes…*; Shots has

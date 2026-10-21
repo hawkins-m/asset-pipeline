@@ -149,6 +149,44 @@ function wireGo(el) {
   el.querySelectorAll(".prereq-go").forEach(b => b.onclick = () => { showTab(b.dataset.goTab); if (b.dataset.goSub) showSub(b.dataset.goSub); });
 }
 
+// --- guide panel (Help › Show guide): optional, off unless the viewer turns it on ---------------
+// Each step ticks itself from the same states as the headers; Go opens its tab. The choice is a
+// per-browser convenience (localStorage), never forced on.
+const guideOn = () => { try { return localStorage.getItem("ap.guide") === "1"; } catch (_) { return false; } };
+function toggleGuide(on = !guideOn()) {
+  try { localStorage.setItem("ap.guide", on ? "1" : "0"); } catch (_) { /* private window: this page only */ }
+  $("#guide").dataset.on = on ? "1" : "0";
+  renderGuide();
+}
+function renderGuide() {
+  const el = $("#guide");
+  if (!el) return;
+  const on = el.dataset.on ? el.dataset.on === "1" : guideOn();
+  el.hidden = !on || !slug || !data;
+  document.querySelector(".body").classList.toggle("with-guide", !el.hidden);
+  if (el.hidden) return;
+  const wf = workflow();
+  const nextUp = wf.find(s => s.status !== "done" && !(s.id === "style" && s.status === "none"));
+  const sig = JSON.stringify([currentTab, isCity(), wf.map(s => [s.status, s.detail]), nextUp && nextUp.id]);
+  if (el.dataset.sig === sig) return;
+  el.dataset.sig = sig;
+  el.innerHTML = `<fieldset><legend>Guide</legend>
+      <div class="row" style="margin:0 0 6px"><span class="hint" style="margin:0;flex:1">Ticks itself from the project's state.</span>
+        <button type="button" class="small" id="guide-close" title="Help › Show guide turns it back on">Hide</button></div>
+      <ol class="guide-steps">${wf.map((s, i) => {
+        const tab = s.id === "layout" ? (isCity() ? "city" : "site") : s.tabs[0];
+        return `<li class="${s.status === "done" ? "done" : ""}${nextUp && s.id === nextUp.id ? " next" : ""}${s.tabs.includes(currentTab) ? " here" : ""}">
+          <span class="gcheck" aria-hidden="true">${s.status === "done" ? "☑" : "☐"}</span>
+          <div><b>${i + 1}. ${esc(s.name)}</b> <span class="st-chip st-${s.status}">${esc(ST[s.status])}</span>
+            <div class="hint" style="margin:2px 0 0">${esc(s.detail || (typeof s.desc === "string" ? s.desc : s.desc.city))}</div></div>
+          <button type="button" class="small guide-go" data-go-tab="${tab}" ${s.tabs.includes(currentTab) ? "disabled" : ""}
+            aria-label="Go to ${esc(TAB_NAMES[tab])}">${s.tabs.includes(currentTab) ? "Here" : "Go"}</button></li>`; }).join("")}</ol>
+      ${nextUp ? `<p class="hint" style="margin:6px 0 0">Next up: <b>${esc(nextUp.name)}</b>.</p>` : `<p class="hint" style="margin:6px 0 0">Every step is complete.</p>`}
+    </fieldset>`;
+  el.querySelectorAll(".guide-go").forEach(b => b.onclick = () => showTab(b.dataset.goTab));
+  $("#guide-close", el).onclick = () => toggleGuide(false);
+}
+
 // --- header strip ------------------------------------------------------------------------------
 function stepHead(tab) {
   const panel = $(`section.tabpanel[data-tab="${tab}"]`);
@@ -181,3 +219,4 @@ function renderStepHeads() {
       : `<span class="sh-reason">${esc(s.next.reason || "")}</span>`}`;
   el.querySelectorAll("[data-go-tab]").forEach(b => b.onclick = () => showTab(b.dataset.goTab));
 }
+Object.assign(ACTIONS, {guide: {run: () => toggleGuide()}});

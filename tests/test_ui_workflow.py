@@ -46,7 +46,7 @@ NODE = shutil.which("node")
 HARNESS = r"""
 const fs = require("fs"), vm = require("vm");
 const S = JSON.parse(process.argv[2]);
-const ctx = {console, JSON, Object, Set, Array, Math, String, Number,
+const ctx = {console, JSON, Object, Set, Array, Math, String, Number, ACTIONS: {},
   data: S.data, siteData: S.siteData, framesData: S.framesData, libraryData: S.libraryData, reviewData: S.reviewData,
   unrealData: S.unrealData, refs: S.refs || [], lr: {list: S.builds ? {assets: S.builds} : null}, slug: "p", currentTab: "city",
   TAB_NAMES: {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library", views: "Views and 3D", unreal: "Unreal"},
@@ -218,3 +218,10 @@ def test_base_text_is_12px_and_secondary_text_11px():
     assert re.search(r"\.hint \{[^}]*font-size: 11px;", css)
     sizes = [int(x) for x in re.findall(r"font-size: (\d+)px", css)]
     assert min(sizes) >= 10 and sizes.count(10) <= 1          # only the dialog close glyph stays at 10px
+
+
+def test_guide_panel_is_optional_and_toggled_from_help():
+    html, shell, wf = _html(), (STATIC / "shell.js").read_text(), (STATIC / "workflow.js").read_text()
+    assert '<aside class="side guide" id="guide" aria-label="Guide" hidden>' in html     # never shown by default
+    assert '["Show guide", "guide"' in shell[shell.index('["Help"'):]
+    assert 'localStorage.getItem("ap.guide") === "1"' in wf and "guide-go" in wf and "toggleGuide(false)" in wf
