@@ -223,7 +223,8 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 
 ## 8. Frames, Unreal and the rest
 
-- **Frames:** World › Generate frames… (pick shots), Lock a shot… (or its greybox).
+- **Frames:** World › Generate frames… (pick shots), Lock a shot… (or its greybox). In the Frames tab,
+  *Use this frame for this shot* locks the frame shown, then *Discover assets →* re-plans the library.
 - **Terrain:** World › Terrain: analyse locked skylines, build, rebuild the outer ring, apply
   to the layout (asks first), Unreal landscape tiles, terrain into the Unreal project (asks).
 - **Unreal:** Unreal › Create UE project, **Import…** (reset layout, only stale, prune; reset

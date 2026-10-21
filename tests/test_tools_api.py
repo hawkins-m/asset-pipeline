@@ -299,7 +299,7 @@ def test_menu_actions_and_scripts_are_wired():
     for f in ("tools.js", "areas.js", "world.js"):
         assert f'src="/static/{f}"' in html
     defined = set(re.findall(r"^\s*(\w+): \{run:", shell, re.M))
-    for f in ("tools.js", "areas.js", "world.js"):
+    for f in ("tools.js", "areas.js", "world.js", "library.js", "workflow.js", "unreal.js"):
         src = (STATIC / f).read_text()
         defined |= set(re.findall(r"(\w+): \{run:", src))
     defined |= {"terrain_" + k for k in "analyse build outer apply landscape ue".split()}

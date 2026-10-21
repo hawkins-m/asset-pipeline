@@ -328,6 +328,11 @@ per district.
    - tick *Starred*, set *Landmark reference for* (it sets those building types' `ref`),
      and write a note;
    - *Save and next* (Enter).
+   - **Use this frame for this shot** (in *This shot*) locks the shot on the frame shown: it is
+     never regenerated, and the library discovers assets from it. Starring only marks frames
+     you like; locking picks the one frame the shot uses. *Unlock* undoes it.
+   - Once a shot is locked, **Discover assets →** runs Library › *Discover assets from locked
+     shots* (the library asset plan, CPU, seconds) and opens Library.
 
    Keys: S star, 1 / 2 / 3 use as, ← → frame, ↑ ↓ shot. A frame's edits are saved when you
    move on.
@@ -636,7 +641,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   API: `GET|POST|DELETE /api/projects/{slug}/library/variants/{entry}`.
 - **Library › Entries** (browser): *New entry…* adds an entry of your own (id, name,
   description, prop/building, route, size, tier); it is kept in `site/library_custom.json`, so a
-  re-plan never wipes it. *Manage entry…* on a card edits name, description (*Reset to auto*),
+  re-discovery (*Discover assets from locked shots*) never wipes it. *Manage entry…* on a card edits name, description (*Reset to auto*),
   route and decision, and offers *Duplicate…* (copies the description, route, decision, sheets,
   views, brief, build, TRELLIS results and review renders to a new id; the copy starts
   unreviewed) and *Rename…* (your own entries: the files move and the review stays; plan entries:

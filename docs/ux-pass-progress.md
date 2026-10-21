@@ -16,7 +16,7 @@ Work on a second UI instance (`ap ui --port 8701` or similar). Never restart the
 - [x] 3. The left panel is the same on every tab. The Frames shot list moves into the tab.
 - [x] 4. The stage sidebar follows the tab order and uses the same states. Site and City are one
       stage, with a note.
-- [ ] 5. Frames: "Use this frame for this shot" (lock), a note that starring ≠ locking, then
+- [x] 5. Frames: "Use this frame for this shot" (lock), a note that starring ≠ locking, then
       "Discover assets →".
 - [ ] 6. Library opens on Areas (a sub-tab with its Next column).
 - [ ] 7. Unreal tab as numbered steps; creates a look preset from the approved shot when none exists.

@@ -109,10 +109,11 @@ function renderLibrary() {
   const head = $("#assets-summary");
   const planJobs = activeJobs("library.plan"), checkJobs = activeJobs("library.check");
   $("#lib-plan").disabled = !!planJobs.length || !(libraryData && libraryData.has_greybox);
+  $("#lib-plan").textContent = planJobs.length ? "Discovering assets…" : "Discover assets from locked shots";
   $("#lib-check").disabled = !!checkJobs.length || !(libraryData && libraryData.plan);
   $("#lib-check").textContent = checkJobs.length ? "Checking…" : "Check crops (SAM)";
   if (!libraryData || !libraryData.plan) {
-    head.textContent = libraryData && libraryData.has_greybox ? "No library plan yet: Re-plan builds it from the locked shot frames." :
+    head.textContent = libraryData && libraryData.has_greybox ? "No library plan yet: Discover assets from locked shots builds it from the locked shot frames." :
       "World mode only: build the greybox and lock shot frames first.";
     box.replaceChildren(); return;
   }
@@ -201,7 +202,14 @@ $("#lib-filter").onchange = e => {
   try { localStorage.setItem(`ap.libFilter.${slug}`, lib.filter); } catch (_) { /* ignore */ }
   renderLibrary();
 };
-$("#lib-plan").onclick = async () => { try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(errorText(err)); } };
+// Library asset plan from the locked shots' frames (CPU, seconds); opens Library › Asset review
+async function discoverAssets() {
+  try { await api(`/api/projects/${slug}/library/plan`, {}); } catch (err) { alert(errorText(err)); return; }
+  showTab("library"); showSub("assets");
+  await load();
+}
+$("#lib-plan").onclick = () => discoverAssets();
+Object.assign(ACTIONS, {discoverAssets: {run: () => discoverAssets(), enabled: () => !!slug && !!siteData && !!siteData.summary && !activeJobs("library.plan").length}});
 $("#lib-check").onclick = async () => { try { await api(`/api/projects/${slug}/library/check`, {}); } catch (err) { alert(errorText(err)); } };
 
 // --- Entries management: create, duplicate, rename, describe, route, decide ------------------

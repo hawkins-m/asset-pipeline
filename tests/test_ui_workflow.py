@@ -126,3 +126,12 @@ def test_stage_list_uses_the_workflow_states_in_tab_order():
     assert [i for i, _ in ids] == ["style", "layout", "shots", "frames", "library", "views", "unreal"]
     assert sorted(tabs) == sorted(re.findall(r'data-tab="(\w+)">', _html())) and '"city", "site"' in wf
     assert "City = procedural layout, Site = your own Blender layout" in _html()
+
+
+def test_frames_lock_button_star_note_and_discover_assets():
+    frames = (STATIC / "frames.js").read_text()
+    assert "Use this frame for this shot" in frames and "Starring only marks frames you like" in frames
+    assert "frames/lock" in frames and "Discover assets →" in frames and "discoverAssets()" in frames
+    lib = (STATIC / "library.js").read_text()
+    assert "Discover assets from locked shots" in lib and "Discover assets from locked shots" in _html()
+    assert ">Re-plan<" not in _html()

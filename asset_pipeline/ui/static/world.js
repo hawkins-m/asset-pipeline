@@ -294,7 +294,7 @@ for (const k of Object.keys(TERRAIN)) ACTIONS["terrain_" + k] = {run: () => terr
 {
   const at = MENUS.findIndex(m => m[0] === "Tools");
   MENUS.splice(at, 0,
-    ["Library", "L", [["Areas…", "areas"], "-", ["Sheets for missing…", "batchSheets"], ["Build all…", "batchBuild"], ["TRELLIS all…", "batchTrellis"],
+    ["Library", "L", [["Discover assets from locked shots", "discoverAssets"], ["Areas…", "areas"], "-", ["Sheets for missing…", "batchSheets"], ["Build all…", "batchBuild"], ["TRELLIS all…", "batchTrellis"],
       ["Instances…", "batchInstances"], "-", ["Pending slots…", "pending"], ["Silhouette check…", "silhouette"], "-",
       ["Review round: task list…", "reviewTasks"], ["Review round: mark done…", "reviewDone"]]],
     ["World", "W", [["Generate frames…", "framesGenerate"], ["Lock a shot…", "framesLock"], "-", ["Shots…", "shotsDialog"], ["Add shot…", "addShot"], "-",

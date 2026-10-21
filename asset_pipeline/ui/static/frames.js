@@ -139,7 +139,7 @@ function renderFrames() {
     activeJobs("frames.generate", {shot: r.id}).length, activeJobs("shots.camera", {shot: r.id}).length, fileVersion]);
   if (key !== fr.shown) { fr.shown = key; keepFocus(() => renderFrameMain(r, b, f)); }
   // the right panel follows the frame; while its draft has edits, polling leaves it alone
-  const rkey = JSON.stringify([r.id, f && f.key, f && f.role, f && f.note, f && data.stars[f.key], f && landmarkTypes(f.key),
+  const rkey = JSON.stringify([r.id, r.locked, f && f.key, f && f.role, f && f.note, f && data.stars[f.key], f && landmarkTypes(f.key),
     (catalogData && catalogData.typologies || []).length, activeJobs("frames.generate", {shot: r.id}).length]);
   if (rkey !== fr.rshown && !(fr.draft && fr.draft.changed && f && fr.draft.key === f.key)) { fr.rshown = rkey; renderFrameRight(r, f); }
   renderFrameJobs(r);
@@ -222,6 +222,17 @@ function renderFrameRight(r, f) {
       ${Object.entries(ROLE_LABELS).map(([k, v], i) => `<label class="radio"><input type="radio" name="fr-role" value="${k}"${d && d.role === k ? " checked" : ""} ${f ? "" : "disabled"}> ${v} <kbd>${i + 1}</kbd></label>`).join("")}
       ${d && !d.role ? `<p class="hint" style="margin:4px 0 0">Not reviewed yet.</p>` : ""}
     </fieldset>
+    <fieldset id="fr-lock-box"><legend>This shot</legend>
+      <p class="hint" style="margin:0 0 4px" id="fr-lock-state">${r.locked === "greybox" ? "Locked on the greybox (final frame rendered in Unreal)."
+        : r.locked ? (f && r.locked === f.key ? "Locked on this frame." : `Locked on ${esc(r.locked.split("/").slice(-2).join("/"))}.`) : "Not locked yet."}</p>
+      <div class="row" style="margin:0">
+        <button type="button" id="fr-lock" class="${r.locked ? "" : "default"}" ${f && r.locked !== f.key ? "" : "disabled"}
+          title="Lock the shot on this frame: it is never regenerated, and assets are discovered from it">Use this frame for this shot</button>
+        ${r.locked ? `<button type="button" id="fr-unlock">Unlock</button>` : ""}</div>
+      <p class="hint" style="margin:4px 0 0">Starring only marks frames you like; locking picks the one frame this shot uses.</p>
+      ${r.locked ? `<button type="button" id="fr-discover" class="default" style="margin-top:6px"
+        title="Library › Discover assets from locked shots (CPU, seconds)">Discover assets →</button>` : ""}
+    </fieldset>
     <fieldset><legend>Reference</legend>
       <label class="check"><input type="checkbox" id="fr-star" ${d && d.starred && d.role !== "rejected" ? "checked" : ""} ${f && d.role !== "rejected" ? "" : "disabled"}> Starred</label>
       <div style="margin-top:6px">Landmark reference for:</div>
@@ -247,6 +258,17 @@ function renderFrameRight(r, f) {
   }
   $("#fr-save").onclick = saveAndNext;
   $("#fr-regen").onclick = () => regenerateDialog(r);
+  const lockTo = async body => {
+    if (!(await saveDraft())) return;
+    try { await api(`/api/projects/${slug}/frames/lock`, {shot: r.id, ...body}); } catch (err) { alert(errorText(err)); }
+    fr.rshown = ""; await load();
+  };
+  $("#fr-lock").onclick = () => f && lockTo({frame: f.key});
+  if ($("#fr-unlock")) $("#fr-unlock").onclick = () => confirm(`Unlock ${r.id}? It can then be regenerated.`) && lockTo({unlock: true});
+  if ($("#fr-discover")) {
+    $("#fr-discover").disabled = !!activeJobs("library.plan").length;
+    $("#fr-discover").onclick = () => discoverAssets();
+  }
 }
 
 function renderFrameJobs(r) {
