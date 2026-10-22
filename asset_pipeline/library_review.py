@@ -209,6 +209,8 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     if not sheet or not (store.root / sheet).is_file():
         raise ValueError(f"{asset}: the brief's sheet is gone; Brief & build from a starred sheet first")
     guidance = (guidance or "").strip()
+    if view == "front" and brief.get("position") is not None:     # measure the view the brief already uses
+        view = str(brief["position"])
     out = kit_proc.out_dir(store, asset)
     versions.migrate_asset(store, asset)
     cur = versions.current(store, asset)

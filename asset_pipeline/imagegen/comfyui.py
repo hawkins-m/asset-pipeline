@@ -2,6 +2,7 @@
 import random
 from pathlib import Path
 
+from .. import filestore
 from ..comfy import workflow
 from ..comfy.client import ComfyClient
 from .base import BackendCapabilityError, GenRequest, GenResult, effective_prompt
@@ -98,6 +99,7 @@ class ComfyUIBackend:
         results = []
         for i, img in enumerate(images):
             path = out_dir / f"{prefix}_{i:03d}.png"
+            filestore.detach(path)                    # never write through a stored (linked) file
             path.write_bytes(img.data)
             # One batched latent: all images share the sampler seed (ComfyUI derives
             # per-image noise from it), so record the batch seed and index.

@@ -324,6 +324,10 @@ class JobQueue:
             else:
                 status = "error"
                 job.error = f"{type(e).__name__}: {e}"
+                if isinstance(e, OSError) and getattr(e, "filename", None):     # which file, and why
+                    from .filestore import write_error_text
+                    from .config import ap_root
+                    job.error = write_error_text(e, ap_root() / "projects")
                 if self.error_text:
                     job.error = self.error_text(job.error)
                 traceback.print_exc()

@@ -27,7 +27,7 @@ import numpy as np
 from PIL import Image
 from pydantic import BaseModel, Field
 
-from . import config
+from . import config, filestore
 
 TYPES = ("concrete", "limestone", "marble", "render", "brick", "timber")
 
@@ -199,7 +199,7 @@ def band_crops(view: Path, meas: dict, out: Path) -> dict[str, Path]:
         if c.width < 1536:              # thin bands: piers between openings are only a few px wide
             c = c.resize((1536, max(1, 1536 * c.height // c.width)), Image.LANCZOS)
         res[name] = out / f"band_{name}.png"
-        c.save(res[name])
+        filestore.save_image(None, c, res[name])        # never through a stored (linked) file
     return res
 
 

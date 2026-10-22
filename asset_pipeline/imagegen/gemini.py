@@ -14,6 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 from ..paid import require_paid_allowed
+from .. import filestore
 from .base import BackendCapabilityError, GenRequest, GenResult, effective_prompt
 
 DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
@@ -79,7 +80,7 @@ class GeminiImageBackend:
             data = _first_image(response)
             path = out_dir / f"{prefix}_{i:03d}.png"
             im = Image.open(io.BytesIO(data))
-            im.save(path)
+            filestore.save_image(None, im, path)          # never through a stored (linked) file
             results.append(GenResult(path=path, seed=seed, backend=self.name, meta={
                 "model": self.model, "aspect_ratio": aspect, "size": list(im.size),
                 "prompt": contents[-1], "ignored": ignored}))

@@ -164,3 +164,75 @@ def test_storage_api_reports_sharing_cleans_and_deletes_sheets(store):
     assert r.status_code == 409 and "starred" in r.json()["detail"]
     r = client.post("/api/projects/p/refs/sheets/delete", json={"sheets": ["refs/library/gate/sheet_000.png"], "confirm": True})
     assert r.status_code == 200 and not a.exists() and b.read_bytes() == b"sheet-a"
+
+
+def _png(path, colour="white", size=(60, 40), box=None):
+    from PIL import Image, ImageDraw
+    im = Image.new("RGB", size, colour)
+    if box:
+        ImageDraw.Draw(im).rectangle(box, fill="black")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    im.save(path)
+    return path
+
+
+def test_save_image_never_writes_through_a_stored_file(store):
+    """A stored view is a read-only hard link to the store's object: saving new content drops
+    that link and writes a fresh file; the object (and every other reference) keeps its bytes."""
+    from PIL import Image
+    v = _png(store.root / "views/library/gate/sheet_001_p0.png", box=(10, 10, 30, 30))
+    obj = filestore.intern(store, v)
+    other = store.root / "views/library/arch/sheet_001_p0.png"
+    other.parent.mkdir(parents=True)
+    os.link(obj, other)                                         # a second entry uses the same content
+    before = obj.read_bytes()
+    assert not filestore.save_image(store, Image.open(v).convert("RGB"), v)        # same content: untouched
+    assert os.path.samefile(v, obj)
+    assert filestore.save_image(store, Image.new("RGB", (60, 40), "red"), v)
+    assert obj.read_bytes() == before and other.read_bytes() == before and not os.path.samefile(v, obj)
+    assert filestore.is_ref(v)                                  # the new content is stored too
+
+
+def test_detach_drops_any_hard_link_even_a_writable_one(store):
+    a = store.root / "views/library/gate/a.png"
+    a.parent.mkdir(parents=True)
+    a.write_bytes(b"x")
+    b = store.root / "elsewhere.png"
+    os.link(a, b)
+    filestore.detach(a)
+    assert not a.exists() and b.read_bytes() == b"x"
+
+
+def test_cut_view_over_a_stored_view_leaves_the_sheet_and_store_unchanged(store):
+    from asset_pipeline import building_proc
+    sheet = _png(store.root / "refs/library/gate/sheet_001.png", size=(300, 100), box=(20, 20, 70, 90))
+    filestore.intern(store, sheet)
+    first = building_proc.cut_view(store, "refs/library/gate/sheet_001.png", 0, "gate")
+    view = store.root / first
+    filestore.intern(store, view)
+    sums = {p: p.read_bytes() for p in (sheet, view)}
+    assert view.stat().st_nlink == 2 and not os.access(view, os.W_OK)
+    assert building_proc.cut_view(store, "refs/library/gate/sheet_001.png", 0, "gate") == first   # was PermissionError
+    assert {p: p.read_bytes() for p in (sheet, view)} == sums
+
+
+def test_band_crops_write_fresh_files_over_stored_ones(store, tmp_path):
+    from asset_pipeline import material_lib
+    view = _png(store.root / "views/library/gate/sheet_001_p0.png", size=(80, 120), box=(10, 10, 70, 110))
+    out = store.root / "views/library/gate"
+    band = _png(out / "band_wall.png", "green")
+    obj = filestore.intern(store, band)
+    keep = obj.read_bytes()
+    material_lib.band_crops(view, {"bbox_px": [10, 10, 70, 110], "storeys": 3, "storey_px": 33}, out)
+    assert obj.read_bytes() == keep
+
+
+def test_a_failed_write_says_which_file_and_why(store):
+    v = _png(store.root / "views/library/gate/sheet_001_p0.png")
+    filestore.intern(store, v)
+    try:
+        v.open("wb")
+    except PermissionError as e:
+        msg = filestore.write_error_text(e, store.root.parent)
+    assert msg.startswith("Couldn't write p/views/library/gate/sheet_001_p0.png: it is a read-only shared copy")
+    assert "Traceback" not in msg

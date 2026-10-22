@@ -12,7 +12,9 @@ References are independent:
   - the content is read-only: nothing can change an object in place (a writer that misses
     `detach` gets PermissionError instead of altering another entry's file);
   - every writer that replaces a stored path calls `detach` first, which drops only that path's
-    link, then `intern` stores the new content (a new object, or a link to an identical one);
+    link (any hard link, whatever its mode), then `intern` stores the new content (a new object,
+    or a link to an identical one); `save_image` does both for a PIL image and skips identical
+    content. A write that still fails reaches the UI as `write_error_text` (which file, why);
   - deleting a path drops its reference; an object goes when nothing references it (its link
     count is 1: the store's own name), via `release` right away or `clean` (Tools › Storage…).
 """
@@ -111,12 +113,50 @@ def intern_tree(store: ProjectStore, under: Path) -> int:
 
 def detach(path: Path) -> None:
     """Before writing over `path`: drop its reference, so the write makes new content and no
-    other entry's file changes. A plain file is made writable again."""
+    other entry's file changes. Any hard link is dropped (never written through, whatever its
+    mode); a plain read-only file with no other link is made writable again."""
     path = Path(path)
-    if is_ref(path):
+    try:
+        st = path.lstat()
+    except FileNotFoundError:
+        return
+    if is_ref(path) or (stat.S_ISREG(st.st_mode) and st.st_nlink > 1):
         path.unlink()
     elif path.is_file() and not os.access(path, os.W_OK):
         os.chmod(path, RW)
+
+
+def save_image(store: ProjectStore | None, im, path: Path, **kw) -> bool:
+    """Save a PIL image to `path` without ever writing through a stored (linked, read-only) file:
+    identical content leaves the file as it is; else the old reference is dropped and a fresh
+    file written (then stored when it belongs in the store). True when it wrote."""
+    import io
+    path = Path(path)
+    buf = io.BytesIO()
+    im.save(buf, format=kw.pop("format", None) or (path.suffix.lstrip(".").upper().replace("JPG", "JPEG") or "PNG"), **kw)
+    data = buf.getvalue()
+    if path.is_file() and path.stat().st_size == len(data) and path.read_bytes() == data:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    detach(path)
+    path.unlink(missing_ok=True)
+    path.write_bytes(data)
+    if store is not None:
+        intern(store, path)
+    return True
+
+
+def write_error_text(e: OSError, root: Path | None = None) -> str:
+    """A failed write in plain words: which file and why."""
+    p = Path(e.filename) if getattr(e, "filename", None) else None
+    shown = p.relative_to(root).as_posix() if p and root and p.is_relative_to(root) else (p.as_posix() if p else "a file")
+    if p is not None and p.exists() and is_ref(p):
+        why = "it is a read-only shared copy in the project's file store, which is never changed in place"
+    elif isinstance(e, PermissionError):
+        why = "permission denied (the file or its folder is read-only)"
+    else:
+        why = (e.strerror or str(e)).lower()
+    return f"Couldn't write {shown}: {why}. Nothing else was changed; please report this."
 
 
 def copy(store: ProjectStore, src: Path, dst: Path) -> None:

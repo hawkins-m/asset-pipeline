@@ -25,7 +25,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from . import kit_proc
+from . import filestore, kit_proc
 from .building_gen import FORMS, GENERATORS, features
 from .project import ProjectStore, read_json, write_json
 
@@ -169,8 +169,7 @@ def cut_view(store: ProjectStore, sheet: str, position, asset: str) -> str:
     pad = 12
     box_ = (max(0, x0 + xs.min() - pad), max(0, ys.min() - pad), min(W, x0 + xs.max() + pad), min(im.height, ys.max() + pad))
     out = Path("views/library") / asset / f"{Path(sheet).stem}_p{position}.png"
-    (store.root / out).parent.mkdir(parents=True, exist_ok=True)
-    im.crop(box_).save(store.root / out)
+    filestore.save_image(store, im.crop(box_), store.root / out)     # never through a stored file
     return out.as_posix()
 
 
