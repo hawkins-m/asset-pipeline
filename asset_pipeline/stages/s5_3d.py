@@ -14,6 +14,7 @@ Layout under the project:
 import json
 import os
 import random
+import shutil
 import signal
 import subprocess
 import time
@@ -61,11 +62,14 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     out.mkdir(parents=True, exist_ok=True)
     from .. import versions
     versions.migrate_asset(store, asset_id, plan)       # results from before the bank become versions first
+    # TRELLIS writes into a staging dir; its files replace a rerun's old ones (same view, mode and
+    # seed: the same version) only once it has succeeded, so a failed run costs no version
+    stage = out / "_staging"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir()
     cmd = [str(TRELLIS), str(store.root / key),
-           "--type", mode, "--seed", str(seed), "--out-dir", str(out)]
+           "--type", mode, "--seed", str(seed), "--out-dir", str(stage)]
     stem = f"{Path(key).stem[:24]}_{mode}_s{seed}"
-    for f in out.glob(f"{stem}*"):                      # a rerun writes these names: own files, not shared ones
-        filestore.detach(f)
     t = time.time()
     with (out / "trellis.log").open("a") as log:
         log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
@@ -83,11 +87,17 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     finally:
         release()
     if job and job.cancel_event.is_set():
+        shutil.rmtree(stage, ignore_errors=True)
         raise Canceled(f"TRELLIS on {key} canceled")
-    stats_file = out / f"{stem}.json"
-    if proc.returncode != 0 or not stats_file.is_file():
+    if proc.returncode != 0 or not (stage / f"{stem}.json").is_file():
+        shutil.rmtree(stage, ignore_errors=True)
         tail = (out / "trellis.log").read_text().splitlines()[-15:]
         raise RuntimeError(f"trellis exited with code {proc.returncode}:\n" + "\n".join(tail))
+    for f in sorted(stage.iterdir()):
+        filestore.detach(out / f.name)                  # a rerun's old files: own files, not shared ones
+        os.replace(f, out / f.name)
+    shutil.rmtree(stage, ignore_errors=True)
+    stats_file = out / f"{stem}.json"
     stats = json.loads(stats_file.read_text())
     if stats.get("seed") != seed:
         stats["seed"] = seed

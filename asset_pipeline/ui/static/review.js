@@ -1,6 +1,10 @@
 // Stages 3-4 (Review): cut views from starred sheets, choose one per asset, tag
 // game / cine / hero, and send it to 3D (TRELLIS.2 on GPU 0).
 const USAGES = ["game", "cine", "hero"];
+const USAGE_TIPS = {game: "Game use: Clean up decimates and bakes this asset for real time.",
+  cine: "Cinematic use: Clean up keeps the full mesh and textures.", hero: "Hero use: full mesh and textures, for the assets seen closest in shots."};
+const ACTIVE_TIP = "This version is the one later steps (Cleanup, Unreal look scenes) will use.";
+const APPROVE_TIP = "Unreal look scenes only place approved assets. Until then, export uses greybox stand-ins.";
 
 function renderReview() {
   if (!reviewData) return;
@@ -34,21 +38,24 @@ function assetReview(a) {
   const el = document.createElement("div"); el.className = "asset-review"; el.dataset.asset = a.asset.id;
   const x = a.asset, d = x.dimensions;
   el.innerHTML = `<div class="head">
-      ${a.current ? `<span class="cur-version" title="The version used by the pipeline (cleanup, export)">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}
+      ${a.current ? `<span class="cur-version" title="${ACTIVE_TIP}">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}
       <span class="title">${a.plan === "library" ? assetLabelHtml(x.id) : esc(x.name)}</span>
       ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
-        `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}">${u}</button>`).join("")}</span>
+        `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
       <span class="actions"><button type="button" class="make3d">Make 3D</button>
-        <label class="new-seed" title="Draw a random seed instead of 42 (the seed is recorded with the result)"><input type="checkbox" class="new-seed-box"> New seed</label>
-        <a href="#" class="seed-hint hint" title="Text steering for a TRELLIS asset happens on the sheet">Guidance on the sheet reroll (Library › Reference sheets › +2 more)</a>
-        <button type="button" class="secondary cleanup" title="Scale to the plan size, pivot at the base${x.usage === "game" ? ", decimate and bake (game)" : ""}">Clean up</button>
-        ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}">${esc((a.review || "not reviewed").replace("_", " "))}</span>
-          <button type="button" class="secondary approve" ${a.results.length ? "" : "disabled title=\"Make 3D first\""}>Approve</button>
-          <button type="button" class="secondary changes">Needs changes</button>` : ""}</span>
+        ${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it.">Reroll</button>` : ""}
+        <label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result)."><input type="checkbox" class="new-seed-box"> New seed</label>
+        <button type="button" class="secondary cleanup" title="Scale the Active version to the plan size and set its pivot at the base${x.usage === "game" ? ", then decimate and bake it for game use" : ""}.">Clean up</button>
+        ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
+          <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>
+          <button type="button" class="secondary changes" title="Mark this asset as needing another build; add the note in Library › Asset review.">Needs changes</button>` : ""}</span>
     </div>
-    ${a.plan === "library" ? `<p class="hint ver-uses">${esc(versionUseLine(a.current, a.review === "approved"))}</p>` : ""}`;
+    ${a.reroll ? `<div class="reroll-form row" hidden><input type="text" class="reroll-guidance" maxlength="500"
+        placeholder="Guidance (optional): taller windows, an open arcade…" aria-label="Guidance for the reroll">
+      <button type="button" class="small default reroll-go" title="Start the reroll; the new version appears under Versions.">Go</button>
+      <button type="button" class="small reroll-cancel" title="Close without rerolling.">Cancel</button></div>` : ""}`;
   const me = $(".manage-entry", el);
   if (me) me.onclick = () => manageEntry(assetEntry(x.id));
   for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {
@@ -64,12 +71,12 @@ function assetReview(a) {
   });
 
   const g = document.createElement("div"); g.className = "grid views";
-  if (!a.views.length) g.innerHTML = `<span class="hint">No views yet: star a sheet in Library › Reference sheets, then <em>Extract reference views</em>.</span>`;
+  if (!a.views.length) g.innerHTML = `<span class="hint no-views" title="Star a sheet in Library › Reference sheets, then click Extract reference views at the top of this tab.">No reference views yet</span>`;
   for (const v of a.views) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "view" + (v.key === a.chosen ? " chosen" : "");
     b.setAttribute("aria-pressed", v.key === a.chosen);
-    b.title = `${v.sheet}, view ${v.position}${v.asked ? ` (asked: ${v.asked})` : ""}`;
+    b.title = `${v.key === a.chosen ? "Make 3D builds from this view; click to unchoose it." : "Click to build from this view with Make 3D."} ${v.sheet}, view ${v.position}${v.asked ? ` (asked: ${v.asked})` : ""}`;
     b.innerHTML = `<img loading="lazy" alt="" src="${fileUrl(v.key)}">
       <span class="label">${v.key === a.chosen ? "✓ " : ""}${esc(v.sheet.split("/").pop().replace(".png", "").replace("sheet_", "s"))} v${v.position}</span>`;
     b.onclick = async () => {
@@ -83,7 +90,7 @@ function assetReview(a) {
   const jobs3d = activeJobs("3d.trellis", {plan: a.plan, asset: x.id});
   const make = $(".make3d", el);
   make.disabled = !a.chosen || !!jobs3d.length;
-  make.title = a.chosen ? "" : "Choose a view first";
+  make.title = a.chosen ? "Build a 3D model with TRELLIS from the chosen view; it becomes a new version." : "Choose a reference view first.";
   if (jobs3d.length) {
     make.textContent = jobs3d[0].status === "queued" ? "Queued…" : "Building…";
     make.after(stopButton(jobs3d));
@@ -93,12 +100,28 @@ function assetReview(a) {
     catch (err) { alert(errorText(err)); }
   };
 
-  $(".seed-hint", el).onclick = ev => { ev.preventDefault(); showTab("library"); showSub("refs"); };
+  const rr = $(".reroll", el);
+  if (rr) {
+    const form = $(".reroll-form", el), field = $(".reroll-guidance", el);
+    const rrJobs = activeJobs("library.reroll", {asset: x.id});
+    rr.disabled = !!(rrJobs.length || ["library.rebuild", "library.brief_build"].some(k => activeJobs(k, {asset: x.id}).length));
+    if (rrJobs.length) { rr.textContent = rrJobs[0].status === "queued" ? "Queued…" : "Rerolling…"; rr.after(stopButton(rrJobs)); }
+    const open = on => { form.hidden = !on; rr.setAttribute("aria-expanded", on); if (on) field.focus(); };
+    rr.onclick = () => open(form.hidden);
+    $(".reroll-cancel", el).onclick = () => open(false);
+    const go = async () => {
+      const guidance = field.value.trim();
+      try { await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(x.id)}/reroll`, {guidance}); open(false); field.value = ""; await load(); }
+      catch (err) { alert(errorText(err)); }
+    };
+    $(".reroll-go", el).onclick = go;
+    field.onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); go(); } else if (ev.key === "Escape") open(false); };
+  }
 
   const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
   const clean = $(".cleanup", el);
   clean.disabled = !a.results.length || !!cleanJobs.length;
-  if (!a.results.length) clean.title = "Make 3D first";
+  if (!a.results.length) clean.title = "Make 3D first.";
   if (cleanJobs.length) {
     clean.textContent = cleanJobs[0].status === "queued" ? "Queued…" : "Cleaning…";
     clean.after(stopButton(cleanJobs));
@@ -127,9 +150,9 @@ function assetReview(a) {
       c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate shadow-intensity="0.6"
           alt="3D model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>${res.n != null ? `<b>v${res.n}</b> ${esc(res.kind === "trellis" ? "TRELLIS" : res.kind)}` : esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}
-          ${res.current ? `<span class="mark ver-used">Used by the pipeline</span>` : ""}</span>
+          ${res.current ? `<span class="mark ver-used" title="${ACTIVE_TIP}">Active</span>` : ""}</span>
         <span class="hint">${esc(modelStats(res))}</span>
-        <span><a href="${fileUrl(res.glb)}" download>GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank">what TRELLIS saw</a>` : ""}</span>`;
+        <span><a href="${fileUrl(res.glb)}" download title="Download this version's 3D model (GLB).">GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank" title="The image TRELLIS built this model from.">Image sourced</a>` : ""}</span>`;
       r.append(c);
     }
     models.append(r);
@@ -144,7 +167,7 @@ function assetReview(a) {
         <span>Cleaned (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
         ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}
-        <span><a href="${fileUrl(c.glb)}" download>GLB</a></span>`;
+        <span><a href="${fileUrl(c.glb)}" download title="Download the cleaned 3D model (GLB).">GLB</a></span>`;
       r.append(box);
     }
     models.append(r);

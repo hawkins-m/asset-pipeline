@@ -1,6 +1,7 @@
 """Build guidance (brief edits from the local VLM) and Make 3D with a new seed. No VLM, no GPU."""
 import json
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -139,10 +140,9 @@ def test_make_3d_new_seed_passes_a_non_default_seed_and_records_it(proj, monkeyp
     def fake_popen(cmd, **kw):
         cmds.append(cmd)
         seed = int(cmd[cmd.index("--seed") + 1])
-        stem = f"sheet_000_v1_1024_cascade_s{seed}"
-        out.mkdir(parents=True, exist_ok=True)
-        (out / f"{stem}.glb").write_bytes(b"glb")
-        write_json(out / f"{stem}.json", {"glb_faces": 9})          # a result without a seed
+        stem, to = f"sheet_000_v1_1024_cascade_s{seed}", Path(cmd[cmd.index("--out-dir") + 1])
+        (to / f"{stem}.glb").write_bytes(b"glb")
+        write_json(to / f"{stem}.json", {"glb_faces": 9})          # a result without a seed
         return SimpleNamespace(pid=0, returncode=0, poll=lambda: 0)
     monkeypatch.setattr(s5_3d.subprocess, "Popen", fake_popen)
     rec = s5_3d.run(proj, "library", "canopy-table", seed=None)

@@ -2,6 +2,7 @@
 the API. Blender and TRELLIS are monkeypatched; projects are temporary and neutral."""
 import os
 import time
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -117,6 +118,7 @@ def test_pin_keeps_the_glb_unpin_removes_it_and_delete_asks_for_pinned(store):
     assert (d2 / "procedural.glb").is_file() and versions.get(store, "gate", 2)["bytes"] > 3000
     versions.pin(store, "gate", 1)                                  # an older build: protected, but no GLB to keep
     assert not (versions.vdir(store, "gate", 1) / "procedural.glb").exists()
+    versions.set_current(store, "gate", 1)                          # the Active version can't be deleted
     with pytest.raises(PermissionError):
         versions.delete(store, "gate", 2)
     versions.unpin(store, "gate", 2)
@@ -202,9 +204,9 @@ def test_trellis_run_records_a_version(store, monkeypatch):
             return 0
 
     def popen(cmd, **kw):
-        stem = "prop_1024_cascade_s7"
+        stem, to = "prop_1024_cascade_s7", Path(cmd[cmd.index("--out-dir") + 1])
         for suf, data in ((".glb", b"x"), (".json", b"{}"), ("_input.png", b"x")):
-            (out / f"{stem}{suf}").write_bytes(data)
+            (to / f"{stem}{suf}").write_bytes(data)
         return P()
     monkeypatch.setattr(s5_3d.subprocess, "Popen", popen)
     monkeypatch.setattr(s5_3d.review, "chosen", lambda *a: view)
@@ -431,3 +433,99 @@ def test_switching_back_to_the_procedural_build_on_disk_needs_no_rebuild(store, 
     monkeypatch.setattr(lr, "rebuild", lambda *a, **k: pytest.fail("rebuilt"))
     r = versions.restore(store, "gate", 1)
     assert not r["rebuilt"] and r["current"] == 1 and r["glb"] == "3d/library/gate/procedural.glb"
+
+
+def test_a_failed_trellis_rerun_keeps_the_old_versions_files(store, monkeypatch):
+    """Make 3D with the same view, mode and seed reuses its files: TRELLIS writes into a staging
+    dir, so a failed run leaves the version it would replace untouched."""
+    out = s5_3d.out_dir(store, "library", "prop")
+    out.mkdir(parents=True)
+    view = "views/prop.png"
+    (store.root / "views").mkdir()
+    (store.root / view).write_bytes(b"png")
+    fail = {"on": False}
+
+    class P:
+        pid = 1
+
+        def __init__(self):
+            self.returncode = 1 if fail["on"] else 0
+
+        def poll(self):
+            return self.returncode
+
+    def popen(cmd, **kw):
+        stem, to = "prop_1024_cascade_s7", Path(cmd[cmd.index("--out-dir") + 1])
+        (to / f"{stem}_input.png").write_bytes(b"new input")       # TRELLIS writes the input first
+        if not fail["on"]:
+            for suf, data in ((".glb", b"model"), (".json", b"{}")):
+                (to / f"{stem}{suf}").write_bytes(data)
+        return P()
+    monkeypatch.setattr(s5_3d.subprocess, "Popen", popen)
+    monkeypatch.setattr(s5_3d.review, "chosen", lambda *a: view)
+    monkeypatch.setattr(s5_3d.review, "rel", lambda store, v: v)
+    rec = s5_3d.run(store, "library", "prop", seed=7)
+    glb = store.root / rec["glb"]
+    before = {p.name: p.read_bytes() for p in out.glob("prop_*")}
+    fail["on"] = True
+    with pytest.raises(RuntimeError):
+        s5_3d.run(store, "library", "prop", seed=7)
+    assert {p.name: p.read_bytes() for p in out.glob("prop_*")} == before and glb.is_file()
+    assert not (out / "_staging").exists() and len(versions.load(store, "prop")) == 1
+
+
+def test_the_active_version_is_never_pruned_or_deleted(store):
+    for i in range(5):
+        _build(store, params={"w": 10.0 + i})
+    versions.set_current(store, "gate", 1)                        # an old version is Active
+    versions.set_keep(store, 1)
+    assert 1 not in versions.prune(store, "gate")["remove"]
+    assert 1 not in versions.removable(store, "gate")["remove"]
+    with pytest.raises(ValueError, match="Active"):
+        versions.delete(store, "gate", 1)
+
+
+def _fake_reroll_deps(store, monkeypatch, fail=False):
+    from asset_pipeline import brief_guide, building_proc, library_entries
+    monkeypatch.setattr(building_proc, "read_band_materials", lambda *a, **k: False)
+    monkeypatch.setattr(lr, "render", lambda store, asset, glb, out, mode, form, **k: out.mkdir(parents=True, exist_ok=True))
+    (store.root / "refs").mkdir(exist_ok=True)
+    (store.root / "refs/s.png").write_bytes(b"png")
+
+    def propose(store, asset, sheet, guidance, view="front"):
+        if fail:
+            raise ValueError("the vision model did not answer")
+        return {"edits": [{"path": "params.w", "before": 10.0, "after": 14.0, "why": "wider"}], "dropped": [], "brief_made": False}
+    monkeypatch.setattr(brief_guide, "propose", propose)
+    monkeypatch.setattr(brief_guide, "apply", lambda store, asset, edits, guidance: write_json(
+        kit_proc.spec_path(store, asset), read_json(kit_proc.spec_path(store, asset)) | {"params": {"w": 14.0}, "guidance": guidance}))
+    monkeypatch.setattr(library_entries, "brief_from_sheet", lambda *a, **k: None)
+
+
+def test_reroll_adds_a_version_that_is_not_active_and_puts_the_build_back(store, monkeypatch):
+    _fake_reroll_deps(store, monkeypatch)
+    _build(store)
+    lr.set_status(store, "gate", "approved", "")
+    out = kit_proc.out_dir(store, "gate")
+    glb_before, brief_before = (out / "procedural.glb").read_bytes(), read_json(kit_proc.spec_path(store, "gate"))
+    res = lr.reroll(store, "gate", "wider")
+    assert res["version"] == 2 and versions.current(store, "gate") == 1
+    assert read_json(kit_proc.spec_path(store, "gate")) == brief_before
+    assert (out / "procedural.glb").read_bytes() == glb_before and not (out / "_reroll_backup").exists()
+    assert lr.get(store, "gate")["status"] == "approved" and versions.get(store, "gate", 1)["approved"]
+    v2 = versions.get(store, "gate", 2)
+    assert v2["source"]["guidance"] == "wider" and "procedural.glb" in v2["files"]
+    assert versions.version_glb(store, "gate", v2) == versions.vdir(store, "gate", 2) / "procedural.glb"
+    assert versions.current_glb(store, "gate") == out / "procedural.glb"
+    versions.restore(store, "gate", 2, log=lambda *a: None)              # Use this version: its own GLB, no rebuild
+    assert versions.current(store, "gate") == 2 and read_json(kit_proc.spec_path(store, "gate"))["params"]["w"] == 14.0
+
+
+def test_a_failed_reroll_adds_nothing_and_changes_nothing(store, monkeypatch):
+    _fake_reroll_deps(store, monkeypatch, fail=True)
+    _build(store)
+    brief_before = read_json(kit_proc.spec_path(store, "gate"))
+    with pytest.raises(ValueError):
+        lr.reroll(store, "gate", "wider")
+    assert [r["n"] for r in versions.load(store, "gate")] == [1] and versions.current(store, "gate") == 1
+    assert read_json(kit_proc.spec_path(store, "gate")) == brief_before

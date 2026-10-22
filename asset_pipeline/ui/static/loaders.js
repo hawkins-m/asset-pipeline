@@ -87,6 +87,7 @@ const LOADERS = {
   "library.rebuild": ["Rebuilding the asset…", "greybox", "steps"],
   "library.guide": ["Reading the guidance…", "scene", ""],
   "library.brief_build": ["Briefing and building the asset…", "greybox", "steps"],
+  "library.reroll": ["Rerolling the asset…", "greybox", "steps"],
 };
 const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU", service: "the ComfyUI service"};
 const base = k => String(k || "").split("/").pop();

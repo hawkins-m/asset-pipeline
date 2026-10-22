@@ -78,7 +78,7 @@ const STEP_STATE = {
   },
   library() {
     const plan = libraryData && libraryData.plan, run = anyJob(["library.plan", "library.check", "refs.generate",
-      "library.brief_build", "library.rebuild", "library.guide"]);
+      "library.brief_build", "library.rebuild", "library.guide", "library.reroll"]);
     const lockedFrames = (framesData ? framesData.shots : []).filter(r => r.locked && r.locked !== "greybox" && !r.mood);
     const starred = reviewData ? reviewData.starred_sheets : 0;
     const next = {ok: starred > 0 || !!(reviewData && reviewData.assets.some(a => a.results.length)),

@@ -141,10 +141,11 @@ differ); **Restore** brings one back (a procedural version is rebuilt from its s
 one marked Keep, or a TRELLIS one, comes back as it was); **Keep** keeps a version and its 3D model
 for good; **Delete** removes one (asks first; never the Approved one). The last 3 versions not
 marked Keep stay (Tools › **Settings…**); when there are more, the strip offers to remove the
-old ones. Versions marked Keep, the Approved one and the current one are never removed. Tools › **Storage…** shows
+old ones (nothing is pruned by a build). Versions marked Keep, the Approved one and the Active one are never removed. Tools › **Storage…** shows
 the space per asset and per project, with "Delete versions not marked Keep" per asset or for the
-whole project. Beside **Approve** (Views and 3D, and the build review) one line says which version
-Unreal takes: cleanup and look scenes use the version marked "Used by the pipeline", look scenes
+whole project. In Views and 3D, **Reroll** (procedural assets) adds a new version from the sheet,
+steered by optional guidance, without making it Active. The **Approve** tooltip (Views and 3D) and
+one line in the build review say which version Unreal takes: cleanup and look scenes use the version marked "Active", look scenes
 only once the asset is Approved (a TRELLIS model only as a piece attached to an Approved
 building), and Export sends greybox stand-ins.
 

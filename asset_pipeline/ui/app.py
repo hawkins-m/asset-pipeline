@@ -133,6 +133,11 @@ class BriefBuildReq(BaseModel):
     drop: list[str] = []           # re-brief keeping edits: these edit paths go (brief_sources.carried_edits)
 
 
+class RerollReq(BaseModel):
+    guidance: str = ""             # optional: steers the reroll (the VLM's brief edits, all accepted)
+    view: str = "front"
+
+
 class GuideReq(BaseModel):
     sheet: str                     # the starred sheet
     guidance: str
@@ -433,7 +438,7 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         st = read_json(lr.review_dir(store, tag["asset"], tag.get("round", 1)) / "status.json", default=None) or {}
         done, total = st.get("step", 0), len(lr.STEPS)
         line = f"{tag['asset']} · {st.get('line') or 'saving the brief'}"
-    elif job.kind == "library.brief_build" and tag.get("asset"):
+    elif job.kind in ("library.brief_build", "library.reroll") and tag.get("asset"):
         done, total = tag.get("step", 0), 3
         line = f"{tag['asset']} · {job.note or 'starting'}"
     elif job.kind == "ue.export":
@@ -805,6 +810,14 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         r = versions.get(store, asset, n)
         return {"n": n, "kind": r["kind"], "thumb": r.get("thumb")}
 
+    def _rerollable(store, asset):
+        """Reroll on the asset's row: a procedural entry with a brief from a sheet."""
+        from .. import kit_proc
+        e, own = library_entries._entry_of(store, asset)
+        if e is None or sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
+            return False
+        return bool((read_json(kit_proc.spec_path(store, asset), default=None) or {}).get("sheet"))
+
     @app.get("/api/projects/{slug}/review")
     def review_state(slug: str):
         from .. import library_review
@@ -826,7 +839,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     "current": _current_brief(store, a.id) if name == sw_library.PLAN_NAME else None,
                     "cleanups": s6_cleanup.results(store, name, a.id),
                     # library props (TRELLIS route): the same review status as Library › Asset review
-                    "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None})
+                    "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None,
+                    "reroll": name == sw_library.PLAN_NAME and _rerollable(store, a.id)})
         return {"pending_sheets": pending, "assets": assets,
                 "starred_sheets": sum(1 for k, v in stars.items() if v and k.startswith(s2_refs.REFS + "/"))}
 
@@ -1449,6 +1463,36 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return brief_sources.sources(_store(slug), asset)
         except FileNotFoundError as e:
             raise HTTPException(404, str(e))
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/reroll")
+    def library_reroll(slug: str, asset: str, req: RerollReq):
+        """Reroll (Views and 3D): a new procedural version from the asset's current sheet, steered
+        by the optional guidance; it doesn't become the version in use (library_review.reroll)."""
+        from .. import kit_proc, library_review as lr
+        from ..jobs import current_job, hop
+        store = _store(slug)
+        e, own = library_entries._entry_of(store, asset)
+        if e is None:
+            raise HTTPException(404, f"no library entry {asset}")
+        if sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
+            raise HTTPException(400, f"{asset} is on the TRELLIS build method: use Make 3D")
+        if not kit_proc.spec_path(store, asset).is_file():
+            raise HTTPException(400, f"{asset} has no brief yet: Brief & build it in Library › Reference sheets first")
+        if len(req.guidance.strip()) > 500:
+            raise HTTPException(400, "keep the guidance under 500 characters")
+
+        def run():
+            job = current_job()
+
+            def at(step, note):
+                if job is not None:
+                    job.tag["step"], job.note = step, note
+            try:
+                return lr.reroll(store, asset, req.guidance, req.view, log=lambda *a: None, at=at, to_cpu=lambda: hop("cpu"))
+            except ValueError as ex:
+                raise RuntimeError(str(ex)) from None
+        return jobs.submit("library.reroll", slug, run, lane="gpu0",
+                           tag={"asset": asset, "plan": sw_library.PLAN_NAME, "guidance": req.guidance.strip()}).public()
 
     @app.post("/api/projects/{slug}/library/asset/{asset}/guide")
     def library_guide(slug: str, asset: str, req: GuideReq):

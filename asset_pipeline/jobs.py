@@ -49,7 +49,7 @@ class Canceled(Exception):
 _local = threading.local()
 
 LANE_SLOTS = {"comfy": 1, "gpu0": 1, "cpu": 2, "service": 1}
-VLM_KINDS = frozenset({"plan.analyze", "style.draft", "library.guide", "library.brief", "library.brief_build",
+VLM_KINDS = frozenset({"plan.analyze", "style.draft", "library.guide", "library.brief", "library.brief_build", "library.reroll",
                        "library.pending", "vlm.up"})
 
 

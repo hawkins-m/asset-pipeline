@@ -3,7 +3,7 @@
 //   detail view, and Views and 3D for library props). Per version: thumbnail, vN, date, source
 //   (sheet, view, guidance, seed), size, Use this version / Keep / Delete, two ticked = Compare.
 //   "Keep" is the UI's word for a pinned version (server: pin / unpin, pinned).
-//   The version in use (cleanup, export) is highlighted: "Used by the pipeline".
+//   The version in use (cleanup, export) is highlighted: "Active".
 // - Tools › Storage…: what the builds and versions take, per asset and per project, with
 //   "Delete unpinned versions" (never the Approved, pinned or current ones).
 // - Tools › Settings…: how many unpinned versions to keep per asset.
@@ -34,9 +34,9 @@ const verSource = v => {
 function versionUseLine(cur, approved) {
   if (!cur) return "No version in use yet: Unreal look scenes keep the greybox here. Export always sends greybox stand-ins.";
   if (cur.kind === "trellis")       // look scenes place TRELLIS models only as pieces attached to a placed building
-    return `Cleanup uses v${cur.n} (TRELLIS), the version marked “Used by the pipeline”; Unreal look scenes place it only as a piece ` +
+    return `Cleanup uses v${cur.n} (TRELLIS), the version marked “Active”; Unreal look scenes place it only as a piece ` +
       "attached to an Approved building. Export sends greybox stand-ins.";
-  return `Cleanup and Unreal look scenes use v${cur.n} (${cur.kind}), the version marked “Used by the pipeline”` +
+  return `Cleanup and Unreal look scenes use v${cur.n} (${cur.kind}), the version marked “Active”` +
     `${approved ? "" : "; look scenes place it only once it is Approved"}. Export sends greybox stand-ins.`;
 }
 
@@ -73,20 +73,20 @@ function versionStripDraw(box, asset, d, onChange) {
   const draw = () => {
     box.dataset.sel = JSON.stringify([...sel]);
     box.className = "version-strip";
-    box.innerHTML = `<legend>Versions <span class="hint" style="margin:0" data-role="total">${d.versions.length} version${d.versions.length === 1 ? "" : "s"} · ${fmtBytes(d.bytes)} · the last ${d.keep} not marked Keep stay</span></legend>
+    box.innerHTML = `<legend title="Keeps your last ${d.keep} versions plus any marked Keep. The Active version is never removed.">Versions <span class="hint" style="margin:0" data-role="total">${d.versions.length} version${d.versions.length === 1 ? "" : "s"} · ${fmtBytes(d.bytes)} · the last ${d.keep} not marked Keep stay</span></legend>
       ${d.prunable.length ? `<div class="ver-prune row"><span>${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} can be removed (${fmtBytes(d.prunable_bytes)})</span>
-        <button type="button" class="small ver-prune-btn">Remove</button></div>` : ""}
+        <button type="button" class="small ver-prune-btn" title="Delete these old versions (asks first); Active, Approved and Keep versions stay.">Remove</button></div>` : ""}
       <div class="ver-list">${d.versions.map(v => `<div class="ver${v.current ? " cur" : ""}" data-n="${v.n}">
         <label class="check ver-pick" title="Tick two versions to compare them"><input type="checkbox" class="ver-sel" ${sel.has(v.n) ? "checked" : ""} aria-label="Compare v${v.n}"> Compare</label>
         ${v.thumb ? `<img loading="lazy" alt="Thumbnail of v${v.n}" src="${fileUrl(v.thumb)}">` : `<div class="ver-nothumb">no render</div>`}
         <div class="ver-meta"><b>v${v.n}</b> <span class="hint" style="margin:0">${esc(v.kind)} · ${esc(verDate(v.created))}</span>
-          ${v.current ? `<span class="mark ver-used" title="Cleanup and export take this version's 3D model">Used by the pipeline</span>` : ""}${v.approved ? `<span class="mark m-ok">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep: never removed">kept</span>` : ""}
+          ${v.current || v.approved || v.pinned ? `<div class="ver-marks">${v.current ? `<span class="mark ver-used" title="This version is the one later steps (Cleanup, Unreal look scenes) will use.">Active</span>` : ""}${v.approved ? `<span class="mark m-ok" title="The version that was Active when the asset was approved; never removed.">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep: never removed">kept</span>` : ""}</div>` : ""}
           <div class="hint ver-src" style="margin:0">${esc(verSource(v)) || "&nbsp;"}</div>
           <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div></div>
-        <div class="ver-btns"><button type="button" class="small ver-restore"${v.current ? " disabled title=\"The pipeline already uses this version\"" : ""}>Use this version</button>
-          <button type="button" class="small ver-pin">${v.pinned ? "Stop keeping" : "Keep"}</button>
-          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted\"" : ""}>Delete</button></div></div>`).join("")}</div>
-      <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"}>Compare</button>
+        <div class="ver-btns">${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
+          <button type="button" class="small ver-pin" title="${v.pinned ? "Let retention remove this version again once it is old." : "Never remove this version, however many newer ones you make."}">${v.pinned ? "Stop keeping" : "Keep"}</button>
+          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button></div></div>`).join("")}</div>
+      <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
         <span class="hint" style="margin:0">Tick two versions to compare them.</span></div>`;
     box.querySelectorAll(".ver").forEach(row => {
       const n = +row.dataset.n, v = d.versions.find(x => x.n === n);
@@ -94,7 +94,8 @@ function versionStripDraw(box, asset, d, onChange) {
         if (ev.target.checked) { if (sel.size >= 2) sel.delete([...sel][0]); sel.add(n); } else sel.delete(n);
         draw();
       };
-      $(".ver-restore", row).onclick = () => versionRestore(asset, v, onChange);
+      const use = $(".ver-restore", row);
+      if (use) use.onclick = () => versionRestore(asset, v, onChange);
       $(".ver-pin", row).onclick = async () => {
         try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/${v.pinned ? "unpin" : "pin"}`, {}); }
         catch (err) { alert(errorText(err)); }

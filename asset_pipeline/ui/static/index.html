@@ -278,13 +278,12 @@
       <!-- Views and 3D (stages 3-6) -->
       <section class="tabpanel" data-tab="views" id="review-tab" hidden>
         <div class="applybar-slot"></div>
-        <fieldset><legend>Views and 3D</legend>
-          <p class="hint">Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it
-            game, cine or hero, then <em>Make 3D</em> (TRELLIS.2 on GPU 0, about 2.5 min).</p>
+        <fieldset><legend title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cine or hero, then Make 3D (TRELLIS.2 on GPU 0, about 2.5 min). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance.">Views and 3D</legend>
+          <p class="hint">Pick a view per asset, then Make 3D or Reroll. Hover any control for details.</p>
           <div class="row">
-            <button id="cut-views" type="button" class="default">Extract reference views</button>
+            <button id="cut-views" type="button" class="default" title="Cut the asset views out of newly starred reference sheets with SAM 3.1.">Extract reference views</button>
             <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
-            <label>3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
+            <label title="TRELLIS resolution for Make 3D: 1024_cascade is detailed (about 2.5 min), 512 is quicker and coarser.">3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
             <span id="review-summary" class="hint" style="margin:0"></span>
             <label class="jump">Jump to: <input type="search" id="views-jump" class="jump-box" data-list="views" list="views-jump-list"
                 placeholder="asset name or id" autocomplete="off"></label><datalist id="views-jump-list"></datalist>

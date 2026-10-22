@@ -13,8 +13,9 @@ A TRELLIS version keeps no copy: its GLB, stats json and input png stay where s5
 newest result (the one cleanup picks); deleting one removes those files.
 
 Retention: the last K unpinned versions (project.json `versions_keep`, default 3) stay; older
-ones are only removed after a confirmation in the UI (prune). Pinned, Approved and the current
-version are never removed. Instances (library_instances) are not versions.
+ones are only removed after a confirmation in the UI (prune): a build never prunes, so a failed
+build costs no version. Pinned, Approved and the current (Active) version are never removed, and
+the current one can't be deleted while other versions exist. Instances (library_instances) are not versions.
 """
 import json
 import os
@@ -156,9 +157,11 @@ def attach_thumbs_to(store, d: Path, imgs: dict) -> dict:
 
 
 def record_procedural(store: ProjectStore, asset: str, report: dict | None = None, surface: str | None = None,
-                      thumbs: bool = False, created: str | None = None, plan: str = PLAN, adopted: bool = False) -> dict:
+                      thumbs: bool = False, created: str | None = None, plan: str = PLAN, adopted: bool = False,
+                      make_current: bool = True) -> dict:
     """A new version from the build that just finished: the brief as it is now plus the build's
-    settings and report. Thumbnails arrive with the review renders (attach_thumbs)."""
+    settings and report. Thumbnails arrive with the review renders (attach_thumbs).
+    make_current=False (a reroll): the version in use stays as it is."""
     brief = _brief(store, asset)
     if brief is None:
         raise FileNotFoundError(f"no brief for {asset}")
@@ -173,7 +176,7 @@ def record_procedural(store: ProjectStore, asset: str, report: dict | None = Non
     row["bytes"] = _dir_size(vdir(store, asset, n))
     rows.append(row)
     _save(store, asset, rows, plan)
-    if not adopted and _becomes_current(store, asset, "procedural", plan):
+    if not adopted and make_current and _becomes_current(store, asset, "procedural", plan):
         set_current(store, asset, n, plan)
     return row
 
@@ -339,8 +342,11 @@ def get(store, asset, n, plan=PLAN) -> dict:
 # --- retention, delete ---------------------------------------------------------------------
 
 def _protected(store, asset, rows, plan) -> set[int]:
+    """Never removed by retention: pinned, Approved, the version in use, and the one "Use this
+    version" points at (even while current() falls back to another, e.g. a file went missing)."""
     cur = current(store, asset, plan)
-    return {r["n"] for r in rows if r["pinned"] or r["approved"]} | ({cur} if cur else set())
+    ptr = (read_json(_pointer_path(store, asset, plan), default=None) or {}).get("n")
+    return {r["n"] for r in rows if r["pinned"] or r["approved"]} | {x for x in (cur, ptr) if x is not None}
 
 
 def prune(store: ProjectStore, asset: str, dry_run: bool = True, plan: str = PLAN, keep: int | None = None) -> dict:
@@ -393,6 +399,8 @@ def delete(store: ProjectStore, asset: str, n: int, confirm_pinned: bool = False
     r = get(store, asset, n, plan)
     if r["approved"]:
         raise ValueError(f"v{n} is the Approved version: approve another build first")
+    if len(rows) > 1 and current(store, asset, plan) == n:      # the last version may go: nothing else to use
+        raise ValueError(f"v{n} is the Active version: use another version first")
     if r["pinned"] and not confirm_pinned:
         raise PermissionError(f"v{n} is pinned: confirm to delete it anyway")
     _remove(store, asset, r, plan)

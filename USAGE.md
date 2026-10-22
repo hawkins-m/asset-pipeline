@@ -891,8 +891,16 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
    tag it **game**, **cine** or **hero**. The tag is stored on the plan asset.
 3. **Make 3D** runs TRELLIS.2 on GPU 0 (mode picker at the top; ~2.5 min for
    `1024_cascade`, ~1.5 min for `512`). The result shows with a 3D preview, its stats, the
-   GLB and the image TRELLIS actually saw. Hero assets use TRELLIS too until the
+   GLB and the image TRELLIS actually saw (**Image sourced**). Hero assets use TRELLIS too until the
    multi-view path exists (PLAN.md).
+4. Procedural assets get **Reroll** instead: optional guidance, then **Go** builds a new version
+   from the asset's current sheet (with guidance the vision model's brief edits are all
+   accepted; without, the sheet is measured again and your edits kept). The new version is
+   added to Versions but does not become Active: pick it with **Use this version**. A failed
+   reroll adds nothing and leaves the brief and the Active build as they were.
+
+Explanations live in hover tooltips: the **Views and 3D** heading, every button, the Active
+badge and the Versions header.
 
 **From the command line:**
 
@@ -1004,8 +1012,10 @@ and input image stay where TRELLIS wrote them. A procedural version holds no GLB
   back and rebuilds (or copies back the GLB of a version marked Keep); restoring a TRELLIS version makes
   it the newest result.
 - The last N versions not marked Keep stay (Tools › Settings…, per project, default 3). Older ones are
-  never removed silently: after a build the strip offers "N old versions can be removed". The
-  Approved, Keep and current versions are never removed.
+  never removed silently: no build, reroll or Make 3D prunes anything; afterwards the strip offers
+  "N old versions can be removed". The Approved, Keep and Active (current) versions are never
+  removed, and the Active one can't be deleted while other versions exist. Make 3D writes into a
+  staging folder first, so a failed rerun with the same view, mode and seed keeps the old files.
 - Tools › Storage… shows the size of builds and versions per asset and project, and deletes
   versions not marked Keep after a confirmation.
 - Existing builds become version 1 of their asset the first time the strip is opened, or all at

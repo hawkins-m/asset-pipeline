@@ -189,6 +189,89 @@ def rebuild(store: ProjectStore, asset: str, log=print) -> dict:
     return {"round": rnd, "faces": res.get("faces"), "images": _imgs(store, d), "version": vn}
 
 
+REROLL_FILES = ("procedural.glb", "procedural.zones.json", "procedural.json")
+
+
+def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "front", log=print,
+           at=lambda step, note: None, to_cpu=lambda: None) -> dict:
+    """Reroll (Views and 3D): a new procedural version from the asset's current sheet, steered by
+    `guidance` (the VLM's brief edits, all accepted) or, without guidance, the sheet measured again
+    with the artist's edits kept. The new version keeps its own GLB and does NOT become the
+    version in use: the brief, the build on disk, the review status and the version in use are put
+    back afterwards, also when a step fails (then no version is added). to_cpu: the job leaves
+    GPU 0 for the Blender build (jobs.hop)."""
+    from . import brief_guide, building_proc, library_entries, versions
+    sp = kit_proc.spec_path(store, asset)
+    brief = read_json(sp, default=None)
+    if brief is None:
+        raise ValueError(f"{asset} has no procedural brief yet: Brief & build it first (Library › Reference sheets)")
+    sheet = brief.get("sheet")
+    if not sheet or not (store.root / sheet).is_file():
+        raise ValueError(f"{asset}: the brief's sheet is gone; Brief & build from a starred sheet first")
+    guidance = (guidance or "").strip()
+    out = kit_proc.out_dir(store, asset)
+    versions.migrate_asset(store, asset)
+    cur = versions.current(store, asset)
+    approved = {r["n"] for r in versions.load(store, asset) if r["approved"]}
+    rev = reviews(store).get(asset)
+    bak = out / "_reroll_backup"
+    shutil.rmtree(bak, ignore_errors=True)
+    for f in REROLL_FILES:
+        if (out / f).is_file():
+            filestore.copy(store, out / f, bak / f)
+    vn = None
+    try:
+        if guidance:
+            at(1, "VLM: brief edits from the guidance…")
+            prop = brief_guide.propose(store, asset, sheet, guidance, view)
+            brief_guide.apply(store, asset, prop["edits"], guidance)
+        else:
+            at(1, "VLM: measuring the sheet again…")
+            library_entries.brief_from_sheet(store, asset, sheet, view)
+        building_proc.read_band_materials(store, asset, log=lambda *a: None)
+        at(2, "Waiting for the CPU…")
+        to_cpu()
+        at(2, "Blender build…")
+        res = kit_proc.build_any(store, asset, log=log, make_current=False)
+        vn = res["version"]
+        d = versions.vdir(store, asset, vn)                # the version's own GLB: the build on disk goes back
+        filestore.copy(store, out / "procedural.glb", d / "procedural.glb")
+        keep = {"procedural.glb"}
+        if kit_proc.zones_path(out / "procedural.glb").is_file():
+            shutil.copy2(kit_proc.zones_path(out / "procedural.glb"), d / "procedural.zones.json")
+            keep.add("procedural.zones.json")
+        at(3, "renders for the thumbnail…")
+        rd = d / "renders"
+        form = (read_json(sp, default={}) or {}).get("form")
+        render(store, asset, d / "procedural.glb", rd, "quick", form)
+        versions.attach_thumbs(store, asset, vn, rd)
+        shutil.rmtree(rd, ignore_errors=True)
+        rows = versions.load(store, asset)
+        for r in rows:
+            if r["n"] == vn:
+                r["files"] = sorted(set(r["files"]) | keep)
+                r["bytes"] = versions._dir_size(d)
+        versions._save(store, asset, rows)
+    finally:                                               # put back what the version in use is made of
+        write_json(sp, brief)
+        for f in REROLL_FILES:
+            if (bak / f).is_file():
+                filestore.copy(store, bak / f, out / f)
+            elif (out / f).is_file():
+                filestore.release(store, out / f)
+        shutil.rmtree(bak, ignore_errors=True)
+        if rev is not None and reviews(store).get(asset) != rev:
+            _save(store, asset, rev)
+        rows = versions.load(store, asset)
+        if any(r["approved"] != (r["n"] in approved) for r in rows):
+            for r in rows:
+                r["approved"] = r["n"] in approved
+            versions._save(store, asset, rows)
+        if cur is not None:
+            versions.set_current(store, asset, cur)
+    return {"version": vn, "current": cur, "guidance": guidance}
+
+
 # --- usage, checks ---------------------------------------------------------------------------
 
 def entry_of(store: ProjectStore, asset: str) -> dict | None:

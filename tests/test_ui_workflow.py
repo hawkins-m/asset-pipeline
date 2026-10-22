@@ -206,8 +206,9 @@ def test_approve_says_which_version_export_and_unreal_use():
     assert "attached to an Approved building" in run({"n": 2, "kind": "trellis"}, False)
     assert "No version in use" in run(None, False)
     assert all("greybox stand-ins" in run(c, False) for c in (None, {"n": 1, "kind": "procedural"}, {"n": 1, "kind": "trellis"}))
-    for f in ("review.js", "library_review.js"):
-        assert "versionUseLine(" in (STATIC / f).read_text()
+    assert "versionUseLine(" in (STATIC / "library_review.js").read_text()
+    review = (STATIC / "review.js").read_text()                 # Views and 3D: the same facts as tooltips
+    assert "versionUseLine(" not in review and "Until then, export uses greybox stand-ins." in review
 
 
 def test_confusing_labels_are_renamed():

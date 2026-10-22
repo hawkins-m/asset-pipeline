@@ -475,7 +475,11 @@ details summary { cursor: default; }
 /* --- Asset version bank (versions.js) ---------------------------------------------------------- */
 .version-strip { min-width: 0; }
 .version-strip .ver-list { display: grid; gap: 4px; max-height: 340px; overflow: auto; }
-.version-strip .ver { display: grid; grid-template-columns: auto 72px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 2px; border: 1px solid transparent; }
+/* buttons on their own line under the meta: nothing can overlap at any width */
+.version-strip .ver { display: grid; grid-template-columns: auto 72px minmax(0, 1fr); gap: 2px 6px; align-items: center; padding: 2px; border: 1px solid transparent; }
+.version-strip .ver-meta { min-width: 0; overflow-wrap: anywhere; }
+.version-strip .ver-marks { display: flex; flex-wrap: wrap; gap: 3px; margin: 1px 0; }
+.version-strip .ver-marks .mark { margin-left: 0; }
 .version-strip .ver.cur { border-color: var(--select); background: color-mix(in srgb, var(--select) 10%, transparent); }
 .ver-used { color: var(--select-text, #fff); background: var(--select); padding: 0 4px; }
 .version-strip .ver-pick { white-space: nowrap; }
@@ -483,7 +487,10 @@ details summary { cursor: default; }
 .cur-version { display: inline-flex; align-items: center; gap: 4px; }
 .cur-version img { width: 36px; height: 27px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
 .version-strip .ver img, .version-strip .ver-nothumb { width: 72px; height: 54px; object-fit: contain; background: #fff; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
-.version-strip .ver-btns { display: flex; flex-wrap: wrap; gap: 3px; justify-content: flex-end; }
+.version-strip .ver-btns { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
+.asset-review .no-views { grid-column: 1 / -1; white-space: nowrap; }
+.asset-review .reroll-form { margin: 4px 0; gap: 6px; }
+.asset-review .reroll-form .reroll-guidance { flex: 1; min-width: 12em; max-width: 40em; }
 .version-strip .ver-prune { background: var(--field); border: 1px solid var(--stale-line); padding: 2px 4px; margin-bottom: 4px; }
 .version-strip .mark { font-size: 11px; border: 1px solid currentColor; padding: 0 3px; margin-left: 3px; }
 .version-strip .m-ok { color: var(--ready); } .version-strip .m-new { color: var(--star); } .version-strip .m-rdy { color: var(--select); }
