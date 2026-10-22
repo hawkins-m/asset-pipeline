@@ -76,7 +76,26 @@ def test_batch_dry_run_counts_and_build_job(client, store, monkeypatch):  # noqa
     t = client.post(f"{U}/areas/batch", json={"action": "trellis", "area": "a", "dry_run": True}).json()
     assert t["count"] == 0 and "no view chosen" in t["notes"][0]
     s = client.post(f"{U}/areas/batch", json={"action": "sheets", "area": "a", "dry_run": True}).json()
-    assert s["items"] == ["hall", "stall"] and "row-house-brick" in s["notes"][0]
+    assert s["items"] == ["stall"] and "row-house-brick" in s["notes"][0]     # hall has a brief: needs no sheets
+
+
+def test_status_carries_each_batch_and_trellis_never_changes_a_build_method(client, store, monkeypatch):  # noqa: F811
+    from asset_pipeline import review
+    from asset_pipeline.stages import s5_3d, sw_library
+    areas.define(store, "a", shots=["med-a"])
+    b = client.get(f"{U}/areas/status", params={"area": "a"}).json()["batches"]
+    assert set(b) == {"sheets", "build", "trellis", "instances"} and b["build"]["items"] == ["hall"]
+    assert b["sheets"]["items"] == ["stall"] and b["trellis"]["items"] == []
+    routes = {r["asset"]: r["route"] for r in client.get(f"{U}/areas/status", params={"area": "a"}).json()["rows"]}
+    monkeypatch.setattr(review, "chosen", lambda st, plan, a: "views/x.png")
+    t = client.post(f"{U}/areas/batch", json={"action": "trellis", "area": "a", "dry_run": True}).json()
+    assert t["items"] == [a for a, r in routes.items() if r == "trellis"] and "hall" not in t["items"]
+    ran = []
+    monkeypatch.setattr(s5_3d, "run", lambda st, plan, a, mode=None: ran.append(a))
+    dec_before = sw_library.decisions(store)
+    assert _wait(client, client.post(f"{U}/areas/batch", json={"action": "trellis", "area": "a"}).json())["status"] == "done"
+    assert ran == t["items"] and sw_library.decisions(store) == dec_before
+    assert {r["asset"]: r["route"] for r in client.get(f"{U}/areas/status", params={"area": "a"}).json()["rows"]} == routes
 
 
 def test_sheets_batch_runs_in_the_comfy_lane(client, store, monkeypatch):  # noqa: F811
@@ -90,15 +109,16 @@ def test_sheets_batch_runs_in_the_comfy_lane(client, store, monkeypatch):  # noq
     def asset(i):
         return type("A", (), {"id": i, "include": True})()
 
-    monkeypatch.setattr(sw_library, "asset_plan", lambda st, only=None: seen.update(only=only) or type(
-        "P", (), {"assets": [asset("hall"), asset("stall")]})())
+    from asset_pipeline import library_entries
+    monkeypatch.setattr(sw_library, "asset_plan", lambda *a, **k: pytest.fail("would drop the other included assets"))
+    monkeypatch.setattr(library_entries, "sync_plan", lambda st, extra=(): seen.update(extra=list(extra)))
     monkeypatch.setattr(s2_refs, "units", lambda st, plan=None: [Unit()])
     monkeypatch.setattr(s2_refs, "sheets", lambda st, u: [])
     made = []
     monkeypatch.setattr(s2_refs, "generate", lambda st, u, n=2, **k: made.append(u.key))
     r = client.post(f"{U}/areas/batch", json={"action": "sheets", "area": "a", "assets": ["stall"]}).json()
     assert r["lane"] == "comfy" and r["kind"] == "library.sheets"
-    assert _wait(client, r)["status"] == "done" and made == ["stall"] and seen["only"] == ["stall"]
+    assert _wait(client, r)["status"] == "done" and made == ["stall"] and seen["extra"] == ["stall"]
 
 
 def test_brief_build_runs_brief_when_missing_then_builds(client, store, monkeypatch):  # noqa: F811

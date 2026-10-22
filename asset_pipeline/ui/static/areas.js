@@ -3,11 +3,39 @@
 // An area is a set of shots and/or districts; the table shows what each asset of it has and its
 // next step, with a button that performs the step. Server side: tools_api.py (/areas...).
 const AREA_BATCHES = {
-  sheets: ["Sheets for missing", "Two reference sheets for every decided asset without any", "Reference sheets are made on GPU 1 (ComfyUI)."],
-  build: ["Build all", "Build every procedural asset with a brief", "Blender on the CPU; approved assets and unchanged briefs are skipped."],
-  trellis: ["TRELLIS all", "3D for every prop with a chosen view", "GPU 0; the vision LLM is stopped while TRELLIS runs. Assets need a chosen view."],
-  instances: ["Instances", "Every building at its own footprint and storeys", "Blender on the CPU; one build per building footprint."],
+  sheets: ["Sheets for missing", "Two reference sheets for each decided entry of this area that has none yet",
+    "Reference sheets are made on GPU 1 (ComfyUI). Skips approved, undecided or excluded entries, those with sheets, and procedural assets that already have a brief."],
+  build: ["Build all", "Builds each procedural asset of this area that has a brief and isn't fresh",
+    "Blender on the CPU. Skips approved assets, fresh builds (made from the current brief), assets without a brief and TRELLIS assets."],
+  trellis: ["TRELLIS all", "Makes a TRELLIS model for each asset of this area whose build method is already trellis and has no model yet",
+    "GPU 0; the vision LLM is stopped while TRELLIS runs. Skips approved assets, assets without a chosen view and every procedural asset; no build method is changed."],
+  instances: ["Instances", "Builds every building of these procedural entries at its own footprint and storeys",
+    "Blender on the CPU, one build per building in the whole city plan (not only this area). Needs a brief; unchanged builds are skipped."],
 };
+// column headers and value words: what they mean (areas.py status rows, sw_library tiers)
+const AREA_HEADS = {
+  Asset: "The library asset: an entry, or one module of a kit entry. \"variant of\" marks a member of another entry's variant set.",
+  Tier: "How the library plan classed the entry: A landmark or kit monument, B one-off civic or infrastructure, C repeated fill typology, D prop. It sets the default build method, how the size is taken and how entries are grouped.",
+  "Build method": "How its 3D model is made: procedural (Blender from a brief measured off a sheet) or trellis (TRELLIS.2 from a chosen sheet view). Change it in Manage entry….",
+  Share: "The largest share of one frame this asset covers in the area's shots (its greybox slots in the shot's id pass); props take the share of the whole slot holding them (a market stall: the market), so theirs is approximate. 0% means it is only in the area's districts.",
+  Sheets: "How many reference sheets the asset has (Library › Reference sheets).",
+  Brief: "Procedural assets: whether it has a brief, the fields Blender builds from. \"no form\" or \"no size\": it can't be briefed until that is set (Manage entry…).",
+  Build: "fresh: the procedural build was made from the current brief. stale: the brief changed since the last build. TRELLIS: it has a TRELLIS model. –: not built yet.",
+  Review: "Its status in Library › Asset review: approved, needs changes, needs new feature, ready for review, needs review, or not reviewed.",
+  Next: "The asset's next step; the button does it.",
+};
+const AREA_TIERS = {
+  A: "Tier A: a landmark or kit monument (its catalog typology has a reference image, or it is a temple, stoa, rotunda and the like). Sized from its smallest placed instance; procedural unless it is a drum form, rotunda, fountain or statue.",
+  B: "Tier B: a one-off civic or infrastructure building (a wall, gate or quay, or a catalog type with a singular form or at most 14 copies). Sized from its smallest placed instance; procedural by default.",
+  C: "Tier C: a repeated fill typology from the catalog, one entry per typology and material shared by all its buildings. Sized from the catalog's middle size; procedural by default.",
+  D: "Tier D: a prop (a market stall, tent or canopy table). A fixed prop size, TRELLIS by default and a lighter look reference on its sheets.",
+};
+const AREA_ROUTES = {procedural: "Built in Blender from a brief measured off its sheet.", trellis: "Built by TRELLIS.2 from one chosen sheet view (Views and 3D)."};
+const AREA_BUILDS = {fresh: "Built from the current brief: nothing to rebuild.", stale: "The brief changed since the last build: Build makes it again.",
+  TRELLIS: "Has a TRELLIS model (Views and 3D).", "–": "Not built yet."};
+const AREA_REVIEWS = {approved: "Approved: done; Unreal look scenes place it.", needs_changes: "Needs changes: a reviewer asked for another build (the note is in Asset review).",
+  needs_feature: "Needs new feature: the builder lacks a part this asset needs.", ready: "Ready for review: built and waiting for a review.",
+  needs_review: "Needs review: changed after it was approved; review it again.", "not reviewed": "Not reviewed yet."};
 const areaState = {sel: null, data: null, rows: [], gaps: []};
 // the area picked here is the "current area" (Asset review's Show filter defaults to it)
 function rememberArea() {
@@ -55,10 +83,9 @@ async function areasPanel(host) {
     <div id="area-gaps" hidden></div>
     <div id="area-table-box" class="hint">Loading…</div>
     <div class="row" id="area-batches">${Object.entries(AREA_BATCHES).map(([k, v]) =>
-      `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}: ${esc(v[2])}">${v[0]}…</button>`).join("")}
-      <button type="button" class="small" id="area-checklist">Write checklist</button></div>`;
-  body.insertAdjacentHTML("afterbegin", `<p class="hint" style="margin-top:0">An area is a set of shots and/or districts. Each row
-    is one asset of it, with what it has and its <b>Next</b> step: the button does that step.</p>`);
+      `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}. ${esc(v[2])}">${v[0]}…</button>`).join("")}
+      <button type="button" class="small" id="area-checklist" title="Writes this table as a checklist to areas/<name>.md in the project, keeping your own notes around it. Named areas only.">Write checklist</button></div>`;
+  body.insertAdjacentHTML("afterbegin", `<p class="hint" style="margin-top:0" id="area-help" title="An area is a set of shots and/or districts. Each row is one asset of it, with what it has so far and its Next step: the button does that step. The batch buttons below run one step for every asset of the area that needs it.">One row per asset of the area; <b>Next</b> does its next step. Hover any header or value for details.</p>`);
   host.replaceChildren(body);
   const d = {win: host, close() {}};      // the steps that open another tab "close" the panel: nothing to do
   const reload = async () => {
@@ -79,18 +106,18 @@ async function areasPanel(host) {
     if (!areaState.sel) { box.textContent = "Define an area (New area…) from shots and/or districts."; return; }
     box.textContent = "Loading…";
     const q = new URLSearchParams(areaScope());
-    try { const st = await api(`/api/projects/${slug}/areas/status?${q}`, undefined, "GET"); areaState.rows = st.rows; areaState.gaps = st.gaps || []; }
+    try { const st = await api(`/api/projects/${slug}/areas/status?${q}`, undefined, "GET"); areaState.rows = st.rows; areaState.gaps = st.gaps || []; areaBatchLabels(d, st.batches || {}); }
     catch (err) { box.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
     areaGaps(d, table);
     box.className = "";
     if (!areaState.rows.length) { box.innerHTML = `<p class="hint">No assets in this area.</p>`; return; }
-    box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr><th>Asset</th><th>Tier</th><th>Build method</th><th>Share</th>
-      <th>Sheets</th><th>Brief</th><th>Build</th><th>Review</th><th>Next</th></tr></thead><tbody>${areaState.rows.map((r, i) => {
-        const st = areaStep(r);
-        return `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(assetName(r.variant_of))}</span>` : ""}</td><td>${esc(r.tier || "")}</td><td>${esc(r.route)}</td>
-          <td>${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td>${r.brief ? "yes" : (r.missing || []).length
-            ? `<span class="error" title="Brief & build needs a building form and a size: set them in Manage entry… (or in the Brief & build dialog)">no ${esc(r.missing.join(", no "))}</span>` : "–"}</td><td>${areaBuildText(r)}</td>
-          <td>${esc(r.status || "not reviewed")}</td><td><button type="button" class="small area-step" data-i="${i}" data-step="${st.kind}"
+    const tip = t => t ? ` title="${esc(t)}"` : "";
+    box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr>${Object.entries(AREA_HEADS).map(([h, t]) => `<th${tip(t)}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${areaState.rows.map((r, i) => {
+        const st = areaStep(r), rv = r.status || "not reviewed", bt = areaBuildText(r);
+        return `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}${r.variant_of ? ` <span class="hint" style="margin:0" title="a member of ${esc(r.variant_of)}'s variant set (Manage entry… › Variant set)">variant of ${esc(assetName(r.variant_of))}</span>` : ""}</td><td${tip(AREA_TIERS[r.tier])}>${esc(r.tier || "")}</td><td${tip(AREA_ROUTES[r.route])}>${esc(r.route)}</td>
+          <td title="${esc(`${(100 * r.share).toFixed(2)}% of its best frame in this area's shots`)}">${(100 * r.share).toFixed(1)}%</td><td>${r.sheets}</td><td${tip(r.brief ? "Has a brief: the fields Blender builds from." : (r.missing || []).length ? "" : r.route === "procedural" ? "No brief yet: Brief & build makes one from a sheet." : "TRELLIS assets need no brief.")}>${r.brief ? "yes" : (r.missing || []).length
+            ? `<span class="error" title="It can't be briefed until it has a building ${esc(r.missing.join(" and a "))}: set ${r.missing.length > 1 ? "them" : "it"} in Manage entry… (or the Brief & build dialog).">no ${esc(r.missing.join(", no "))}</span>` : "–"}</td><td${tip(AREA_BUILDS[bt])}>${bt}</td>
+          <td${tip((AREA_REVIEWS[rv] || "") + (r.note ? ` Note: ${r.note}` : ""))}>${esc(rv)}</td><td><button type="button" class="small area-step" data-i="${i}" data-step="${st.kind}"
             title="${esc(r.next)}" ${st.kind === "done" ? "disabled" : ""}>${esc(st.label)}</button></td></tr>`; }).join("")}</tbody></table>`;
     box.querySelectorAll(".area-step").forEach(b => b.onclick = () => areaDoStep(areaState.rows[+b.dataset.i], d, table));
   };
@@ -161,6 +188,18 @@ async function areaFix(g, f, d, table) {
   await load(); table();
 }
 
+// The batch buttons show how many assets each would run now and, on hover, which and what is skipped.
+function areaBatchLabels(d, batches) {
+  for (const [k, [label, what, note]] of Object.entries(AREA_BATCHES)) {
+    const b = $(`#area-batch-${k}`, d.win), p = batches[k];
+    if (!b || !p) continue;
+    const n = p.items.length, list = p.items.slice(0, 12).join(", ") + (n > 12 ? `, … (${n - 12} more)` : "");
+    b.textContent = `${label} (${n})…`;
+    b.disabled = !n;
+    b.title = `${what}. ${n ? `Runs on: ${list}.` : "Nothing to run in this area now."}${p.notes.length ? ` ${p.notes.map(x => x[0].toUpperCase() + x.slice(1)).join(". ")}.` : ""} ${note}`;
+  }
+}
+
 // Batches confirm first with counts (a dry run asks the server what would run).
 async function areaBatch(kind, assets, d, table) {
   const [title, cmd, note] = AREA_BATCHES[kind];
@@ -168,7 +207,7 @@ async function areaBatch(kind, assets, d, table) {
   let plan;
   try { plan = await api(`/api/projects/${slug}/areas/batch`, {...req, dry_run: true}); }
   catch (err) { alert(errorText(err)); return; }
-  const ok = await confirmDialog({title, button: "Run", id: "area-batch-confirm", body: `<p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
+  const ok = await confirmDialog({title: `${title} (${plan.count})`, button: "Run", id: "area-batch-confirm", body: `<p>${esc(cmd)}.</p><p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
     ${plan.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}<p class="hint">${esc(note)} Finished items are skipped, so it can be run again.</p>`});
   if (!ok) return;
   try { const j = await api(`/api/projects/${slug}/areas/batch`, req); await load(); await jobDone(j); }

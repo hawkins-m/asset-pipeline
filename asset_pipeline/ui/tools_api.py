@@ -210,7 +210,10 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         if not area and not district:
             raise HTTPException(400, "give an area or a district")
         rows = sel(store, area, district)
-        return {"rows": rows, "gaps": areas.form_gaps(store, rows)}
+        # what each batch button would run now (its label count, tooltip and confirm list)
+        batches = {k: dict(zip(("items", "notes"), _batch_plan(store, BatchReq(action=k, area=area, district=district), rows)))
+                   for k in ("sheets", "build", "trellis", "instances")}
+        return {"rows": rows, "gaps": areas.form_gaps(store, rows), "batches": batches}
 
     @app.post("/api/projects/{slug}/areas/{name}/checklist")
     def areas_checklist(slug: str, name: str):
@@ -219,19 +222,29 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         out = areas.checklist(store, name)
         return {"path": str(out), "rel": out.relative_to(store.root).as_posix(), "text": out.read_text()}
 
-    def _batch_plan(store, req: BatchReq):
-        """(items to run, notes) for an area batch, as the matching `ap library` command picks them."""
-        rows = sel(store, req.area, req.district)
+    def _sheet_rows(store, rows):
+        """The area's assets that still need reference sheets: decided (not excluded), not approved,
+        no sheet yet, and not a procedural asset that already has its brief."""
+        dec = sw_library.decisions(store)
+        return [r for r in rows if r["status"] != "approved" and not r["sheets"]
+                and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")
+                and not (r["route"] == "procedural" and r["brief"])]
+
+    def _batch_plan(store, req: BatchReq, rows=None):
+        """(items to run, notes) for an area batch, as the matching `ap library` command picks them.
+        No batch changes an asset's build method: each takes the assets already on its method."""
+        rows = sel(store, req.area, req.district) if rows is None else rows
         if req.assets is not None:
             rows = [r for r in rows if r["asset"] in req.assets]
         notes = []
         if req.action == "sheets":
-            dec = sw_library.decisions(store)
-            only = sorted({r["entry"] for r in rows if r["status"] != "approved"
-                           and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")})
-            undecided = sorted({r["entry"] for r in rows if not r["decision"]})
+            only = sorted({r["entry"] for r in _sheet_rows(store, rows)})
+            undecided = sorted({r["entry"] for r in rows if not r["decision"] and not r["brief"]})
             if undecided:
                 notes.append("not decided yet (Library › Entries), skipped: " + ", ".join(undecided))
+            have = sorted({r["entry"] for r in rows if r["sheets"]} - set(only))
+            if have:
+                notes.append(f"already have sheets, skipped: {len(have)}")
             return only, notes
         if req.action == "build":
             todo = [r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["status"] != "approved"
@@ -239,13 +252,22 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             nobrief = [r["asset"] for r in rows if r["route"] == "procedural" and not r["brief"] and r["status"] != "approved"]
             if nobrief:
                 notes.append("no brief yet, skipped: " + ", ".join(nobrief))
+            fresh = [r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["fresh"]
+                     and r["status"] != "approved" and not req.force]
+            if fresh:
+                notes.append(f"already built from the current brief (fresh), skipped: {len(fresh)}")
+            other = [r["asset"] for r in rows if r["route"] != "procedural"]
+            if other:
+                notes.append(f"on TRELLIS, skipped: {len(other)}")
             return todo, notes
         if req.action == "trellis":
+            all_rows = rows
             rows = [r for r in rows if r["route"] == "trellis" and r["status"] != "approved" and (req.more or not r["trellis"])]
             nochoice = [r["asset"] for r in rows if not review.chosen(store, sw_library.PLAN_NAME, r["asset"])]
             if nochoice:
                 notes.append("no view chosen (Views and 3D), skipped: " + ", ".join(nochoice))
-            return [r["asset"] for r in rows if r["asset"] not in nochoice], notes
+            return [r["asset"] for r in rows if r["asset"] not in nochoice], notes + (
+                ["procedural assets are never switched to TRELLIS"] if any(r["route"] == "procedural" for r in all_rows) else [])
         entries = sorted({r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["kind"] == "building"})
         have = {p.stem for p in (store.root / "library/kits").glob("*.json")}
         return [e for e in entries if e in have], notes
@@ -284,9 +306,11 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
 
         if req.action == "sheets":
             def run():
-                plan = sw_library.asset_plan(store, only=todo)
-                inc = {x.id for x in plan.assets if x.include}
-                units = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if u.key in inc and not s2_refs.sheets(store, u)]
+                from .. import library_entries
+                need = {r["asset"] for r in _sheet_rows(store, sel(store, req.area, req.district)) if r["entry"] in todo
+                        and (req.assets is None or r["asset"] in req.assets)}
+                library_entries.sync_plan(store, extra=todo)       # the assets already included stay included
+                units = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if u.key in need and not s2_refs.sheets(store, u)]
                 return failures(each(units, lambda u: s2_refs.generate(store, u, n=2)), "sheets")
             return jobs.submit("library.sheets", slug, run, lane="comfy", tag=tag,
                                gated=on_comfy(store, "references")).public()

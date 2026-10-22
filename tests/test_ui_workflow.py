@@ -153,7 +153,7 @@ def test_library_opens_on_areas_as_its_first_sub_tab():
     shell = (STATIC / "shell.js").read_text()
     assert ': "areas");' in shell and 'localStorage.getItem("ap.sub")' not in shell     # every load opens on Areas
     areas = (STATIC / "areas.js").read_text()
-    assert "<th>Next</th>" in areas and 'showSub("areas")' in areas
+    assert "\n  Next: \"" in areas and 'showSub("areas")' in areas          # the table's headers: AREA_HEADS
 
 
 def test_unreal_tab_is_numbered_steps_each_with_a_reason():
@@ -216,7 +216,7 @@ def test_confusing_labels_are_renamed():
     for old in ('"Good source"', '"Use description"', '"Description + reference frame"', "<th>Route</th>", '"Cut views"',
                 '`Cut views (', '"Unpin" : "Pin"', '"3D route:"'):
         assert old not in ui, old
-    for new in ('"Frame crop"', '"Description only"', '"Description + chosen image"', "<th>Build method</th>",
+    for new in ('"Frame crop"', '"Description only"', '"Description + chosen image"', "\"Build method\": \"",
                 "Extract reference views", '"Stop keeping" : "Keep"', '"Build method:"'):
         assert new in ui, new
 
