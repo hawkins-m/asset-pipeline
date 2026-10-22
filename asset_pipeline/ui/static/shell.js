@@ -493,7 +493,14 @@ function jobProgress(j) {
   return {done: p.done ?? null, total: p.total ?? null, line: p.line || j.note || "", frac, stage,
     stages: p.stages || null, stageLabel: p.stage_label || "",
     count: det && !p.stages ? `${p.done} of ${p.total}` : "",
-    eta: p.eta_s != null ? `about ${fmtDur(p.eta_s)} left` : p.elapsed_s != null ? `${fmtDur(p.elapsed_s)} elapsed` : ""};
+    eta: jobTimeText(p)};
+}
+// elapsed and time left: counted from its progress, else from its estimate (estimates.py)
+function jobTimeText(p) {
+  const el = p.elapsed_s != null ? `${fmtDur(p.elapsed_s)} elapsed` : "";
+  if (p.over) return `${el} · longer than the usual ${fmtDur(p.est_s)}`;
+  if (p.eta_s != null) return `${el ? el + " · " : ""}about ${fmtDur(p.eta_s)} left`;
+  return el;
 }
 
 // Paint a job's bar into `box`: built once, then only updated (so the width animates between polls

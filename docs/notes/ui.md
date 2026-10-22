@@ -77,3 +77,15 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - Test UI changes on a second instance (`ap ui --port 8701` from the checkout); the user's `ap ui`
   serves the same static files, so a reload shows page changes there, but Python changes need the
   user to restart it.
+
+## Long-job warning (2026-10-22)
+- estimates.py: seconds per item = median of the last 15 recorded runs per job kind (and TRELLIS
+  mode) in `$AP_ROOT/logs/job_times.jsonl` (the queue records every successful job), else the
+  stages' own timings in the projects' runs.jsonl, else DEFAULTS (said so in the dialog).
+- The UI asks the job's own endpoint first (`X-AP-Estimate: 1`): the handler runs its checks and
+  counts and stops at jobs.submit (EstimateOnly). Only ESTIMATE_ROUTES (app.py) may be asked:
+  routes that write before they submit (rebuild, guide/apply, shot camera, assembly, restore) are
+  left out. Over 10 min api() shows the long-job dialog; Library › Areas batches show the same
+  lines in their own confirm and pass {confirmed: true}. A canceled start throws "Not started.",
+  which alert() ignores.
+- Jobs the panel can't count show their time left from the job's est_s.

@@ -34,6 +34,7 @@ Jobs live in memory; their effects (images, review.json, runs.jsonl) are on disk
 restart loses only the status of in-flight jobs.
 """
 import contextlib
+import contextvars
 import itertools
 import threading
 import time
@@ -44,6 +45,18 @@ from typing import Any, Callable
 
 class Canceled(Exception):
     """The job was canceled from the UI."""
+
+
+class EstimateOnly(Exception):
+    """Raised by submit() while estimate_only is set: the endpoint's job, not started (the UI
+    asks an endpoint what it would run, with the endpoint's own checks and item counts)."""
+
+    def __init__(self, kind: str, project: str, lane: str, tag: dict):
+        super().__init__(kind)
+        self.kind, self.project, self.lane, self.tag = kind, project, lane, tag
+
+
+estimate_only: contextvars.ContextVar[bool] = contextvars.ContextVar("estimate_only", default=False)
 
 
 _local = threading.local()
@@ -87,6 +100,7 @@ class Job:
     waiting: dict | None = None     # {lane, position, reason}: waiting for a slot or for VRAM
     used_vlm: bool = False          # called the local VLM (unloaded after the job: gpu_policy)
     gated: bool = True              # needs its lane's server (False: a hosted backend in "comfy")
+    est_s: float | None = None      # its estimated run time (estimates.py), for the time left
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     _cancellers: list = field(default_factory=list, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -96,7 +110,7 @@ class Job:
         return {"id": self.id, "kind": self.kind, "project": self.project, "lane": self.lane,
                 "tag": self.tag, "status": self.status, "result": self.result,
                 "error": self.error, "note": self.note, "created": self.created, "started": self.started,
-                "finished": self.finished, "holds": list(self.holds),
+                "finished": self.finished, "holds": list(self.holds), "est_s": self.est_s,
                 "waiting": dict(self.waiting) if self.waiting else None}
 
     def on_cancel(self, fn: Callable[[], None]) -> Callable[[], None]:
@@ -161,10 +175,12 @@ class JobQueue:
     LANES = ("comfy", "gpu0", "cpu", "service")
 
     def __init__(self, lanes: tuple[str, ...] = LANES, gates: dict | None = None, error_text=None,
-                 slots: dict | None = None, policy=None):
+                 slots: dict | None = None, policy=None, estimator=None, recorder=None):
         self.gates = dict(gates or {})    # lane -> object with check_submit() and wait(job)
         self.error_text = error_text      # job error -> the text the UI shows (ui.messages.app_text)
         self.policy = policy              # before(job, lane, purpose) / after(job, lane): VRAM, VLM unload
+        self.estimator = estimator        # job -> its estimated seconds (estimates.job_seconds), or None
+        self.recorder = recorder          # job -> None: a finished job's run time (estimates.record)
         self.slots = {lane: max(1, int((slots or {}).get(lane, LANE_SLOTS.get(lane, 1)))) for lane in lanes}
         self._ids = itertools.count(1)
         self._jobs: dict[int, Job] = {}
@@ -178,12 +194,19 @@ class JobQueue:
         stage on a hosted backend in the "comfy" lane)."""
         if lane not in self.slots:
             raise ValueError(f"unknown lane {lane!r}")
+        if estimate_only.get():
+            raise EstimateOnly(kind, project, lane, dict(tag or {}))
         gate = self.gates.get(lane) if gated else None
         if gate is not None:
             gate.check_submit()
         with self._cv:
             job = Job(id=next(self._ids), kind=kind, project=project, lane=lane, tag=tag or {},
                       key=exclusive(kind, project, tag), gated=gated, _queue=self)
+            if self.estimator is not None:
+                try:
+                    job.est_s = round(self.estimator(job))
+                except Exception:  # noqa: BLE001 - an estimate never stops a job
+                    job.est_s = None
             self._jobs[job.id] = job
             self._waiting[lane].append(job)       # in line from now: positions follow submit order
             self._position(job, lane, "slot")
@@ -347,6 +370,11 @@ class JobQueue:
             job.status = status
             job.finished = job.finished if status == "canceled" and job.finished else time.time()
             self._cv.notify_all()
+        if self.recorder is not None and status == "done":
+            try:
+                self.recorder(job)
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
 
     def _take_idle(self, job: Job, lane: str) -> bool:
         with self._cv:

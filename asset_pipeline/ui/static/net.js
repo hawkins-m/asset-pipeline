@@ -24,7 +24,10 @@ if (typeof window !== "undefined" && typeof window.alert === "function" && !wind
   window.alert.apAlert = true;
 }
 
-async function api(path, body, method = "POST") {
+// opts.confirmed: the caller already showed the long-job lines in its own confirm (estimate.js)
+async function api(path, body, method = "POST", opts = {}) {
+  if (method === "POST" && !opts.confirmed && typeof longJobGate === "function" && !(body instanceof FormData)
+      && !(body && body.dry_run) && !(await longJobGate(path, body))) throw new Error(START_CANCELED);
   const r = await fetch(path, body === undefined ? {} : body instanceof FormData ? {method, body} : {
     method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   const j = await r.json().catch(() => ({}));
@@ -33,7 +36,7 @@ async function api(path, body, method = "POST") {
   if (r.status === 409 && j && j.detail && j.detail.code === "comfy_down") {
     const started = typeof offerComfyStart === "function" && await offerComfyStart(errorText(j.detail.message));
     if (!started) throw new Error("ComfyUI is not running. Start it from the Status box, then try again.");
-    return api(path, body, method);
+    return api(path, body, method, {confirmed: true});
   }
   if (!r.ok) throw new Error(errorText(j && j.detail != null ? j.detail : j && Object.keys(j).length ? j : null)
                              .replace(/^Unknown error$/, r.statusText || `HTTP ${r.status}`));

@@ -194,9 +194,10 @@ function areaBatchLabels(d, batches) {
     const b = $(`#area-batch-${k}`, d.win), p = batches[k];
     if (!b || !p) continue;
     const n = p.items.length, list = p.items.slice(0, 12).join(", ") + (n > 12 ? `, … (${n - 12} more)` : "");
+    const e = p.estimate;
     b.textContent = `${label} (${n})…`;
     b.disabled = !n;
-    b.title = `${what}. ${n ? `Runs on: ${list}.` : "Nothing to run in this area now."}${p.notes.length ? ` ${p.notes.map(x => x[0].toUpperCase() + x.slice(1)).join(". ")}.` : ""} ${note}`;
+    b.title = `${label} (${n})${n && e ? `, about ${fmtDur(e.seconds)} on ${e.lane_names.join(", then ")}${e.long ? " (asks first)" : ""}` : ""}. ${what}. ${n ? `Runs on: ${list}.` : "Nothing to run in this area now."}${p.notes.length ? ` ${p.notes.map(x => x[0].toUpperCase() + x.slice(1)).join(". ")}.` : ""} ${note}`;
   }
 }
 
@@ -207,10 +208,13 @@ async function areaBatch(kind, assets, d, table) {
   let plan;
   try { plan = await api(`/api/projects/${slug}/areas/batch`, {...req, dry_run: true}); }
   catch (err) { alert(errorText(err)); return; }
-  const ok = await confirmDialog({title: `${title} (${plan.count})`, button: "Run", id: "area-batch-confirm", body: `<p>${esc(cmd)}.</p><p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
+  const e = plan.estimate, long = !!(e && e.long);
+  const ok = await confirmDialog({title: `${title} (${plan.count})${e ? `: about ${fmtDur(e.seconds)}` : ""}`, button: long ? "Start" : "Run", id: "area-batch-confirm",
+    body: `<p>${esc(cmd)}.</p><p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
+    ${e && plan.count ? (long ? longJobHtml(e) : `<p class="hint">About ${fmtDur(e.seconds)} on ${esc(e.lane_names.join(", then "))} (${esc(e.source)}).</p>`) : ""}
     ${plan.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}<p class="hint">${esc(note)} Finished items are skipped, so it can be run again.</p>`});
   if (!ok) return;
-  try { const j = await api(`/api/projects/${slug}/areas/batch`, req); await load(); await jobDone(j); }
+  try { const j = await api(`/api/projects/${slug}/areas/batch`, req, "POST", {confirmed: true}); await load(); await jobDone(j); }
   catch (err) { alert(errorText(err)); }
   await load(); table();
 }

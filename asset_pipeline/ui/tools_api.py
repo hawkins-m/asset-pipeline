@@ -213,6 +213,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         # what each batch button would run now (its label count, tooltip and confirm list)
         batches = {k: dict(zip(("items", "notes"), _batch_plan(store, BatchReq(action=k, area=area, district=district), rows)))
                    for k in ("sheets", "build", "trellis", "instances")}
+        for k, b in batches.items():
+            b["estimate"] = _batch_estimate(store, BatchReq(action=k, area=area, district=district), len(b["items"]))
         return {"rows": rows, "gaps": areas.form_gaps(store, rows), "batches": batches}
 
     @app.post("/api/projects/{slug}/areas/{name}/checklist")
@@ -229,6 +231,15 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         return [r for r in rows if r["status"] != "approved" and not r["sheets"]
                 and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")
                 and not (r["route"] == "procedural" and r["brief"])]
+
+    BATCH_JOBS = {"sheets": ("library.sheets", "comfy"), "build": ("library.build", "cpu"),
+                  "trellis": ("library.trellis", "gpu0"), "instances": ("library.instances", "cpu")}
+
+    def _batch_estimate(store, req: BatchReq, n: int) -> dict:
+        from .. import estimates
+        kind, lane = BATCH_JOBS[req.action]
+        return estimates.estimate(kind, lane, {"n": n, "mode": req.mode if req.action == "trellis" else None},
+                                  store, queue=jobs)
 
     def _batch_plan(store, req: BatchReq, rows=None):
         """(items to run, notes) for an area batch, as the matching `ap library` command picks them.
@@ -279,12 +290,13 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             raise HTTPException(400, "give an area or a district")
         todo, notes = _batch_plan(store, req)
         count = len(todo)
-        info = {"action": req.action, "count": count, "items": todo, "notes": notes}
+        info = {"action": req.action, "count": count, "items": todo, "notes": notes,
+                "estimate": _batch_estimate(store, req, count)}
         if req.dry_run:
             return info
         if not count:
             raise HTTPException(400, "nothing to do" + (": " + "; ".join(notes) if notes else ""))
-        tag = {"area": req.area or req.district, "n": len(todo)}
+        tag = {"area": req.area or req.district, "n": len(todo)} | ({"mode": req.mode} if req.action == "trellis" else {})
 
         def failures(done_failed, what):
             done, failed = done_failed

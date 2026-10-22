@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -458,7 +458,7 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         tp = trellis_progress.parse(_run_tail(log, since), tag.get("mode"))
         out = {"done": tp["done"], "total": tp["total"], "line": f"{tag['asset']} · {trellis_progress.line(tp)}",
                "elapsed_s": round(now - t0), "stages": tp["stages"], "stage": tp["stage"], "stage_label": tp["label"]}
-        return out
+        return _with_estimate(out, job, now - t0)
     elif job.kind == "ue.backup":
         m = re.findall(r"to-chk=(\d+)/(\d+)", _run_tail(ue.backup_log(store), since) or "")
         if m:
@@ -470,18 +470,81 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     out = {"done": done, "total": total, "line": line, "elapsed_s": round(now - t0)}
     if done and total and done < total:
         out["eta_s"] = round((now - t0) / done * (total - done))
+    return _with_estimate(out, job, now - t0)
+
+
+def _with_estimate(out: dict, job, elapsed: float) -> dict:
+    """A job it can't count yet gets its time left from its estimate (estimates.py); past the
+    estimate it says so instead of counting below zero."""
+    est = getattr(job, "est_s", None)
+    if est:
+        out["est_s"] = est
+        if out.get("eta_s") is None:
+            out["eta_s"] = max(0, round(est - elapsed))
+            out["over"] = elapsed > est
     return out
+
+
+# POST routes the UI may ask "how long?" before starting (X-AP-Estimate: 1): their handler runs its
+# own checks and item counts and stops at jobs.submit (EstimateOnly). Only routes that change
+# nothing before submit belong here (not rebuild, guide/apply, shot camera, assembly, restore).
+ESTIMATE_ROUTES = [f"/api/projects/{{slug}}/{r}" for r in (
+    "style/explore", "style/derive", "style/draft", "plans/analyze", "plans/{name}/refine", "refs/generate",
+    "views/cut", "3d", "cleanup", "site/build", "site/extract", "site/preview", "shots/render", "frames/generate",
+    "shots/{shot}/regenerate", "site/plan", "library/plan", "library/check", "library/asset/{asset}/brief_build",
+    "library/asset/{asset}/reroll", "library/asset/{asset}/guide", "export", "ue/backup", "areas/batch",
+    "library/asset/{asset}/brief-build", "library/pending", "library/silhouette", "shots/add", "site/vegetation",
+    "site/overlap", "ue/init", "ue/import", "ue/render", "ue/pull-layout", "ue/look", "terrain/{action}")] + [
+    "/api/demo", "/api/vlm/up", "/api/vlm/down"]
 
 
 def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | None = None) -> FastAPI:
     """jobs: a queue to use (tests pass their own, ungated unless it has a "comfy" gate);
     by default a new queue whose "comfy" lane waits for ComfyUI (comfy_service.Gate)."""
-    app = FastAPI(title="Terraformer")
+    from .. import estimates
+    from ..jobs import EstimateOnly, estimate_only
+
+    async def _estimate_mode(request: Request):
+        """X-AP-Estimate: 1 on an ESTIMATE_ROUTES POST: run the handler only up to jobs.submit."""
+        if request.headers.get("x-ap-estimate") != "1":
+            return
+        route = request.scope.get("route")
+        if request.method != "POST" or getattr(route, "path", None) not in ESTIMATE_ROUTES:
+            raise HTTPException(400, "this request can't be estimated")
+        estimate_only.set(True)
+
+    app = FastAPI(title="Terraformer", dependencies=[Depends(_estimate_mode)])
     if jobs is None:
         from .. import gpu_policy
         comfy_gate = comfy_gate or comfy_service.Gate()
         jobs = JobQueue(gates={"comfy": comfy_gate}, slots={"cpu": gpu_policy.settings()["cpu_slots"]},
-                        policy=gpu_policy.GpuPolicy())
+                        policy=gpu_policy.GpuPolicy(), recorder=estimates.record)
+    if jobs.estimator is None:
+        def _job_estimate(job):
+            try:
+                st = ProjectStore.open(job.project) if job.project else None
+            except (FileNotFoundError, ValueError):
+                st = None
+            return estimates.job_seconds(job, st)
+        jobs.estimator = _job_estimate
+
+    @app.exception_handler(EstimateOnly)
+    def estimate_only_answer(request: Request, exc: EstimateOnly):
+        """The job the request would start, not started: how long it would take and what it holds."""
+        try:
+            st = ProjectStore.open(exc.project) if exc.project else None
+        except (FileNotFoundError, ValueError):
+            st = None
+        return JSONResponse({"estimate": estimates.estimate(exc.kind, exc.lane, exc.tag, st, queue=jobs)})
+
+    @app.get("/api/estimate/routes")
+    def estimate_routes():
+        return {"routes": ESTIMATE_ROUTES, "long_s": estimates.LONG_S}
+
+    @app.get("/api/estimate/kinds")
+    def estimate_kinds():
+        """Seconds per item and lanes per job kind: the job buttons' tooltips."""
+        return {"kinds": estimates.kinds(), "long_s": estimates.LONG_S}
     gate = comfy_gate or jobs.gates.get("comfy") or comfy_service.Gate()
     jobs.error_text = messages.app_text             # job failures in app terms, never CLI flags
 
