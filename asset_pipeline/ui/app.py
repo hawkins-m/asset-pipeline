@@ -72,6 +72,8 @@ def newer_commit(started: str, head: str, code: Path = CODE) -> bool:
 def restart_process() -> None:
     """Replace this ap ui process with a fresh one on the same command line (same pid and port;
     the listening socket closes on exec and the new server binds it again)."""
+    if os.access(sys.argv[0], os.X_OK):              # the ap script: the process keeps its name
+        os.execv(sys.argv[0], sys.argv)
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
