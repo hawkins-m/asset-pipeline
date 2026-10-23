@@ -25,7 +25,7 @@ Design facts (verified 2026-10-22, before phase 1):
 - [x] 3. Terrain: SM_OuterRing and the Nanite terrain mesh in the city level; note if no Landscape
 - [x] 4. Lighting: sun / fog / sky from look.run into a shared function; project-default preset on the city level
 - [x] 5. `ap ue build PROJECT [--use-active] [--reset-layout | --only-stale] [--render]`
-- [x] 6. Tests (manifest, mixed-slot rule, skip-unchanged import) -- [ ] live run: ASK Mason first, then
+- [x] 6. Tests (manifest, mixed-slot rule, skip-unchanged import) -- [x] live run: ASK Mason first, then
   `ap ue build <project> --use-active --only-stale` and report
 
 ## Log
@@ -68,3 +68,7 @@ Design facts (verified 2026-10-22, before phase 1):
   0 imported, 908 unchanged, 55 s. Light: 10 settings written, AP_Env_post and AP_Env_clouds
   created. `--render` with ComfyUI up refuses with the reason. 593 tests pass.
   Waiting for Mason's go for the live run on the real project (it writes the city level).
+- 2026-10-22 live run on the real project (`--use-active --only-stale`): 555 builds in 8.8 min
+  (first import), then with the duplicate-spot fix 593 builds in 39 slots, 1.3 min. 3 typed slots stay
+  greybox, partly built: their missing buildings' entries have briefs but no instance builds at
+  those footprints (instance builds were made for other areas). Report now counts untouched slots.

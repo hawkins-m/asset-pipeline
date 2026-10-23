@@ -110,7 +110,7 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
                                                                           for s in man["shots"]],
                                                        ue.work_dir(store) / "shots", "ap_shot_render", 5400, adapter=gpu))
     lib = man.get("library") or {}
-    greybox_slots = sum(1 for s in man["slots"] if s["components"])
+    greybox_slots = sum(1 for s in man["slots"] if not s.get("replaced"))      # untouched: no build in them
     out = {"ok": bool(rep.get("ok")), "use_active": use_active, "placed": (rep.get("library") or {}).get("placed", 0),
            "attached": lib.get("placed", 0) - lib.get("parents", 0), "slots_replaced": lib.get("slots_replaced", 0),
            "greybox_slots": greybox_slots, "greybox_instances": c["instances"], "held": lib.get("held", 0),
