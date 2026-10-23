@@ -64,7 +64,7 @@ fields that exist (e.g. brutalist or monolithic -> thicker walls or vault, heavi
 fewer or smaller openings, plain concrete materials). A field already at the value asked for is no
 change: leave it out.
 
-This builder's settings: {labels}
+This builder's settings: {labels}{curved_note}
 
 Current brief fields (path = value [choices]):
 {catalogue}
@@ -83,6 +83,9 @@ class Edits(BaseModel):
 
 
 # guidance about shading, also when the vision model misses it: "shade smooth", "less faceted"
+FLAT_WORDS = re.compile(r"\bflat[- ]?shad|\bshade[sd]?\s+flat", re.I)
+CURVED_NOTE = ("\nThis is a curved form: never set shading to flat unless the guidance asks for flat shading in "
+               "those words. Style words (brutalist, monolithic, heavy) go to thickness, ribs and rims.")
 SMOOTH_WORDS = re.compile(r"\bsmooth(?:er|ly)?\s+shad|\bshade[sd]?\s+smooth|facet", re.I)
 
 
@@ -333,10 +336,13 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
     off: set = set()
     st = settings(brief)
     allowed = set(st["paths"])
+    from .building_proc import curved
+    keep_smooth = curved(brief) and not FLAT_WORDS.search(guidance)
     vals = {k: v for k, v in values(brief, off).items() if k in allowed}
     r = structured(llm or llm_for(None),
                    PROMPT.format(asset=asset, form=brief.get("form"), guidance=guidance, max_edits=max_edits,
-                                 labels=", ".join(st["labels"]), catalogue=catalogue_text(vals, off)),
+                                 labels=", ".join(st["labels"]), curved_note=CURVED_NOTE if keep_smooth else "",
+                                 catalogue=catalogue_text(vals, off)),
                    [_image(store, brief, sheet)], Edits, system=SYSTEM)
     raw = [e.model_dump() for e in r.edits]
     unsupported = [u.strip() for u in r.unsupported if u.strip()]
@@ -345,6 +351,11 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
             raw.append({"path": "shading", "after": "smooth", "why": "the guidance asks for smooth shading"})
         unsupported = [u for u in unsupported if not re.search(r"smooth|facet|shad", u, re.I)]
     kept, dropped = check(store, asset, brief, raw, allowed)
+    if keep_smooth:                                # flat facets a curve: only when asked for in so many words
+        flat = [e for e in kept if e["path"] == "shading" and e["after"] == "flat"]
+        kept = [e for e in kept if e not in flat]
+        dropped += [{"path": e["path"], "after": e["after"], "why": e["why"],
+                     "reason": "flat shading on a curved form only when the guidance asks for flat shading"} for e in flat]
     extra = [{"path": e["path"], "after": e["after"], "why": e["why"], "reason": f"more than {max_edits} edits"}
              for e in kept[max_edits:]]
     unsupported += [d["path"] for d in dropped if d["reason"] in ("not a field of this brief", "this builder doesn't use it")]

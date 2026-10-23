@@ -4,7 +4,11 @@ All state is on disk (project.json, review.json); the server holds only job stat
 """
 import copy
 import hashlib
+import os
 import re
+import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Literal
@@ -33,6 +37,42 @@ def _asset_hash(name: str) -> str:
     """Content hash of a static file (8 hex), the ?v= that busts browser caches."""
     p = STATIC / name
     return hashlib.sha1(p.read_bytes()).hexdigest()[:8] if p.is_file() else "0"
+
+
+CODE = Path(__file__).resolve().parents[2]
+
+
+def git_head(code: Path = CODE) -> str:
+    """The commit the checkout is at ("" outside a git checkout). Read from .git directly: no
+    process per page poll."""
+    g = code / ".git"
+    try:
+        head = (g / "HEAD").read_text().strip()
+        if not head.startswith("ref: "):
+            return head                                    # detached
+        ref = head[5:]
+        if (g / ref).is_file():
+            return (g / ref).read_text().strip()
+        for line in (g / "packed-refs").read_text().splitlines():
+            if line.endswith(" " + ref):
+                return line.split()[0]
+    except OSError:
+        pass
+    return ""
+
+
+def newer_commit(started: str, head: str, code: Path = CODE) -> bool:
+    """Has the checkout moved on from the commit this server started with (a descendant)?"""
+    if not started or not head or started == head:
+        return False
+    r = subprocess.run(["git", "-C", str(code), "merge-base", "--is-ancestor", started, head], capture_output=True, timeout=10)
+    return r.returncode == 0
+
+
+def restart_process() -> None:
+    """Replace this ap ui process with a fresh one on the same command line (same pid and port;
+    the listening socket closes on exec and the new server binds it again)."""
+    os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
 def build_id() -> str:
@@ -498,6 +538,9 @@ ESTIMATE_ROUTES = [f"/api/projects/{{slug}}/{r}" for r in (
     "/api/demo", "/api/vlm/up", "/api/vlm/down"]
 
 
+app_restart = {"fn": restart_process}           # tests swap it out
+
+
 def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | None = None) -> FastAPI:
     """jobs: a queue to use (tests pass their own, ungated unless it has a "comfy" gate);
     by default a new queue whose "comfy" lane waits for ComfyUI (comfy_service.Gate)."""
@@ -605,10 +648,25 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def index():
         return HTMLResponse(index_html(), headers={"Cache-Control": "no-store"})
 
+    ui_commit = git_head()                     # the commit this server's Python was loaded from
+
     @app.get("/api/version")
     def version():
-        """The build id of the UI code on disk: a page that loaded another one offers a reload."""
-        return {"build": build_id(), "code": str(Path(__file__).resolve().parents[2])}
+        """The build id of the UI code on disk (a page that loaded another one offers a reload),
+        and whether the repo has a newer commit than the one this server runs (offers a restart)."""
+        head = git_head()
+        return {"build": build_id(), "code": str(CODE), "commit": ui_commit, "head": head,
+                "restart": newer_commit(ui_commit, head)}
+
+    @app.post("/api/restart")
+    def restart(force: bool = False):
+        """Restart this ap ui on the new code. Refuses while jobs run, unless forced (they'd stop)."""
+        running = [j for j in jobs.active() if j.kind != "comfy.start"]
+        if running and not force:
+            raise HTTPException(409, f"{len(running)} job{'s' if len(running) != 1 else ''} running: "
+                                     f"{', '.join(sorted({j.kind for j in running}))}")
+        threading.Timer(0.5, app_restart["fn"]).start()   # after this response has gone out
+        return {"restarting": True}
 
     @app.get("/api/comfy")
     def comfy_status():

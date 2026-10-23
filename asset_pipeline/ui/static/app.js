@@ -150,8 +150,29 @@ const PAGE_BUILD = (document.querySelector('meta[name="ap-build"]') || {}).conte
 async function checkBuild() {
   const v = await api("/api/version", undefined, "GET").catch(() => null);
   $("#update-bar").hidden = !(v && PAGE_BUILD && v.build !== PAGE_BUILD);
+  $("#restart-bar").hidden = !(v && v.restart);     // a newer commit than this server's Python
 }
 $("#update-reload").onclick = () => location.reload();
+setInterval(checkBuild, 180000);
+
+// Restart: this ap ui only, on the new code; running jobs stop, so it asks first
+$("#restart-app").onclick = async () => {
+  const b = $("#restart-app");
+  const go = force => api(`/api/restart${force ? "?force=true" : ""}`, {});
+  try { await go(false); }
+  catch (err) {
+    if (!confirm(`${errorText(err)}. Restarting stops them. Restart anyway?`)) return;
+    try { await go(true); } catch (e) { alert(errorText(e)); return; }
+  }
+  b.disabled = true; b.textContent = "Restarting…";
+  for (let i = 0; i < 60; i++) {               // back when the new server answers on its own commit
+    await new Promise(r => setTimeout(r, 1000));
+    const v = await api("/api/version", undefined, "GET").catch(() => null);
+    if (v && !v.restart) { location.reload(); return; }
+  }
+  b.textContent = "Restart"; b.disabled = false;
+  alert("Terraformer did not come back within a minute: start it again (see the ui log).");
+};
 
 async function load() {
   checkBuild();

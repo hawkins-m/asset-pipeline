@@ -231,3 +231,21 @@ def test_build_sha_follows_what_is_built_not_where_or_the_texture_path(tmp_path)
     tex_b.write_bytes(b"brick")
     assert kit_proc.build_sha(job) != kit_proc.build_sha(same)
     assert kit_proc.build_sha(job) != kit_proc.build_sha(job | {"shading": {"smooth": False}})
+
+
+def test_guidance_never_flattens_a_curved_form_unless_it_says_flat_shading(proj):
+    _hall(proj)
+    edits = [{"path": "shading", "after": "flat", "why": "brutalist"}, {"path": "features.vault_t", "after": 1.0, "why": "heavier"}]
+    llm = FakeLLM(edits)
+    r = brief_guide.propose(proj, "hall-a", SHEET, "more brutalist", llm=llm)
+    assert [e["path"] for e in r["edits"]] == ["features.vault_t"]
+    assert any(d["path"] == "shading" and "curved form" in d["reason"] for d in r["dropped"])
+    assert "never set shading to flat" in llm.prompts[0]
+    r = brief_guide.propose(proj, "hall-a", SHEET, "use flat shading", llm=FakeLLM(edits[:1]))
+    assert [(e["path"], e["after"]) for e in r["edits"]] == [("shading", "flat")]
+
+
+def test_a_box_form_may_go_flat_from_style_words(proj):
+    _setup(proj)                                                  # perimeter: no curves
+    r = brief_guide.propose(proj, "hall-a", SHEET, "brutalist", llm=FakeLLM([{"path": "shading", "after": "flat"}]))
+    assert [(e["path"], e["after"]) for e in r["edits"]] == [("shading", "flat")]

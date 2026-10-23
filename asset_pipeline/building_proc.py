@@ -518,6 +518,22 @@ def steerable(brief: dict) -> list[str]:
     return [p for p in vals if group_of(p) in live]
 
 
+def curved(brief: dict) -> bool:
+    """A curved form (CURVED_FORMS, or a building with a shell part: drum, dome, apse, rotunda)."""
+    from . import building_gen
+    if brief.get("form") in CURVED_FORMS:
+        return True
+    if brief.get("kind") != "building" or brief.get("form") not in FORMS:
+        return False
+    meas = brief.get("measured") or {}
+    params = {k: meas[k] for k in ("bay_m", "storey_h") if meas.get(k)} | (brief.get("params") or {})
+    try:
+        parts = generate(brief["form"], brief["dims"], params, building_gen.form_features(brief["form"], brief.get("features")))
+    except Exception:                              # noqa: BLE001 (an invalid brief: not known to be curved)
+        return False
+    return any(p["kind"] == "shell" for p in parts)
+
+
 def shading_of(brief: dict, parts: list[dict]) -> dict | None:
     """The Blender shading for a brief's build; None keeps blender_kit's default (smooth, 35 deg)."""
     mode = brief.get("shading") or "auto"
