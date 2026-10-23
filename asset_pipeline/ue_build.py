@@ -4,7 +4,9 @@
     (city_library; Approved, or Active with use_active) -> terrain assets when the outer ring
     changed -> import (layout kept: only stale slots move back, unless reset_layout; prune with
     the expected count from the level's own read-back) with the project-default light
-    (look.city_lighting) -> optional shot renders -> one short report.
+    (look.city_lighting) -> optional shot renders -> one short report, ending with the
+    placement check (placement_check: sunk, floating, moved, off-slot or overlapping library
+    actors, or "placement OK").
 
 Renders go on the GPU ComfyUI doesn't use. Heavy Nanite scenes have lost the device on GPU 0
 (docs/notes/unreal.md), so the city renders on GPU 1, and only while ComfyUI is down there;
@@ -99,6 +101,14 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
                         "the terrain is the Nanite mesh")
     if rep.get("sample_errors"):
         warnings += [f"placement check: {e}" for e in rep["sample_errors"][:5]]
+    placement = None
+    if rep.get("library_actors") is not None:     # the placement check, every build
+        from . import city_library, placement_check
+        from .ground import Ground
+        gb = sw_site.load_greybox(store)
+        placement = placement_check.check(s7_export.load_manifest(store), rep["library_actors"],
+                                          rep.get("slot_instances") or {}, {s["id"]: s["bbox"] for s in gb["slots"]},
+                                          Ground.from_project(store), city_library.settings(store))
     shots = None
     if render:
         gpu, why = render_gpu(look.comfy_running(), ue.gpu_vram())
@@ -112,26 +122,33 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
     lib = man.get("library") or {}
     greybox_slots = sum(1 for s in man["slots"] if not s.get("replaced"))      # untouched: no build in them
     out = {"ok": bool(rep.get("ok")), "use_active": use_active, "placed": (rep.get("library") or {}).get("placed", 0),
-           "attached": lib.get("placed", 0) - lib.get("parents", 0), "slots_replaced": lib.get("slots_replaced", 0),
+           "props": lib.get("props", 0), "attached": lib.get("placed", 0) - lib.get("parents", 0) - lib.get("props", 0),
+           "slots_replaced": lib.get("slots_replaced", 0), "no_model": lib.get("no_model", []),
            "greybox_slots": greybox_slots, "greybox_instances": c["instances"], "held": lib.get("held", 0),
            "held_entries": lib.get("held_entries", []), "imported": len(rep["assets"]["imported"]),
            "skipped": len(rep["assets"]["skipped"]), "reset": len(rep["actors"]["reset"]),
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
+           "placement": placement,
            "steps": steps, "seconds": round(time.time() - t0, 1)}
-    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries")}})
+    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement")},
+                   "placement_ok": None if placement is None else placement["ok"]})
     return out
 
 
 def report_lines(r: dict) -> list[str]:
     """The short report `ap ue build` prints."""
-    lines = [f"{'OK' if r['ok'] else 'PROBLEMS'}: {r['placed']} library builds placed"
-             + (f" (+{r['attached']} attached pieces)" if r["attached"] else "")
+    extra = [f"{r.get('props', 0)} props"] * bool(r.get("props")) + [f"{r['attached']} attached pieces"] * bool(r["attached"])
+    lines = [f"{'OK' if r['ok'] else 'PROBLEMS'}: {r['placed']} library actors placed"
+             + (f" ({r['placed'] - r.get('props', 0) - r['attached']} builds, {', '.join(extra)})" if extra else "")
              + f" in {r['slots_replaced']} slots; {r['greybox_slots']} slots still greybox"
              + (f", {r['held']} builds held back (slot not fully built or not approved)" if r["held"] else ""),
              f"assets: {r['imported']} imported, {r['skipped']} unchanged; {r['reset']} stale slots moved back; "
              f"{r['pruned']} orphans pruned; outer ring {'placed' if r['terrain_outer'] else 'not placed'}"
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
              f"time: {r['seconds'] / 60:.1f} min (" + ", ".join(f"{k} {v:.0f} s" for k, v in r["steps"].items()) + ")"]
+    if r.get("placement") is not None:
+        from .placement_check import lines as check_lines
+        lines += check_lines(r["placement"])
     lines += [f"warning: {w}" for w in r["warnings"]]
     return lines

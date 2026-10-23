@@ -101,3 +101,9 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   (0.7 z) and near (z) keep the crest on top.
 - World-aligned tiling textures need pixel-centre sampling when generated, or the joint at
   the wrap is half a pixel off.
+- **Attaching a library actor to its slot actor (2026-10-22).** In the commandlet an
+  `attach_to_actor(..., KEEP_RELATIVE)` followed by `set_actor_relative_transform` did not
+  persist: after the save the actors had no parent and the relative offset stood as their world
+  position (hundreds of metres from their slots, below ground, slot yaw missing). Set the world
+  transform first (the slot actor's current transform x the relative one), then attach with
+  KEEP_WORLD; the position is right whether or not the attachment holds.

@@ -74,6 +74,19 @@ class FrameSettings(BaseModel):
         return self.model_copy(update=upd | {"views": {}})
 
 
+class UnrealSettings(BaseModel):
+    """`ap ue build` placement and its check (project.json "unreal"). Ground rule: which ground
+    under a library build's footprint it stands on (ground.RULES). Tolerances (metres, degrees)
+    for the check at the end of every build."""
+    ground_rule: Literal["lowest", "centre", "mean", "highest"] = "lowest"
+    sunk_m: float = Field(default=0.3, ge=0)        # base below the ground rule's height by more: sunk
+    floating_m: float = Field(default=0.3, ge=0)    # base above it by more: floating
+    place_m: float = Field(default=0.05, ge=0)      # actor away from its manifest place by more: moved
+    place_deg: float = Field(default=0.5, ge=0)
+    slot_margin_m: float = Field(default=2.0, ge=0)  # footprint centre outside its slot's bounds by more: off its slot
+    overlap_margin_m: float = Field(default=0.5, ge=0)  # greybox pieces this far inside a build's outline: overlapping
+
+
 class Project(BaseModel):
     slug: str
     name: str = ""
@@ -85,6 +98,7 @@ class Project(BaseModel):
     mode: Literal["scenes", "world"] = "scenes"  # world: one site, greybox, shots (PLAN.md)
     frames: "FrameSettings | None" = None        # world mode concept frames; None = defaults
     versions_keep: int | None = Field(default=None, ge=1)   # asset versions kept per asset (None: 3)
+    unreal: UnrealSettings | None = None         # ap ue build placement and check; None = defaults
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------

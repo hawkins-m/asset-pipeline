@@ -82,3 +82,33 @@ def test_two_planned_buildings_on_one_spot_count_once():
     slots = [_slot("block", 0, 0, "townhouses")]
     n = cl.count_planned([("townhouses", 1.2, 2.1), ("townhouses", 1.4, 1.8), ("townhouses", 9.0, 0.0)], slots)
     assert n == {"block": 2}                   # the first two share a build key (rounded to the metre)
+
+
+def _rot_piece(name, x, y, yaw=0.0):
+    m = np.eye(4)
+    a = np.radians(yaw)
+    m[:2, :2] = [[np.cos(a), -np.sin(a)], [np.sin(a), np.cos(a)]]
+    m[:3, 3] = [x, y, 0.5]
+    return {"mesh": "box#1", "piece": name, "matrix_local": m.tolist()}
+
+
+def test_props_group_their_posts_and_tables_with_the_nearest_main_piece():
+    pieces = [_rot_piece("market:canopy", 0, 0), _rot_piece("market:canopy-post", 1, 1), _rot_piece("market:table", 0.5, 0),
+              _rot_piece("market:canopy", 20, 0), _rot_piece("market:canopy-post", 21, -1), _rot_piece("market:tent", 40, 0),
+              _rot_piece("paving", 0, 0)]
+    s = _slot("market", 0, 0, pieces=pieces)
+    names = {"market:canopy": "canopy table", "market:canopy-post": "canopy table", "market:table": "canopy table",
+             "market:tent": "market tent"}
+    assert cl.prop_groups(s, names, ("market:canopy", "market:tent")) == [
+        (0, "canopy table", [1, 2]), (3, "canopy table", [4]), (5, "market tent", [])]
+
+
+def test_a_piece_pose_is_its_base_and_yaw_in_the_world():
+    s = _slot("market", 100, 50, pieces=[_rot_piece("market:tent", 2, 3, yaw=30.0)])
+    x, y, z, yaw = cl.piece_pose(s, s["pieces"][0])
+    assert (round(x, 6), round(y, 6), z, round(yaw, 6)) == (102.0, 53.0, 0.5, 30.0)
+
+
+def test_props_take_only_their_own_pieces_out_of_a_slot():
+    s = _slot("market", 0, 0, pieces=[_piece(0, 0), _piece(5, 0), _piece(10, 0)])
+    assert [p["matrix_local"][0][3] for p in cl.kept_pieces(s, "pieces", [], {0, 2})] == [5]

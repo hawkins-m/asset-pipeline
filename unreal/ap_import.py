@@ -584,7 +584,9 @@ def place_library(man, meshes, eas, report):
         if tg.get("ap:lib"):
             have[tg["ap:lib"]] = a
     rep = report.setdefault("library", {"placed": 0, "removed": 0, "unattached": []})
-    keep = unreal.AttachmentRule.KEEP_RELATIVE
+    keep = unreal.AttachmentRule.KEEP_WORLD   # the world transform is set first (an attachment
+    #                                           made with KEEP_RELATIVE before did not persist and left
+    #                                           the relative offset standing as a world position)
     for s in man["slots"]:
         parent = slots.get(s["id"])
         for r in s.get("library") or []:
@@ -596,11 +598,13 @@ def place_library(man, meshes, eas, report):
             a.set_actor_label(f"AP_Lib_{r['key']}")
             set_tags(a, [f"ap:lib={r['key']}", f"ap:slot={s['id']}", f"ap:entry={r['entry']}", "ap:source=pipeline-lib"])
             a.set_folder_path(f"{s['folder']}/{s['id']}")
-            if parent is not None and parent.root_component is not None:
+            a.detach_from_actor()
+            if parent is not None:                # the slot as it stands now (moved by hand or not) x relative
+                a.set_actor_transform(tr(r["relative"]).multiply(parent.get_actor_transform()), False, False)
                 a.attach_to_actor(parent, "", keep, keep, keep, False)
-                a.set_actor_relative_transform(tr(r["relative"]), False, False)
-            else:                                 # no slot actor to hang it on: at its world place
+            else:
                 a.set_actor_transform(tr(r["world"]), False, False)
+            if a.get_attach_parent_actor() is None:   # placed right either way; reported
                 rep["unattached"].append(r["key"])
             rep["placed"] += 1
     for a in have.values():
@@ -645,6 +649,27 @@ def place_terrain(man, eas, report):
             for i in range(ism.get_num_materials()):
                 ism.set_material(i, mi)
     report["terrain_material"] = t.get("material_slots") or []
+
+
+def library_readback(man, eas, report):
+    """What the placement check reads (asset_pipeline/placement_check.py): every library actor's
+    world transform, and the greybox instances left in the slots that hold builds."""
+    want = {s["id"] for s in man["slots"] if s.get("library")}
+    actors, inst = [], {}
+    for a in eas.get_all_level_actors():
+        tg = tagged(a)
+        if tg.get("ap:lib"):
+            t = a.get_actor_transform()
+            r = t.rotation.rotator()
+            actors.append({"key": tg["ap:lib"], "loc": [t.translation.x, t.translation.y, t.translation.z],
+                           "rot": [r.roll, r.pitch, r.yaw], "scale": [t.scale3d.x, t.scale3d.y, t.scale3d.z]})
+        elif tg.get("ap:id") in want:
+            pts = inst.setdefault(tg["ap:id"], [])
+            for c in ism_components(a).values():
+                for i in range(c.get_instance_count()):
+                    p = c.get_instance_transform(i, True).translation
+                    pts.append([p.x, p.y, p.z])
+    report["library_actors"], report["slot_instances"] = actors, inst
 
 
 def place_vegetation(root, eas, report):
@@ -729,6 +754,7 @@ def main(args):
                 eas.destroy_actor(a)
         else:
             report["prune_refused"] = len(orphans)
+    library_readback(man, eas, report)
     eal.save_directory("/Game/AP", only_if_is_dirty=False, recursive=True)
     les.save_current_level()
     report["checks"] = checks(man, meshes, eas)

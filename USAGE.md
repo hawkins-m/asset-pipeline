@@ -462,6 +462,33 @@ renders, and prints a short report (builds placed, slots still greybox, time, wa
   level). A light setting you change in Unreal is kept on later builds.
 - The outer ring replaces its greybox once `ap terrain outer` has built it. A Landscape stays
   optional and manual (see "Terrain beyond the city").
+- What goes in: per-building builds, an entry's own build in a slot holding a single building
+  that no per-building build covers, TRELLIS props on their greybox pieces (a market's tents,
+  huts, canopy tables: the piece and its posts or tables leave the greybox), and attached pieces
+  with their parent. Facade kit modules have no placement of their own.
+
+**Ground and the placement check.** Every library build, prop and attached piece is set on the
+ground under its outline, read from the project's terrain (`site/terrain.png`; a project without
+terrain stands on flat ground at 0 m). On a slope the **ground rule** decides which ground:
+- `lowest` (default): the lowest point under the outline. Nothing floats; the uphill side sits
+  in the slope, as a building on a hillside does.
+- `centre`: the ground at the outline's centre. `mean`: the mean under the outline.
+- `highest`: the highest point. Nothing is buried; the downhill side floats.
+
+Every build ends with a check of each library actor as Unreal has it: **sunk** or **floating**
+(its base against the ground rule's height), **moved** (away from where the manifest put it),
+**off slot** (its outline's centre outside its slot; attached pieces are exempt), and
+**overlap** (greybox left inside its outline). It prints counts per entry, or `placement OK`.
+The rule and the tolerances are project settings in `project.json`:
+
+```
+"unreal": {"ground_rule": "lowest",
+           "sunk_m": 0.3, "floating_m": 0.3,      # base below / above the ground rule's height
+           "place_m": 0.05, "place_deg": 0.5,     # away from the manifest's place
+           "slot_margin_m": 2.0,                  # outline centre outside its slot's bounds
+           "overlap_margin_m": 0.5}               # greybox this far inside an outline
+```
+These are the defaults; leave `"unreal"` out to use them.
 
 ```
 ap export my-project            # export/: one GLB per greybox mesh (stand-ins) + manifest.json

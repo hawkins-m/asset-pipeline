@@ -72,3 +72,21 @@ Design facts (verified 2026-10-22, before phase 1):
   (first import), then with the duplicate-spot fix 593 builds in 39 slots, 1.3 min. 3 typed slots stay
   greybox, partly built: their missing buildings' entries have briefs but no instance builds at
   those footprints (instance builds were made for other areas). Report now counts untouched slots.
+- 2026-10-22 fixes after the first live run (all verified on a fresh copy of the real level):
+  - Library actors stood at their slot-relative offset as a world position (the KEEP_RELATIVE
+    attachment didn't persist): now the world transform is set from the slot actor, then attached
+    keep-world. 706 of 706 at their manifest place (0 cm, 0 deg).
+  - Missing assets: typed slots with one building and no per-building build now take the entry's
+    own build (forum portico and gates, the rest of the market halls and basilicas); TRELLIS props
+    replace their greybox pieces (tents, huts, canopy tables, with their posts and tables);
+    attached pieces come with placed parents. Facade kit modules: no placement rule (out of scope).
+  - Textures stripped only where the entry's material spec covers every slot (painted kit pieces
+    and TRELLIS keep their own materials).
+  - General ground and check: `asset_pipeline/ground.py` (any project's terrain, flat fallback;
+    rules lowest/centre/mean/highest), every placement grounded under its GLB outline, the greybox
+    dropped under that outline; `asset_pipeline/placement_check.py` at the end of every build;
+    settings `schema.UnrealSettings` (project.json "unreal"). Tests on synthetic sloped and flat
+    projects: tests/test_placement.py.
+  - Copy result: 622 builds + 76 props + 8 attached pieces in 69 slots, "placement OK".
+    `--only-stale` is enough to fix a level built before: library actors are rebuilt from the
+    manifest on every run (it only governs slot actors).
