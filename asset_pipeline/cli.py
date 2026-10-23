@@ -1001,8 +1001,8 @@ def cmd_frames_show(a) -> None:
 def cmd_export(a) -> None:
     from .stages import s7_export
     store = ProjectStore.open(a.project)
-    c = s7_export.export(store, standins=not a.assets)
-    print(f"{s7_export.export_dir(store) / 'manifest.json'}: {c['assets']} assets, {c['slots']} slots, "
+    c = s7_export.export(store, assets=a.assets, use_active=a.use_active)
+    print(f"{s7_export.export_dir(store) / 'manifest.json'}: {c['assets']} stand-in assets, {c['slots']} slots, "
           f"{c['instances']} instances, {c['shots']} shots")
 
 
@@ -1505,7 +1505,10 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("export", help="world mode phase 4: greybox -> export/ (GLBs + UE manifest)")
     p.add_argument("project")
-    p.add_argument("--assets", action="store_true", help="real library assets (phase 3; not built yet)")
+    p.add_argument("--assets", action="store_true",
+                   help="library builds stand in the city instead of their greybox (Approved ones; see --use-active)")
+    p.add_argument("--use-active", action="store_true",
+                   help="with --assets: every built asset's Active version, approved or not (previews)")
     p.set_defaults(fn=cmd_export)
 
     lib = sub.add_parser("library", help="world mode phase 3: the asset library from the locked shot frames")

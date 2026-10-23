@@ -205,11 +205,17 @@ def placements(store: ProjectStore, shot: dict, radius: float, gate: bool = True
             [x for x in p if x["entry"] not in ok])
 
 
-def _candidates(store: ProjectStore, shot: dict, radius: float, only=None) -> tuple[list[dict], list[str], dict]:
+def _candidates(store: ProjectStore, shot: dict | None, radius: float, only=None) -> tuple[list[dict], list[str], dict]:
+    """Every library build the plan can place: (placements, kit slots, entries). shot None: the
+    whole city (no radius, no view test; `ap export --assets`)."""
     from . import city, library_instances
     from .stages import sw_site
     lib = store.root / "3d" / "library"
-    cam = np.asarray(shot["matrix"], float)[:3, 3]
+    cam = np.asarray(shot["matrix"], float)[:3, 3] if shot is not None else None
+
+    def near(x, y, z, w, d, yaw, hgt):
+        return cam is None or (math.hypot(x - cam[0], y - cam[1]) <= radius
+                               and in_view(shot, _box_pts(x, y, z, w, d, yaw, hgt)))
     layout = sw_site.load_layout(store)
     P = city.plan(layout, sw_site.plan_terrain(store, layout))
     live = {}
@@ -225,13 +231,14 @@ def _candidates(store: ProjectStore, shot: dict, radius: float, only=None) -> tu
         if not job.exists():
             continue
         for i in read_json(idx, default=[]) or []:
-            if math.hypot(i["x"] - cam[0], i["y"] - cam[1]) > radius or not (store.root / i["glb"]).exists():
+            if not (store.root / i["glb"]).exists():
                 continue
             if not any(math.hypot(i["x"] - x, i["y"] - y) < 1.0 for x, y in live.get(i["typology"], [])):
                 continue                          # an old build of a building the plan no longer has
-            if not in_view(shot, _box_pts(i["x"], i["y"], i["z"], i["w"], i["d"], i["yaw"], 3.4 * i["storeys"])):
+            if not near(i["x"], i["y"], i["z"], i["w"], i["d"], i["yaw"], 3.4 * i["storeys"]):
                 continue
-            out.append({k: i[k] for k in ("key", "glb", "x", "y", "z", "yaw", "w", "d")} | {"entry": e})
+            out.append({k: i[k] for k in ("key", "glb", "x", "y", "z", "yaw", "w", "d")}
+                       | {"entry": e, "typology": i["typology"]})
             entries[e] = job.relative_to(store.root).as_posix()
     # kit slots (no typed building): the entry's representative build at the slot's pose
     gb = sw_site.load_greybox(store)
@@ -252,7 +259,7 @@ def _candidates(store: ProjectStore, shot: dict, radius: float, only=None) -> tu
             m = np.asarray(s["matrix"], float)
             x, y, z = m[:3, 3]
             w, d, hgt = brief["dims"]
-            if math.hypot(x - cam[0], y - cam[1]) > radius or not in_view(shot, _box_pts(x, y, z, w, d, _yaw(m), hgt)):
+            if not near(x, y, z, w, d, _yaw(m), hgt):
                 continue
             out.append({"key": f"{e}_{sid}".replace("-", "m"), "entry": e, "glb": glb.relative_to(store.root).as_posix(),
                         "x": float(x), "y": float(y), "z": float(z), "yaw": _yaw(m), "w": w, "d": d, "slot": sid})

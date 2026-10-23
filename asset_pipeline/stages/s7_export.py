@@ -1,21 +1,27 @@
-"""World mode, phase 4: the greybox (and later the asset library) -> a UE import package.
+"""World mode, phase 4: the greybox and the asset library -> a UE import package.
 
 The manifest is in Unreal coordinates (ue_coords: cm, left-handed, Blender Y mirrored), so
 the importer only places what it's given. Layout under the project:
 
     export/manifest.json
-    export/assets/<asset id>/SM_<asset id>.glb  (+ textures once real assets exist)
+    export/assets/<asset id>/SM_<asset id>.glb  greybox stand-ins
+    export/library/<asset id>.glb              library builds (--assets)
     export/terrain/heightmap.png               16-bit, for an optional manual UE Landscape
 
-Stand-ins (`standins=True`, until phase 3 makes real assets): every greybox mesh becomes an
-asset, so the whole importer path (Nanite, instancing, materials, cameras, sequence) can be
-proven and the level laid out before any asset exists. Real assets will replace them by
-asset id through the same manifest.
+Stand-ins: every greybox mesh becomes an asset, so the whole level is laid out whether or not
+any library build exists. With `assets` (`ap export --assets [--use-active]`, city_library)
+library builds replace their slots' greybox under the mixed-slot rule, each as its own actor
+attached to its slot.
 
 Manifest:
-    assets  [{id, mesh, glb, faces, bounds_m, tint, textures}]
+    assets  [{id, mesh, glb, faces, bounds_m, tint, textures}]   greybox stand-ins
     slots   [{id, type, category, kit, district, label, folder, tags, transform,
-              components: [{asset, instances: [transform relative to the slot]}]}]
+              components: [{asset, instances: [transform relative to the slot]}],
+              replaced: whole | footprints, library: [{key, asset, entry, parent, relative,
+              world}]}]                                  (replaced and library: --assets only)
+    library_assets  [{id, kind: library, entry, glb, source}]
+    library_entries {entry: {material slot: spec}}       (ue.library_slots)
+    library {use_active, placed, parents, slots_replaced, held, held_entries, missing_children}
     shots   [{id, tier, label, folder, tags, transform, focal_length_mm, sensor_width_mm,
               sensor_height_mm, resolution, notes}]
     sequence {name, fps, seconds_per_shot, shots}
@@ -151,15 +157,26 @@ def manifest(gb: dict, index: dict, layout=None, project: str = "") -> dict:
     return out
 
 
+def manifest_components(pieces: list[dict], index: dict) -> list[dict]:
+    """A slot's components ({asset, instances}) from a list of its greybox pieces."""
+    comps: dict[str, list] = {}
+    for p in pieces:
+        comps.setdefault(index[p["mesh"]]["id"], []).append(ue_coords.to_ue(p["matrix_local"]))
+    return [{"asset": a, "instances": inst} for a, inst in sorted(comps.items())]
+
+
 def counts(m: dict) -> dict:
     inst = sum(len(c["instances"]) for s in m["slots"] for c in s["components"])
-    return {"assets": len(m["assets"]), "slots": len(m["slots"]), "instances": inst, "shots": len(m["shots"])}
+    out = {"assets": len(m["assets"]), "slots": len(m["slots"]), "instances": inst, "shots": len(m["shots"])}
+    if m.get("library"):
+        out["library"] = m["library"]
+    return out
 
 
-def export(store: ProjectStore, standins: bool = True) -> dict:
-    """greybox.blend -> export/ (GLBs + manifest.json). Returns the manifest's counts."""
-    if not standins:
-        raise NotImplementedError("real assets come with phase 3 (asset library); use stand-ins")
+def export(store: ProjectStore, assets: bool = False, use_active: bool = False, log=print) -> dict:
+    """greybox.blend -> export/ (GLBs + manifest.json). assets: library builds stand in the city
+    instead of their greybox (city_library: Approved ones, or every Active build with
+    use_active). Returns the manifest's counts."""
     if sw_site.stale(store):
         sw_site.extract(store)
     gb = sw_site.load_greybox(store)
@@ -172,6 +189,9 @@ def export(store: ProjectStore, standins: bool = True) -> dict:
     index = json.loads((out / "mesh_index.json").read_text())
     layout = sw_site.load_layout(store)
     m = manifest(gb, index, layout, store.load().slug)
+    if assets:
+        from .. import city_library
+        city_library.add_to_manifest(store, m, gb, index, out, use_active=use_active, log=log)
     from .. import vegetation                      # street-tree slots and the builds' zones, for Unreal PCG
     veg = vegetation.export_points(store, out / "vegetation.json")
     m["vegetation"] = {"file": "vegetation.json", "counts": veg["counts"]}
@@ -181,7 +201,7 @@ def export(store: ProjectStore, standins: bool = True) -> dict:
         shutil.copyfile(hm, out / "terrain" / "heightmap.png")
     write_json(out / "manifest.json", m)
     c = counts(m)
-    store.log_run({"stage": "export", "standins": standins, **c, "seconds": round(time.time() - t, 1)})
+    store.log_run({"stage": "export", "assets": assets, "use_active": use_active, **c, "seconds": round(time.time() - t, 1)})
     return c
 
 
