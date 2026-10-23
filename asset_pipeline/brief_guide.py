@@ -8,12 +8,15 @@ brief edits [{path, before, after, why}]. Only existing fields and valid values 
 rows, `apply` saves them through `library_review.save_brief` and writes "guidance" into the brief.
 
 Paths: features.<part>.<field> (nested, as the Asset review form shows them), dims (width, depth,
-height m), params.storey_h / params.bay_m, material_types.<band>, material_scale.<band>, surface.
+height m), params.storey_h / params.bay_m, material_types.<band>, material_scale.<band>, surface,
+shading (auto | smooth | flat, building_proc). What the guidance asks for that no field can say
+comes back in `unsupported` (short phrases), so a reroll can say "No setting for: ...".
 Parts in SWITCHABLE that are off (None) are listed with their template's values: an edit to one of
 their fields switches the part on from the template (an arcade on a colonnade range, its gallery).
 """
 import copy
 import json
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -36,6 +39,8 @@ Rules:
 - Change only what the guidance asks for, and a field at most once. At most {max_edits} edits.
 - "why" is one short sentence naming what you saw on the sheet or read in the guidance.
 - If nothing can be expressed with these fields, return an empty list.
+- List in "unsupported" each thing the guidance asks for that no field can express, as a short
+  phrase (2-4 words, e.g. "rounded corners"); leave it empty when everything is covered.
 
 Mapping from the sheet to fields: window size and position -> facade window w, h, sill; ground storey
 -> ground kind, door; pointed or segmental heads -> window kind; balconies -> balcony; attic -> top;
@@ -48,7 +53,8 @@ balustrade, balustrade_h. On the arcade form the windows over the arcade are arc
 sill), not side.window (side is only the faces without an arcade); raised stone frames round the windows (pilasters on the pier lines, a band at
 each floor) -> arcade.gallery.grid (w, proj); a set-back top storey -> attic (storey_h, setback;
 side_setback 0 when the sides are party walls). A face with no openings (a party wall) -> its pattern
-["solid"] and its ground kind solid. A part marked "off" is switched on by editing any of its fields.
+["solid"] and its ground kind solid. Smooth shading, soft curves, no faceted look -> shading smooth;
+hard faceted surfaces -> shading flat. A part marked "off" is switched on by editing any of its fields.
 
 Current brief fields (path = value [choices]):
 {catalogue}
@@ -63,6 +69,11 @@ class Edit(BaseModel):
 
 class Edits(BaseModel):
     edits: list[Edit] = Field(default_factory=list, max_length=12)
+    unsupported: list[str] = Field(default_factory=list, max_length=8)
+
+
+# guidance about shading, also when the vision model misses it: "shade smooth", "less faceted"
+SMOOTH_WORDS = re.compile(r"\bsmooth(?:er|ly)?\s+shad|\bshade[sd]?\s+smooth|facet", re.I)
 
 
 # --- the field catalogue ---------------------------------------------------------------------
@@ -107,6 +118,7 @@ def values(brief: dict, off: set | None = None) -> dict:
         out[f"material_types.{b}"] = (brief.get("material_types") or {}).get(b)
         out[f"material_scale.{b}"] = (brief.get("material_scale") or {}).get(b, 1)
     out["surface"] = brief.get("surface") or "auto"
+    out["shading"] = brief.get("shading") or "auto"
     _leaves(building_gen.form_features(form, brief.get("features")), "features", out, off)
     return out
 
@@ -124,6 +136,8 @@ def catalogue_text(vals: dict, off: set | frozenset = frozenset()) -> str:
             opts = " [" + ", ".join(sorted(LIBRARY)) + "]"
         elif p == "surface":
             opts = " [auto, library, patch]"
+        elif p == "shading":
+            opts = " [auto, smooth, flat]"
         elif _enum(p):
             opts = " [" + ", ".join(_enum(p)) + "]"
         rows.append(f"{p} = {json.dumps(v)}{opts}")
@@ -149,7 +163,7 @@ def apply_edits(brief: dict, edits: list[dict]) -> dict:
            "features": building_gen.form_features(brief["form"], copy.deepcopy(brief.get("features"))),
            "material_types": dict(brief.get("material_types") or {}),
            "material_scale": dict(brief.get("material_scale") or {}),
-           "surface": brief.get("surface")}
+           "surface": brief.get("surface"), "shading": brief.get("shading")}
     for e in edits:
         _set(new, e["path"], e["after"])
     return new
@@ -218,6 +232,8 @@ def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tupl
                 raise ValueError(f"must be one of {', '.join(opts)}")
             if path == "surface" and after not in ("auto", "library", "patch"):
                 raise ValueError("must be auto, library or patch")
+            if path == "shading" and after not in ("auto", "smooth", "flat"):
+                raise ValueError("must be auto, smooth or flat")
         except ValueError as ex:
             dropped.append(row | {"reason": str(ex)})
             continue
@@ -267,10 +283,18 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
                    PROMPT.format(asset=asset, form=brief.get("form"), guidance=guidance, max_edits=max_edits,
                                  catalogue=catalogue_text(vals, off)),
                    [_image(store, brief, sheet)], Edits, system=SYSTEM)
-    kept, dropped = check(store, asset, brief, [e.model_dump() for e in r.edits])
+    raw = [e.model_dump() for e in r.edits]
+    unsupported = [u.strip() for u in r.unsupported if u.strip()]
+    if SMOOTH_WORDS.search(guidance):
+        if not any(e["path"] == "shading" for e in raw):
+            raw.append({"path": "shading", "after": "smooth", "why": "the guidance asks for smooth shading"})
+        unsupported = [u for u in unsupported if not re.search(r"smooth|facet|shad", u, re.I)]
+    kept, dropped = check(store, asset, brief, raw)
     extra = [{"path": e["path"], "after": e["after"], "why": e["why"], "reason": f"more than {max_edits} edits"}
              for e in kept[max_edits:]]
-    return {"edits": kept[:max_edits], "dropped": dropped + extra, "brief_made": made}
+    unsupported += [d["path"] for d in dropped if d["reason"] == "not a field of this brief"]
+    return {"edits": kept[:max_edits], "dropped": dropped + extra, "brief_made": made,
+            "unsupported": list(dict.fromkeys(unsupported))}
 
 
 def apply(store: ProjectStore, asset: str, edits: list[dict], guidance: str) -> dict:

@@ -192,6 +192,31 @@ def rebuild(store: ProjectStore, asset: str, log=print) -> dict:
 REROLL_FILES = ("procedural.glb", "procedural.zones.json", "procedural.json")
 
 
+def _short(v) -> str:
+    return json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+
+
+def brief_changes(old: dict, new: dict) -> list[str]:
+    """What a reroll changed in the brief, one "path before -> after" per field (a building's
+    editable fields; a kit piece's params and dims)."""
+    from . import brief_guide, versions
+    a, b = brief_guide.values(old), brief_guide.values(new)
+    if not a and not b:
+        keys = ("dims", "params", "features", "shading")
+        a, b = (versions._flat({k: x[k] for k in keys if k in x}) for x in (old, new))
+        a, b = a | {k: None for k in b if k not in a}, b | {k: None for k in a if k not in b}
+    return [f"{k} {_short(a.get(k))} → {_short(b.get(k))}" for k in b if a.get(k) != b.get(k)]
+
+
+def change_line(changes: list[str], unsupported: list[str]) -> str:
+    """The one line a rerolled version shows: what changed in the brief, and what the guidance
+    asked for that the builder has no setting for."""
+    line = ("Brief: " + "; ".join(changes) + ".") if changes else "Brief unchanged."
+    if unsupported:
+        line += " No setting for: " + ", ".join(unsupported) + "."
+    return line
+
+
 def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "front", log=print,
            at=lambda step, note: None, to_cpu=lambda: None) -> dict:
     """Reroll (Views and 3D): a new procedural version from the asset's current sheet, steered by
@@ -199,7 +224,10 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     with the artist's edits kept. The new version keeps its own GLB and does NOT become the
     version in use: the brief, the build on disk, the review status and the version in use are put
     back afterwards, also when a step fails (then no version is added). to_cpu: the job leaves
-    GPU 0 for the Blender build (jobs.hop)."""
+    GPU 0 for the Blender build (jobs.hop).
+    A build byte-identical to an existing version's GLB adds no version: the result says which
+    one it matches and why ("unchanged", "message"). A new version carries "changes", one line
+    on what changed in the brief and what the guidance asked for that no setting covers."""
     from . import brief_guide, building_proc, library_entries, versions
     sp = kit_proc.spec_path(store, asset)
     brief = read_json(sp, default=None)
@@ -216,16 +244,22 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     cur = versions.current(store, asset)
     approved = {r["n"] for r in versions.load(store, asset) if r["approved"]}
     rev = reviews(store).get(asset)
+    hashes = {}                                            # the existing versions' GLBs, before the build replaces one
+    for r in versions.load(store, asset):
+        g = versions.version_glb(store, asset, r)
+        if g is not None:
+            hashes.setdefault(filestore.digest(g), r["n"])
     bak = out / "_reroll_backup"
     shutil.rmtree(bak, ignore_errors=True)
     for f in REROLL_FILES:
         if (out / f).is_file():
             filestore.copy(store, out / f, bak / f)
-    vn = None
+    vn, unsupported, line, same = None, [], "", None
     try:
         if guidance:
             at(1, "VLM: brief edits from the guidance…")
             prop = brief_guide.propose(store, asset, sheet, guidance, view)
+            unsupported = prop.get("unsupported") or []
             brief_guide.apply(store, asset, prop["edits"], guidance)
         else:
             at(1, "VLM: measuring the sheet again…")
@@ -234,8 +268,19 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         at(2, "Waiting for the CPU…")
         to_cpu()
         at(2, "Blender build…")
+        changes = brief_changes(brief, read_json(sp, default={}) or {})
+        line = change_line(changes, unsupported)
         res = kit_proc.build_any(store, asset, log=log, make_current=False)
         vn = res["version"]
+        same = hashes.get(filestore.digest(out / "procedural.glb"))
+        if same is not None:                               # nothing new: no version for it
+            versions.delete(store, asset, vn)
+            vn = None
+            why = ("the brief came out the same" if not changes else
+                   f"the brief edits ({'; '.join(changes)}) build the same model")
+            return {"version": None, "current": cur, "guidance": guidance, "unchanged": True, "same_as": same,
+                    "message": f"Nothing changed: the build is identical to v{same} ({why})."
+                               + (f" No setting for: {', '.join(unsupported)}." if unsupported else "")}
         d = versions.vdir(store, asset, vn)                # the version's own GLB: the build on disk goes back
         filestore.copy(store, out / "procedural.glb", d / "procedural.glb")
         keep = {"procedural.glb"}
@@ -253,6 +298,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             if r["n"] == vn:
                 r["files"] = sorted(set(r["files"]) | keep)
                 r["bytes"] = versions._dir_size(d)
+                r["changes"] = line
         versions._save(store, asset, rows)
     finally:                                               # put back what the version in use is made of
         write_json(sp, brief)
@@ -271,7 +317,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             versions._save(store, asset, rows)
         if cur is not None:
             versions.set_current(store, asset, cur)
-    return {"version": vn, "current": cur, "guidance": guidance}
+    return {"version": vn, "current": cur, "guidance": guidance, "changes": line, "message": f"v{vn}: {line}"}
 
 
 # --- usage, checks ---------------------------------------------------------------------------
@@ -369,6 +415,8 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
     warns += a_warns
     if brief.get("surface") not in (None, "", "auto", "library", "patch"):
         errs.append(f"surface {brief['surface']!r}: library or patch")
+    if brief.get("shading") not in (None, "", "auto", "smooth", "flat"):
+        errs.append(f"shading {brief['shading']!r}: auto, smooth or flat")
     e = entry_of(store, asset)
     layout = sw_site.load_layout(store)
     typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
@@ -507,7 +555,7 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
     old = read_json(sp, default=None) or {}
     b = {**old, **{k: v for k, v in new.items() if k in ("dims", "params", "features", "colors", "patches", "form",
                                                          "material_types", "material_scale", "surface",
-                                                         "guidance")}}
+                                                         "shading", "guidance")}}
     if not (b.get("guidance") or "").strip():
         b.pop("guidance", None)
     if not b.get("material_types"):
@@ -517,6 +565,8 @@ def save_brief(store: ProjectStore, asset: str, new: dict) -> dict:
         b.pop("material_scale")
     if b.get("surface") in (None, "", "auto"):
         b.pop("surface", None)
+    if b.get("shading") in (None, "", "auto"):
+        b.pop("shading", None)
     if new.get("sheet") and (new.get("sheet"), new.get("position")) != (old.get("sheet"), old.get("position")):
         from . import building_proc                       # another view: cut it and measure it again
         pos = new.get("position")

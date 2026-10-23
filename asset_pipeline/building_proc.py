@@ -18,6 +18,10 @@ The brief (the project's library/kits/<asset>.json, kind "building"):
     params    form-level numbers (storey_h, bay_m), over the measured rhythm
     colors    optional rgb for frame / wood / planting / glass / trim; patches: optional
               [x0, y0, x1, y1] per base / wall / top, over the measured ones
+    shading   auto (default) | smooth | flat: smooth by angle (SMOOTH_ANGLE) shades curved
+              surfaces smooth and keeps sharper edges crisp; auto smooths curved forms
+              (CURVED_FORMS, and any building with a shell part: drum, dome, apse, rotunda) at
+              SMOOTH_ANGLE and the rest at blender_kit's 35 deg; flat keeps every face flat
 """
 from pathlib import Path
 
@@ -30,6 +34,9 @@ from .building_gen import FORMS, GENERATORS, features
 from .project import ProjectStore, read_json, write_json
 
 LUM = np.array([0.299, 0.587, 0.114])
+SHADING = ("auto", "smooth", "flat")
+SMOOTH_ANGLE = 30.0
+CURVED_FORMS = ("hall_vault",)
 
 
 # --- reading the sheet view ----------------------------------------------------------------
@@ -427,7 +434,17 @@ def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, d
     f = features(brief["form"], brief.get("features"))
     parts = generate(brief["form"], dims or brief["dims"], sheet | brief.get("params", {}), f)
     return kit_proc.run_blender(store, asset, parts, mats, out or d / "procedural.glb", maps, log=log,
-                                extra={"form": brief["form"]})
+                                extra={"form": brief["form"]}, shading=shading_of(brief, parts))
+
+
+def shading_of(brief: dict, parts: list[dict]) -> dict | None:
+    """The Blender shading for a brief's build; None keeps blender_kit's default (smooth, 35 deg)."""
+    mode = brief.get("shading") or "auto"
+    if mode == "flat":
+        return {"smooth": False}
+    if mode == "smooth" or brief["form"] in CURVED_FORMS or any(p["kind"] == "shell" for p in parts):
+        return {"smooth": True, "angle": SMOOTH_ANGLE}
+    return None
 
 
 def generate(form: str, dims, params: dict, f: dict) -> list[dict]:

@@ -1,5 +1,6 @@
 """Asset version bank: recording, retention, pin, approve, restore, compare, storage, migration and
 the API. Blender and TRELLIS are monkeypatched; projects are temporary and neutral."""
+import json
 import os
 import time
 from pathlib import Path
@@ -28,7 +29,8 @@ def store(tmp_path, monkeypatch):
         out = kit_proc.out_dir(store, asset)
         out.mkdir(parents=True, exist_ok=True)
         filestore.detach(out / "procedural.glb")          # as kit_proc.run_blender does
-        (out / "procedural.glb").write_bytes(b"glb" * 1000)
+        spec = {k: v for k, v in read_json(kit_proc.spec_path(store, asset)).items() if k != "guidance"}
+        (out / "procedural.glb").write_bytes(b"glb" * 1000 + json.dumps(spec, sort_keys=True).encode())  # like a real build: the brief decides the bytes
         filestore.intern(store, out / "procedural.glb")
         res = {"faces": 12}
         from asset_pipeline.areas import brief_sha
@@ -130,6 +132,7 @@ def test_pin_keeps_the_glb_unpin_removes_it_and_delete_asks_for_pinned(store):
 def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     _build(store)                                                    # v1: w 10, guidance "taller arch"
     versions.pin(store, "gate", 1)                                   # current: GLB kept
+    v1_bytes = (versions.vdir(store, "gate", 1) / "procedural.glb").read_bytes()
     _build(store, params={"w": 14.0}, guidance="other")             # v2
     assert read_json(kit_proc.spec_path(store, "gate"))["params"]["w"] == 14.0
     glb = kit_proc.out_dir(store, "gate").joinpath("procedural.glb")
@@ -139,7 +142,7 @@ def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     assert r["version"] == 1 and not r["rebuilt"] and r["current"] == 1  # pinned GLB: no rebuild
     assert r["glb"] == "3d/library/gate/procedural.glb"
     assert read_json(kit_proc.spec_path(store, "gate"))["guidance"] == "taller arch"
-    assert kit_proc.out_dir(store, "gate").joinpath("procedural.glb").read_bytes() == b"glb" * 1000
+    assert kit_proc.out_dir(store, "gate").joinpath("procedural.glb").read_bytes() == v1_bytes
     assert versions.current(store, "gate") == 1
     versions.unpin(store, "gate", 1)
     called = []
@@ -519,6 +522,34 @@ def test_reroll_adds_a_version_that_is_not_active_and_puts_the_build_back(store,
     assert versions.current_glb(store, "gate") == out / "procedural.glb"
     versions.restore(store, "gate", 2, log=lambda *a: None)              # Use this version: its own GLB, no rebuild
     assert versions.current(store, "gate") == 2 and read_json(kit_proc.spec_path(store, "gate"))["params"]["w"] == 14.0
+
+
+def test_a_reroll_version_says_what_changed_in_the_brief(store, monkeypatch):
+    _fake_reroll_deps(store, monkeypatch)
+    _build(store)
+    res = lr.reroll(store, "gate", "wider")
+    assert versions.get(store, "gate", 2)["changes"] == res["changes"] == "Brief: params.w 10.0 → 14.0."
+    assert res["message"].startswith("v2: Brief: params.w")
+
+
+def test_a_reroll_identical_to_an_existing_version_adds_none_and_says_why(store, monkeypatch):
+    from asset_pipeline import brief_guide
+    _fake_reroll_deps(store, monkeypatch)
+    _build(store)
+    monkeypatch.setattr(brief_guide, "propose", lambda *a, **k: {"edits": [], "dropped": [], "brief_made": False,
+                                                                 "unsupported": ["rounded corners"]})
+    monkeypatch.setattr(brief_guide, "apply", lambda store, asset, edits, guidance: None)
+    res = lr.reroll(store, "gate", "rounded corners")
+    assert res["version"] is None and res["unchanged"] and res["same_as"] == 1
+    assert res["message"] == ("Nothing changed: the build is identical to v1 (the brief came out the same). "
+                              "No setting for: rounded corners.")
+    assert [r["n"] for r in versions.load(store, "gate")] == [1] and versions.current(store, "gate") == 1
+    assert not versions.vdir(store, "gate", 2).exists()
+
+
+def test_change_line_names_what_has_no_setting():
+    assert lr.change_line([], ["smooth shading"]) == "Brief unchanged. No setting for: smooth shading."
+    assert lr.change_line(["shading auto → smooth"], []) == "Brief: shading auto → smooth."
 
 
 def test_a_failed_reroll_adds_nothing_and_changes_nothing(store, monkeypatch):

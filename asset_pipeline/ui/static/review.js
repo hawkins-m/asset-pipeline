@@ -44,9 +44,9 @@ function assetReview(a) {
       <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
-      <span class="actions">${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it.">Reroll</button>` : ""}
+      <span class="actions">${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
         <button type="button" class="make3d">Make 3D</button>
-        <label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result)."><input type="checkbox" class="new-seed-box"> New seed</label>
+        ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Seeds only apply to TRELLIS builds."><input type="checkbox" class="new-seed-box"> New seed</label>`}
         <button type="button" class="secondary cleanup" title="Scale the Active version to the plan size and set its pivot at the base${x.usage === "game" ? ", then decimate and bake it for game use" : ""}.">Clean up</button>
         ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
           <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>
@@ -96,7 +96,7 @@ function assetReview(a) {
     make.after(stopButton(jobs3d));
   }
   make.onclick = async () => {
-    try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value, new_seed: $(".new-seed-box", el).checked}); await load(); }
+    try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value, new_seed: !!$(".new-seed-box", el)?.checked}); await load(); }
     catch (err) { alert(errorText(err)); }
   };
 

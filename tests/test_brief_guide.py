@@ -20,13 +20,13 @@ SHEET = "refs/library/hall-a/sheet_000.png"
 class FakeLLM:
     name = "fake"
 
-    def __init__(self, edits):
-        self.edits, self.prompts, self.images = edits, [], []
+    def __init__(self, edits, unsupported=()):
+        self.edits, self.unsupported, self.prompts, self.images = edits, list(unsupported), [], []
 
     def json_text(self, system, prompt, images, schema):
         self.prompts.append(prompt)
         self.images.append(images)
-        return json.dumps({"edits": self.edits})
+        return json.dumps({"edits": self.edits, "unsupported": self.unsupported})
 
 
 def _wait(c, job):
@@ -160,3 +160,32 @@ def test_make_3d_new_seed_passes_a_non_default_seed_and_records_it(proj, monkeyp
     j = c.post("/api/projects/p/3d", json={"plan": "library", "asset": "canopy-table", "new_seed": True}).json()
     _wait(c, j)
     assert seen["seed"] is None
+
+
+
+def test_shade_smooth_guidance_becomes_the_shading_edit_and_the_rest_is_unsupported(proj):
+    sp = _setup(proj)
+    assert brief_guide.values(read_json(sp))["shading"] == "auto"
+    llm = FakeLLM([], unsupported=["smooth shading", "rounded corners"])        # the VLM missed the field
+    r = brief_guide.propose(proj, "hall-a", SHEET, "shade smooth, avoid faceted look, rounded corners", llm=llm)
+    assert [(e["path"], e["after"]) for e in r["edits"]] == [("shading", "smooth")]
+    assert r["unsupported"] == ["rounded corners"]
+    assert "shading" in llm.prompts[0] and "[auto, smooth, flat]" in llm.prompts[0]
+    brief_guide.apply(proj, "hall-a", r["edits"], "shade smooth")
+    assert read_json(sp)["shading"] == "smooth"
+
+
+def test_shading_must_be_a_choice(proj):
+    _setup(proj)
+    r = brief_guide.propose(proj, "hall-a", SHEET, "glossy", llm=FakeLLM([{"path": "shading", "after": "glossy"}]))
+    assert r["edits"] == [] and "auto, smooth or flat" in r["dropped"][0]["reason"]
+
+
+def test_curved_forms_shade_smooth_by_angle_by_default():
+    from asset_pipeline import building_proc as bp
+    box = [{"kind": "box"}]
+    assert bp.shading_of({"form": "hall_vault"}, box) == {"smooth": True, "angle": 30.0}
+    assert bp.shading_of({"form": "basilica"}, box + [{"kind": "shell"}]) == {"smooth": True, "angle": 30.0}  # apse, drum, dome
+    assert bp.shading_of({"form": "cube"}, box) is None                        # blender_kit's default
+    assert bp.shading_of({"form": "cube", "shading": "smooth"}, box) == {"smooth": True, "angle": 30.0}
+    assert bp.shading_of({"form": "hall_vault", "shading": "flat"}, box) == {"smooth": False}

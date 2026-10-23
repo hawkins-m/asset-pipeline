@@ -873,11 +873,14 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         r = versions.get(store, asset, n)
         return {"n": n, "kind": r["kind"], "thumb": r.get("thumb")}
 
+    def _procedural(store, asset):
+        e, own = library_entries._entry_of(store, asset)
+        return e is not None and sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) == "procedural"
+
     def _rerollable(store, asset):
         """Reroll on the asset's row: a procedural entry with a brief from a sheet."""
         from .. import kit_proc
-        e, own = library_entries._entry_of(store, asset)
-        if e is None or sw_library.route(e, sw_library.decisions(store).get(asset if own else e["id"])) != "procedural":
+        if not _procedural(store, asset):
             return False
         return bool((read_json(kit_proc.spec_path(store, asset), default=None) or {}).get("sheet"))
 
@@ -903,7 +906,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     "cleanups": s6_cleanup.results(store, name, a.id),
                     # library props (TRELLIS route): the same review status as Library › Asset review
                     "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None,
-                    "reroll": name == sw_library.PLAN_NAME and _rerollable(store, a.id)})
+                    "reroll": name == sw_library.PLAN_NAME and _rerollable(store, a.id),
+                    "procedural": name == sw_library.PLAN_NAME and _procedural(store, a.id)})
         return {"pending_sheets": pending, "assets": assets,
                 "starred_sheets": sum(1 for k, v in stars.items() if v and k.startswith(s2_refs.REFS + "/"))}
 

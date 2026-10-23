@@ -582,6 +582,7 @@ details summary { cursor: default; }
 .job-notice.failed .ico { color: var(--danger); }
 .job-notice .link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; text-align: left; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
 .job-notice .why { grid-column: 2 / 4; color: var(--danger); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.job-notice.ok .why { color: var(--muted, inherit); }
 .lane .lane-job .what { white-space: normal; overflow-wrap: anywhere; }
 
 /* --- re-brief step (refs.js) and brief field sources (library_review.js) -------------------- */

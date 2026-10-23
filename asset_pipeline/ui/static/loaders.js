@@ -153,7 +153,7 @@ function updateJobDialog() {
     bar = p;
   } else {                              // finished: full, or frozen where it stopped (never backwards)
     const secs = j.finished && j.created ? Math.round(j.finished - j.created) : null;
-    line2 = j.status === "done" ? `Done${secs != null ? ` in ${fmtDur(secs)}` : ""}.` : j.status === "canceled" ? "Canceled." : `Failed: ${j.error || "unknown error"}`;
+    line2 = j.status === "done" ? `Done${secs != null ? ` in ${fmtDur(secs)}` : ""}.${jobMessage(j) ? ` ${jobMessage(j)}` : ""}` : j.status === "canceled" ? "Canceled." : `Failed: ${j.error || "unknown error"}`;
     bar = j.status === "done" ? (p.stages ? {...p, stage: p.stages.length, frac: 1} : {frac: 1}) : p;
   }
   const active = isActive(j);
@@ -197,6 +197,11 @@ function trackJobEnds() {
   }
 }
 
+// a finished job's own one-line summary (a reroll: what changed, or why nothing did)
+function jobMessage(j) {
+  return j.result && typeof j.result === "object" && typeof j.result.message === "string" ? j.result.message : "";
+}
+
 function jobNotice(j) {
   let box = $("#job-notices");
   if (!box) { box = document.createElement("div"); box.id = "job-notices"; box.setAttribute("aria-live", "polite"); document.body.append(box); }
@@ -205,7 +210,7 @@ function jobNotice(j) {
   n.innerHTML = `<span class="ico" aria-hidden="true">${ok ? "✓" : "✕"}</span>
     <button type="button" class="link" title="Open the job's window">${esc(jobLabel(j))}: ${ok ? "done" : "failed"}</button>
     <button type="button" class="wclose" aria-label="Dismiss">x</button>
-    ${ok ? "" : `<div class="why">${esc(j.error || "unknown error")}</div>`}`;
+    ${ok ? (jobMessage(j) ? `<div class="why">${esc(jobMessage(j))}</div>` : "") : `<div class="why">${esc(j.error || "unknown error")}</div>`}`;
   const gone = () => n.remove();
   $(".link", n).onclick = () => { gone(); openJobDialog(j.id); };
   $(".wclose", n).onclick = gone;

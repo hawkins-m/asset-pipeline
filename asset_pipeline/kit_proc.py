@@ -229,15 +229,19 @@ def zones_path(glb: Path) -> Path:
 
 
 def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: dict, glb: Path, maps: Path,
-                repeat: int = 1, width: float | None = None, extra: dict | None = None, log=print) -> dict:
+                repeat: int = 1, width: float | None = None, extra: dict | None = None, log=print,
+                shading: dict | None = None) -> dict:
     """Build parts with materials in Blender (scripts/blender_kit.py) into glb; the report
-    goes to <asset dir>/procedural.json for the asset's own GLB."""
+    goes to <asset dir>/procedural.json for the asset's own GLB. shading: {"smooth", "angle"
+    deg} (building_proc.shading_of); None keeps the script's default."""
     maps.mkdir(parents=True, exist_ok=True)
     from .building_parts import resolve_coincident, zone_records
     zones = [p for p in parts if p["kind"] == "zone"]          # vegetation zones: data, no geometry
     parts = [p for p in parts if p["kind"] != "zone"]
     resolve_coincident(parts)          # coplanar twins render black (Cycles) and z-fight (Unreal)
     job = {"name": asset, "out": str(glb), "repeat": repeat, "width": width, "parts": parts, "materials": materials}
+    if shading:
+        job["shading"] = shading
     jp = maps / ("job.json" if repeat == 1 else f"job_x{repeat}.json")
     write_json(jp, job)
     log_path = maps / "blender.log"

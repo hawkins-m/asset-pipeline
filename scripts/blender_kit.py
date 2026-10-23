@@ -238,14 +238,26 @@ for f, mname in assign:
         tile_uv(f, spec["materials"][fb])
         f.material_index = names.index(fb)
 
+# Where two parts touch face to face (the segments of a vault, stacked blocks) both faces are
+# inside the solid. Left in, every edge they meet counts as sharp below and a smooth curve
+# shades as facets. Found before the weld, which would keep one of each pair.
+seen = {}
+for f in bm.faces:
+    seen.setdefault(frozenset(tuple(round(c, 4) for c in v.co) for v in f.verts), []).append(f)
+inner = [f for fs in seen.values() if len(fs) > 1 for f in fs]
+bmesh.ops.delete(bm, geom=inner, context="FACES_ONLY")
 bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
 me = bpy.data.meshes.new(spec.get("name", "piece"))
 bm.to_mesh(me)
 for m in mats.values():
     me.materials.append(m)
-for p in me.polygons:          # smooth round pieces, keep every edge sharper than 35 deg
-    p.use_smooth = True
-me.set_sharp_from_angle(angle=math.radians(35))
+# smooth by angle: round pieces shade smooth, every edge sharper than the angle stays crisp;
+# "smooth": false keeps every face flat
+shading = {"smooth": True, "angle": 35} | (spec.get("shading") or {})
+for p in me.polygons:
+    p.use_smooth = shading["smooth"]
+if shading["smooth"]:
+    me.set_sharp_from_angle(angle=math.radians(shading["angle"]))
 obj = bpy.data.objects.new(spec.get("name", "piece"), me)
 bpy.context.scene.collection.objects.link(obj)
 
@@ -260,5 +272,6 @@ if n > 1:
 
 bpy.ops.export_scene.gltf(filepath=spec["out"], export_format="GLB", export_apply=True)
 print(json.dumps({"out": spec["out"], "vertices": len(me.vertices), "faces": len(me.polygons),
+                  "inner_faces_removed": len(inner), "shading": shading,
                   "bbox": [round(max(v.co[i] for v in me.vertices) - min(v.co[i] for v in me.vertices), 3)
                            for i in range(3)]}))

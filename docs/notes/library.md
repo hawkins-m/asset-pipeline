@@ -228,3 +228,16 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   didn't rewrite. Now describe/set_name call `sw_library.refresh_plan`, and `s2_refs.generate`
   re-reads the entry's fields itself (`s2_refs.current`). Each sheet records its `description`;
   older ones are recovered from their prompt (`described_from_prompt`, style text after the template).
+
+## Reroll and shading (2026-10-22)
+- **Procedural Reroll gave identical versions** because the build only changes when the brief does:
+  guidance with no brief field (smooth shading) produced no edits, and New seed only reaches TRELLIS.
+  Now each rerolled version says what changed in the brief and what had "No setting for", and a
+  build byte-identical to an existing version (file store hash) adds no version. A reroll without
+  guidance re-measures the sheet and can move dims (a hall's height went 19.5 -> 13.71 m).
+- **Curved procedural surfaces shaded as facets whatever the smoothing angle**: parts that touch face
+  to face (the 18 prisms of a barrel vault) left their shared faces inside the mesh, and every seam
+  met one at 90 deg, so smooth-by-angle kept all 932 vault vertices split. `blender_kit.py` now
+  deletes those twin faces before the weld (`remove_doubles` keeps one of each pair, which hides
+  them from a check after it); afterwards the vault had no split seams under 30 deg, only its real
+  corners. Brief `shading` (auto | smooth | flat): auto smooths curved forms at 30 deg.

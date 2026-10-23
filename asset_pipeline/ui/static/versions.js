@@ -82,6 +82,7 @@ function versionStripDraw(box, asset, d, onChange) {
         <div class="ver-meta"><b>v${v.n}</b> <span class="hint" style="margin:0">${esc(v.kind)} · ${esc(verDate(v.created))}</span>
           ${v.current || v.approved || v.pinned ? `<div class="ver-marks">${v.current ? `<span class="mark ver-used" title="This version is the one later steps (Cleanup, Unreal look scenes) will use.">Active</span>` : ""}${v.approved ? `<span class="mark m-ok" title="The version that was Active when the asset was approved; never removed.">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep: never removed">kept</span>` : ""}</div>` : ""}
           <div class="hint ver-src" style="margin:0">${esc(verSource(v)) || "&nbsp;"}</div>
+          ${v.changes ? `<div class="hint ver-changes" style="margin:0" title="What this reroll changed in the brief">${esc(v.changes)}</div>` : ""}
           <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div></div>
         <div class="ver-btns">${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
           <button type="button" class="small ver-pin" title="${v.pinned ? "Let retention remove this version again once it is old." : "Never remove this version, however many newer ones you make."}">${v.pinned ? "Stop keeping" : "Keep"}</button>
