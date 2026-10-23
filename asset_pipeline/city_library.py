@@ -198,20 +198,26 @@ def strip_textures(data: bytes) -> bytes:
 
 # --- from the project ------------------------------------------------------------------------
 
+def count_planned(buildings, typed: list[dict]) -> dict[str, int]:
+    """{typed slot id: distinct planned buildings in it}. buildings: (typology, x, y). Two at the
+    same spot (rounded to the metre, as library_instances keys its builds) share one build, so
+    they count once."""
+    seen: dict[str, set] = {}
+    for t, x, y in buildings:
+        sid = slot_of_point(typed, t, x, y)
+        if sid:
+            seen.setdefault(sid, set()).add((t, round(x), round(y)))
+    return {sid: len(v) for sid, v in seen.items()}
+
+
 def planned_per_slot(store: ProjectStore, gb: dict) -> dict[str, int]:
-    """{typed slot id: how many planned buildings stand in it}."""
+    """{typed slot id: how many distinct planned buildings stand in it}."""
     from . import city, library_instances
     from .stages import sw_site
     layout = sw_site.load_layout(store)
     P = city.plan(layout, sw_site.plan_terrain(store, layout))
     typed = [s for s in gb["slots"] if s.get("typology")]
-    n: dict[str, int] = {}
-    for b in P.typed:
-        x, y, *_ = library_instances.footprint(b)
-        sid = slot_of_point(typed, b.typology, x, y)
-        if sid:
-            n[sid] = n.get(sid, 0) + 1
-    return n
+    return count_planned([(b.typology, *library_instances.footprint(b)[:2]) for b in P.typed], typed)
 
 
 def ok_entries(store: ProjectStore, use_active: bool):

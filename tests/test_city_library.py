@@ -76,3 +76,9 @@ def test_attached_pieces_use_their_own_matrix():
     m[0, 0] = 2.0
     assert cl.world_matrix({"matrix": m.tolist()})[0, 0] == 2.0
     assert cl.asset_id("insulamlimestone_m153__child-x") == "lib_insulamlimestone_m153__child_x"
+
+
+def test_two_planned_buildings_on_one_spot_count_once():
+    slots = [_slot("block", 0, 0, "townhouses")]
+    n = cl.count_planned([("townhouses", 1.2, 2.1), ("townhouses", 1.4, 1.8), ("townhouses", 9.0, 0.0)], slots)
+    assert n == {"block": 2}                   # the first two share a build key (rounded to the metre)
