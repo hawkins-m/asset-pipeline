@@ -46,6 +46,15 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   `landscape_import_heightmap_from_render_target` exists, into an existing landscape's
   components. Terrain is therefore a Nanite mesh; the manifest carries the values for a
   manual Landscape-mode import.
+- **Renaming a project's level (2026-10-22, project slug rename).** A map rename through AssetTools
+  (`rename_assets` / `rename_asset`) stops at a modal "config INI may need Find/Replace" dialog that
+  `-unattended` answers Cancel, so nothing is renamed. What worked headless: `duplicate_asset` the map
+  (every actor, tag, transform and ISM instance identical), drop `LS_<Name>` and let
+  `ap_import.sequence()` create it fresh in the new level (a renamed sequence keeps the old map path
+  in its name table), then delete the old map file with the editor closed (`delete_asset` in the
+  commandlet only removes it in memory). The level has no LevelSequenceActor; only the sequence
+  refers to the map. Imported meshes keep their old GLB source path in their import data; that only
+  affects the editor's Reimport, since `ap ue import` matches meshes by the `ap:glb_sha` tag.
 - Shot renders need the full editor: `UnrealEditor -RenderOffscreen -graphicsadapter=0`
   (Vulkan adapter 0 = GPU 0) with a Slate tick callback. Screenshots taken while
   ShaderCompileWorkers still run show grey default materials, so wait for them to go
