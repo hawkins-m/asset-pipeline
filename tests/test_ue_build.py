@@ -77,3 +77,42 @@ def test_stripping_drops_the_images_and_keeps_geometry_and_material_names():
 def test_stripping_is_deterministic_so_an_unchanged_build_is_skipped_on_import():
     assert cl.strip_textures(_glb()) == cl.strip_textures(_glb())
     assert cl.strip_textures(cl.strip_textures(_glb())) == cl.strip_textures(_glb())    # nothing left to strip
+
+
+def _png(rgb, size=4):
+    import io
+
+    from PIL import Image
+    b = io.BytesIO()
+    Image.new("RGB", (size, size), rgb).save(b, "PNG")
+    return b.getvalue()
+
+
+def _textured_glb(base_rgb, mr_rgb, metallic=1.0, roughness=0.8):
+    """A GLB with a baked base colour and metallic-roughness map (as TRELLIS writes them)."""
+    imgs = [_png(base_rgb), _png(mr_rgb)]
+    binb, views = b"", []
+    for im in imgs:
+        views.append({"buffer": 0, "byteOffset": len(binb), "byteLength": len(im)})
+        binb += im + b"\0" * (-len(im) % 4)
+    js = {"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(binb)}], "bufferViews": views,
+          "images": [{"bufferView": 0, "mimeType": "image/png"}, {"bufferView": 1, "mimeType": "image/png"}],
+          "textures": [{"source": 0}, {"source": 1}],
+          "materials": [{"pbrMetallicRoughness": {"baseColorTexture": {"index": 0}, "metallicRoughnessTexture": {"index": 1},
+                                                  "metallicFactor": metallic, "roughnessFactor": roughness}}]}
+    jb = json.dumps(js).encode()
+    jb += b" " * (-len(jb) % 4)
+    total = 12 + 8 + len(jb) + 8 + len(binb)
+    return (struct.pack("<III", 0x46546C67, 2, total) + struct.pack("<II", len(jb), 0x4E4F534A) + jb
+            + struct.pack("<II", len(binb), 0x004E4942) + binb)
+
+
+def test_baked_materials_read_the_maps_metallic_roughness_and_base_colour():
+    out = cl.baked_materials(_textured_glb((255, 204, 102), (0, 200, 51), metallic=1.0, roughness=0.8))
+    assert out == [{"maps": ["baseColorTexture", "metallicRoughnessTexture"], "metallic": 0.2, "roughness": 0.8,
+                    "base_mean": [1.0, 0.8, 0.4]}]                     # metallic = factor x the map's blue (51/255)
+
+
+def test_a_glb_without_maps_reports_its_factors():
+    out = cl.baked_materials(_glb(with_image=False))
+    assert out == [{"maps": [], "metallic": 1.0, "roughness": 1.0, "base_mean": [1.0, 1.0, 1.0]}]

@@ -32,6 +32,7 @@ import numpy as np
 from . import ue_coords
 from .project import ProjectStore, read_json
 
+MATERIAL_OVERRIDES = "site/material_overrides.json"   # {entry: {tint, metallic, roughness}}: any asset
 FOOT_MARGIN = 1.0          # m: a greybox piece within this of a placed footprint goes with it
 LIB_DIR = "library"        # export/library/<asset id>.glb
 
@@ -238,6 +239,47 @@ def strip_textures(data: bytes) -> bytes:
     if out:
         glb += struct.pack("<II", len(out), 0x004E4942) + bytes(out)
     return glb
+
+
+def _glb_parts(data: bytes) -> tuple[dict, bytes]:
+    n = struct.unpack_from("<I", data, 12)[0]
+    js = json.loads(data[20:20 + n])
+    off = 20 + n
+    return js, (data[off + 8:off + 8 + struct.unpack_from("<I", data, off)[0]] if off < len(data) else b"")
+
+
+def baked_materials(data: bytes) -> list[dict]:
+    """A GLB's own materials, in order (the order Unreal gives its material slots): which baked
+    maps each has, its metallic and roughness as the importer sets them (glTF factor x the mean of
+    the metallic-roughness map's blue / green channel), and its base colour map's mean sRGB colour
+    (for the placement report's texture check)."""
+    import io
+
+    from PIL import Image
+    js, binb = _glb_parts(data)
+
+    def image(tex):
+        if tex is None:
+            return None
+        src = js["textures"][tex["index"]].get("source")
+        im = js["images"][src] if src is not None else None
+        if not im or "bufferView" not in im:
+            return None
+        v = js["bufferViews"][im["bufferView"]]
+        a = binb[v.get("byteOffset", 0):v.get("byteOffset", 0) + v["byteLength"]]
+        return np.asarray(Image.open(io.BytesIO(a)).convert("RGB"), float) / 255
+    out = []
+    for m in js.get("materials", []):
+        pbr = m.get("pbrMetallicRoughness") or {}
+        base, mr = image(pbr.get("baseColorTexture")), image(pbr.get("metallicRoughnessTexture"))
+        mf, rf = pbr.get("metallicFactor", 1.0), pbr.get("roughnessFactor", 1.0)
+        out.append({"maps": sorted(k for k in ("baseColorTexture", "metallicRoughnessTexture") if k in pbr)
+                    + ["normalTexture"] * ("normalTexture" in m),
+                    "metallic": round(float(mf * (mr[..., 2].mean() if mr is not None else 1.0)), 3),
+                    "roughness": round(float(rf), 3),            # the map's green channel carries the rest
+                    "base_mean": [round(float(v), 3) for v in base.reshape(-1, 3).mean(0)] if base is not None
+                    else [round(float(v), 3) for v in pbr.get("baseColorFactor", [1, 1, 1])[:3]]})
+    return out
 
 
 # --- from the project ------------------------------------------------------------------------
@@ -456,6 +498,8 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
         assets[aid] = {"id": aid, "kind": "library", "entry": p["entry"], "glb": f"{LIB_DIR}/{aid}.glb",
                        "source": p["glb"], "bounds": pl["bounds"][p["glb"]],
                        "stripped_kb": round((len(raw) - dst.stat().st_size) / 1024)}
+        if p["entry"] not in own:                    # its own baked maps go into its material instances
+            assets[aid]["baked"] = baked_materials(raw)
     for s in m["slots"]:
         mode = pl["replaced"].get(s["id"])
         if mode is None:
@@ -467,6 +511,8 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     m["assets"] = [a for a in m["assets"] if any(a["id"] == c["asset"] for s in m["slots"] for c in s["components"])]
     m["library_assets"] = sorted(assets.values(), key=lambda a: a["id"])
     m["library_entries"] = own
+    over = read_json(store.root / MATERIAL_OVERRIDES, default={}) or {}
+    m["material_overrides"] = {e: v for e, v in over.items() if not e.startswith("_") and e in {a["entry"] for a in assets.values()}}
     m["source"] = "library+greybox"
     m["terrain"] = terrain_section(gb)
     held_entries = sorted({h["entry"] for h in pl["held"]})

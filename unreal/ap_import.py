@@ -482,14 +482,59 @@ def checks(man, meshes, eas):
 LIB_BATCH = 24   # library GLBs per import call: Unreal builds a batch's meshes in parallel
 
 
-def _move_import(task, aid):
+TEX_ROLES = (("normal", ("normal",)), ("rough", ("metallicroughness", "roughness", "metallic", "occlusion")),
+             ("base", ("basecolor", "base_color", "diffuse", "albedo", "color")))
+
+
+def _role(name):
+    n = name.lower().replace(" ", "")
+    return next((r for r, keys in TEX_ROLES if any(k in n for k in keys)), None)
+
+
+def _keep_maps(mesh, aid, digest):
+    """The baked maps Interchange imported with a mesh, per material slot ({role: texture path}),
+    moved out of the temp folder (which goes) into CityLibrary/Textures/<id>_<hash>/ with the
+    settings M_AP_PBR's samplers need (base: sRGB colour; rough: linear masks; normal)."""
+    folder = f"{CITY_LIB}/Textures/{aid}_{digest[:8]}"
+    out, moved = [], {}
+    for i in range(len(mesh.get_editor_property("static_materials"))):
+        m, maps = mesh.get_material(i), {}
+        names = mel.get_texture_parameter_names(m) if isinstance(m, unreal.MaterialInstance) else []
+        for n in names:
+            t = mel.get_material_instance_texture_parameter_value(m, n)
+            role = _role(str(n)) or (_role(t.get_name()) if t else None)
+            if t is None or role is None or role in maps or not t.get_path_name().startswith(f"{CITY_LIB}/_import_{aid}/"):
+                continue                          # only maps this import brought (not the engine's defaults)
+            src = t.get_path_name().split(".")[0]
+            if src not in moved:
+                dst = f"{folder}/{role}_{i}"
+                if eal.does_asset_exist(dst):
+                    eal.delete_asset(dst)
+                if not eal.rename_asset(src, dst):        # (a texture still in use by the import's
+                    eal.duplicate_asset(src, dst)         #  own material may refuse to move)
+                tex = eal.load_asset(dst) if eal.does_asset_exist(dst) else None
+                if tex is None:
+                    raise RuntimeError(f"{aid}: could not keep baked map {src} as {dst}")
+                tex.set_editor_property("srgb", role == "base")
+                tex.set_editor_property("compression_settings", {
+                    "base": unreal.TextureCompressionSettings.TC_DEFAULT, "rough": unreal.TextureCompressionSettings.TC_MASKS,
+                    "normal": unreal.TextureCompressionSettings.TC_NORMALMAP}[role])
+                eal.save_loaded_asset(tex)
+                moved[src] = dst
+            maps[role] = moved[src]
+        out.append(maps)
+    return out
+
+
+def _move_import(task, aid, keep_maps=False, digest=""):
     """A batch-imported mesh -> CityLibrary/SM_<id> (replacing the old one, references kept),
-    its temp folder cleared."""
+    its temp folder cleared; keep_maps: its baked maps are moved out first (returned per slot)."""
     tmp = f"{CITY_LIB}/_import_{aid}"
     mesh = next((o for o in (unreal.load_object(None, p) for p in task.imported_object_paths)
                  if isinstance(o, unreal.StaticMesh)), None)
     if mesh is None:
         raise RuntimeError(f"{aid}: Interchange imported no static mesh from {task.filename}")
+    maps = _keep_maps(mesh, aid, digest) if keep_maps else None
     target = f"{CITY_LIB}/SM_{aid}"
     if eal.does_asset_exist(target):
         eal.consolidate_assets(mesh, [eal.load_asset(target)])
@@ -500,7 +545,56 @@ def _move_import(task, aid):
         if eal.find_asset_data(p).asset_class_path.asset_name == "ObjectRedirector":
             eal.delete_asset(p)
     eal.delete_directory(tmp)
-    return eal.load_asset(target)
+    return eal.load_asset(target), maps
+
+
+def _has_maps(aid):
+    """Has this build's first instance its baked base colour map (kept in CityLibrary/Textures)?"""
+    path = f"{CITY_LIB}/Materials/MI_{aid}_0"
+    if not eal.does_asset_exist(path):
+        return False
+    t = mel.get_material_instance_texture_parameter_value(eal.load_asset(path), "BaseColorTex")
+    return t is not None and "/CityLibrary/Textures/" in t.get_path_name()
+
+
+def apply_override(mi, ov):
+    """An entry's material override (manifest material_overrides) on one of its instances: tint
+    over the base colour, metallic, roughness; only parameters the instance has."""
+    if not ov:
+        return
+    scal = {str(n) for n in mel.get_scalar_parameter_names(mi)}
+    if ov.get("tint") and "Tint" in {str(n) for n in mel.get_vector_parameter_names(mi)}:
+        mel.set_material_instance_vector_parameter_value(mi, "Tint", unreal.LinearColor(*ov["tint"], 1.0))
+    for k, name in (("metallic", "Metallic"), ("roughness", "Roughness")):
+        if ov.get(k) is not None and name in scal:
+            mel.set_material_instance_scalar_parameter_value(mi, name, float(ov[k]))
+    mel.update_material_instance(mi)
+
+
+def baked_instance(aid, i, maps, baked, master, override):
+    """M_AP_PBR instance for slot i of a build that keeps its own maps (TRELLIS, painted kit
+    pieces): its baked base colour, metallic-roughness and normal maps, metallic and roughness
+    from the GLB (manifest "baked"), then the entry's override. maps None: keep the textures it
+    has (an unchanged build)."""
+    path = f"{CITY_LIB}/Materials/MI_{aid}_{i}"
+    folder, name = path.rsplit("/", 1)
+    mi = eal.load_asset(path) if eal.does_asset_exist(path) else tools.create_asset(
+        name, folder, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+    mel.set_material_instance_parent(mi, master)
+    if maps is not None:
+        for role, param in (("base", "BaseColorTex"), ("rough", "RoughnessTex"), ("normal", "NormalTex")):
+            if role in maps:
+                mel.set_material_instance_texture_parameter_value(mi, param, eal.load_asset(maps[role]))
+        mel.set_material_instance_scalar_parameter_value(mi, "NormalStrength", 1.0 if "normal" in maps else 0.0)
+    b = baked or {}
+    mel.set_material_instance_vector_parameter_value(mi, "Tint", unreal.LinearColor(1, 1, 1, 1))
+    mel.set_material_instance_scalar_parameter_value(mi, "Metallic", float(b.get("metallic", 0.0)))
+    mel.set_material_instance_scalar_parameter_value(mi, "Roughness", float(b.get("roughness", 1.0)))
+    mel.set_material_instance_scalar_parameter_value(mi, "RoughnessMultiplier", 1.0)
+    mel.update_material_instance(mi)
+    apply_override(mi, override)
+    eal.save_loaded_asset(mi)
+    return mi
 
 
 def import_library(man, root, master, args, report):
@@ -514,12 +608,14 @@ def import_library(man, root, master, args, report):
     entries, mis, meshes = man.get("library_entries") or {}, {}, {}
     report.setdefault("slots", {})               # slot_instance records each material's source here
     times = report.setdefault("import_seconds", {})
-    digests, todo = {}, []
+    digests, todo, fresh_maps = {}, [], {}
+    overrides = man.get("material_overrides") or {}
     for a in lib:
         glb = os.path.join(root, a["glb"])
         digests[a["id"]] = sha(glb)
         target = f"{CITY_LIB}/SM_{a['id']}"
-        if eal.does_asset_exist(target) and eal.get_metadata_tag(eal.load_asset(target), "ap:glb_sha") == digests[a["id"]]:
+        if (eal.does_asset_exist(target) and eal.get_metadata_tag(eal.load_asset(target), "ap:glb_sha") == digests[a["id"]]
+                and ("baked" not in a or _has_maps(a["id"]))):    # (a build whose maps were lost: once more)
             meshes[a["id"]] = eal.load_asset(target)
             report["assets"]["skipped"].append(a["id"])
         else:
@@ -537,7 +633,9 @@ def import_library(man, root, master, args, report):
             tasks.append(task)
         tools.import_asset_tasks(tasks)
         for a, task in zip(batch, tasks):
-            mesh = _move_import(task, a["id"])
+            mesh, maps = _move_import(task, a["id"], keep_maps="baked" in a, digest=digests[a["id"]])
+            if maps is not None:
+                fresh_maps[a["id"]] = maps
             ns = mesh.get_editor_property("nanite_settings")
             ns.enabled = True
             mesh.set_editor_property("nanite_settings", ns)
@@ -555,7 +653,17 @@ def import_library(man, root, master, args, report):
             ns.enabled = True
             mesh.set_editor_property("nanite_settings", ns)
             dirty = True
-        own = entries.get(a["entry"])             # None: a TRELLIS build keeps its GLB's materials
+        if "baked" in a:                          # its own baked maps, in M_AP_PBR instances
+            maps = fresh_maps.get(a["id"])
+            report.setdefault("baked_maps", {})[a["id"]] = maps if maps is not None else "kept"
+            for i in range(len(mesh.get_editor_property("static_materials"))):
+                b = a["baked"][i] if i < len(a["baked"]) else None
+                mi = baked_instance(a["id"], i, maps[i] if maps is not None and i < len(maps) else None, b, master,
+                                    overrides.get(a["entry"]))
+                if mesh.get_material(i) != mi:
+                    mesh.set_material(i, mi)
+                    dirty = True
+        own = entries.get(a["entry"])             # None: no procedural materials to give it
         for i, sm in enumerate(mesh.get_editor_property("static_materials") if own is not None else []):
             slot = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
             spec = own.get(slot)
@@ -565,6 +673,7 @@ def import_library(man, root, master, args, report):
             key = (a["entry"], slot)
             if key not in mis:
                 mis[key] = amp.slot_instance(a["entry"], slot, spec, surface, master, report)
+                apply_override(mis[key], overrides.get(a["entry"]))
             if mesh.get_material(i) != mis[key]:
                 mesh.set_material(i, mis[key])
                 dirty = True

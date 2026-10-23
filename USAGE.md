@@ -490,6 +490,18 @@ The rule and the tolerances are project settings in `project.json`:
 ```
 These are the defaults; leave `"unreal"` out to use them.
 
+**Materials.** Procedural builds get their entry's materials (library scans). Builds that bring
+their own baked maps (TRELLIS props and pieces, painted kit pieces) keep them: base colour,
+metallic-roughness and normal maps go into an `M_AP_PBR` instance per material slot, with the
+GLB's metallic and roughness. An **entry-level override** changes any asset's look, for example a
+gilded statue, in `site/material_overrides.json`:
+
+```
+{"my-statue": {"tint": [1.0, 0.766, 0.336], "metallic": 1.0, "roughness": 0.25}}
+```
+`tint` multiplies the base colour (linear RGB) and `metallic` / `roughness` replace the build's;
+it applies on the next `ap ue build`.
+
 ```
 ap export my-project            # export/: one GLB per greybox mesh (stand-ins) + manifest.json
 ap export my-project --assets   # ... with library builds in place (what ap ue build exports)

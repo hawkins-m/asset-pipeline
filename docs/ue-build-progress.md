@@ -90,3 +90,12 @@ Design facts (verified 2026-10-22, before phase 1):
   - Copy result: 622 builds + 76 props + 8 attached pieces in 69 slots, "placement OK".
     `--only-stale` is enough to fix a level built before: library actors are rebuilt from the
     manifest on every run (it only governs slot actors).
+- 2026-10-23 TRELLIS textures: the batch importer moved each mesh out of its temp folder and
+  deleted the folder with Interchange's materials and baked maps, so builds that keep their own
+  materials had empty slots (default grey). Now `ap_import._keep_maps` moves the maps this import
+  brought (never engine defaults) to CityLibrary/Textures/<id>_<hash>/ with sampler-ready settings,
+  and `baked_instance` wires them into an M_AP_PBR instance per slot with the GLB's metallic and
+  roughness (`city_library.baked_materials`); a build whose maps were lost is re-imported once, then
+  skipped while unchanged. Entry overrides: site/material_overrides.json (`apply_override`, any
+  asset). Verified on the copy: all market TRELLIS assets and the painted gate have their maps, the
+  texture means equal the GLBs', the statue is gold, re-run imports 0. Waiting for Mason's own run.
