@@ -4,7 +4,7 @@ Run headless by `ap ue import` (UnrealEditor-Cmd ... -run=pythonscript), or insi
 editor: `py /path/to/ap_import.py /path/to/args.json`. args.json:
     {"manifest": ".../export/manifest.json", "report": ".../import_report.json",
      "reset_layout": false, "prune": false, "prune_expect": null, "prune_max": 10,
-     "reset_only": null}
+     "reset_only": null, "mask_default": ".../T_AP_White_M.png"}
 
 What it builds (all under /Game/AP):
     Materials/M_AP_PBR                       master material: BaseColorTex x Tint;
@@ -17,8 +17,22 @@ What it builds (all under /Game/AP):
         AP_<district>_<slot>   one actor per slot, an InstancedStaticMeshComponent
                                "ISM_<asset>" per asset it uses (instances relative to it)
         AP_Shot_<shot>         one CineCameraActor per shot (filmback + focal length)
-        AP_Env_*               sun, sky light, atmosphere, fog (created once if missing)
+        AP_Env_*               sun, sky light, atmosphere, fog (created once if missing); with
+                               args "lighting" (look.city_lighting) also post (white balance,
+                               exposure) and clouds, and the preset applied through ap_lighting:
+                               a setting you change in Unreal is kept on later builds
+        AP_Terrain_outer       the outer ring (/Game/AP/Terrain/SM_OuterRing, `ap terrain ue`)
+                               in place of its greybox slot; the terrain slots take
+                               MI_AP_TerrainAuto (manifest "terrain"); a Landscape stays a
+                               manual import (report["landscape"]: whether the level has one)
     Cinematics/LS_<Name>                     Level Sequence, one camera cut per shot
+    CityLibrary/SM_<lib id>                  library builds (manifest library_assets, `ap export
+                                             --assets`): Nanite, skipped while the GLB's content
+                                             hash is unchanged, the entry's material instances
+        AP_Lib_<key>           one StaticMeshActor per build, attached to its slot's actor at
+                               the manifest's relative transform (tags ap:lib, ap:slot,
+                               ap:source=pipeline-lib); rebuilt from the manifest on every
+                               import, so ones the manifest no longer has are removed
 
 Ownership (the UE level is the layout's source of truth once imported):
   - actors are found again by their tags (ap:id=<slot>, ap:shot=<shot>);
@@ -38,12 +52,17 @@ Ownership (the UE level is the layout's source of truth once imported):
 import hashlib
 import json
 import os
+import re
 import sys
+import time
 import traceback
 
 import unreal
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # its sibling scripts (ap_lighting, ...)
+
 LIB = "/Game/AP/Library"
+CITY_LIB = "/Game/AP/CityLibrary"
 MATERIAL = "/Game/AP/Materials/M_AP_PBR"
 TMP = "/Game/AP/_import"
 CINE = "/Game/AP/Cinematics"
@@ -302,12 +321,16 @@ def add_ism(actor, name):
         unreal.SubobjectDataBlueprintFunctionLibrary.get_data(handle))
 
 
-def environment(eas, existing_env):
-    """Sun, sky light, atmosphere and fog, once (tag ap:env=<kind>); then they're yours."""
+def environment(eas, existing_env, lighting=False):
+    """Sun, sky light, atmosphere and fog (with lighting also a post process volume and clouds),
+    once (tag ap:env=<kind>); their settings then follow ap_lighting's ownership rule."""
     specs = [("sun", unreal.DirectionalLight, unreal.Rotator(0, -42, 35)),
              ("skylight", unreal.SkyLight, unreal.Rotator(0, 0, 0)),
              ("atmosphere", unreal.SkyAtmosphere, unreal.Rotator(0, 0, 0)),
              ("fog", unreal.ExponentialHeightFog, unreal.Rotator(0, 0, 0))]
+    if lighting:
+        specs += [("post", unreal.PostProcessVolume, unreal.Rotator(0, 0, 0)),
+                  ("clouds", unreal.VolumetricCloud, unreal.Rotator(0, 0, 0))]
     made = []
     for kind, cls, rot in specs:
         if kind in existing_env:
@@ -456,6 +479,174 @@ def checks(man, meshes, eas):
 
 # --- main ------------------------------------------------------------------------------------
 
+LIB_BATCH = 24   # library GLBs per import call: Unreal builds a batch's meshes in parallel
+
+
+def _move_import(task, aid):
+    """A batch-imported mesh -> CityLibrary/SM_<id> (replacing the old one, references kept),
+    its temp folder cleared."""
+    tmp = f"{CITY_LIB}/_import_{aid}"
+    mesh = next((o for o in (unreal.load_object(None, p) for p in task.imported_object_paths)
+                 if isinstance(o, unreal.StaticMesh)), None)
+    if mesh is None:
+        raise RuntimeError(f"{aid}: Interchange imported no static mesh from {task.filename}")
+    target = f"{CITY_LIB}/SM_{aid}"
+    if eal.does_asset_exist(target):
+        eal.consolidate_assets(mesh, [eal.load_asset(target)])
+        if eal.does_asset_exist(target):
+            eal.delete_asset(target)
+    eal.rename_asset(mesh.get_path_name().split(".")[0], target)
+    for p in eal.list_assets(tmp, recursive=True):
+        if eal.find_asset_data(p).asset_class_path.asset_name == "ObjectRedirector":
+            eal.delete_asset(p)
+    eal.delete_directory(tmp)
+    return eal.load_asset(target)
+
+
+def import_library(man, root, master, args, report):
+    """The library builds' meshes ({lib id: mesh}): imported in batches (only those whose GLB's
+    content hash changed), Nanite on, with their entries' material instances."""
+    import ap_material_preview as amp
+    lib = man.get("library_assets") or []
+    if not lib:
+        return {}
+    surface = amp.surface_material(amp.default_mask(args["mask_default"]))
+    entries, mis, meshes = man.get("library_entries") or {}, {}, {}
+    report.setdefault("slots", {})               # slot_instance records each material's source here
+    times = report.setdefault("import_seconds", {})
+    digests, todo = {}, []
+    for a in lib:
+        glb = os.path.join(root, a["glb"])
+        digests[a["id"]] = sha(glb)
+        target = f"{CITY_LIB}/SM_{a['id']}"
+        if eal.does_asset_exist(target) and eal.get_metadata_tag(eal.load_asset(target), "ap:glb_sha") == digests[a["id"]]:
+            meshes[a["id"]] = eal.load_asset(target)
+            report["assets"]["skipped"].append(a["id"])
+        else:
+            todo.append(a)
+    for k in range(0, len(todo), LIB_BATCH):
+        batch, t0 = todo[k:k + LIB_BATCH], time.time()
+        tasks = []
+        for a in batch:
+            tmp = f"{CITY_LIB}/_import_{a['id']}"
+            if eal.does_directory_exist(tmp):
+                eal.delete_directory(tmp)
+            task = unreal.AssetImportTask()
+            task.filename, task.destination_path = os.path.join(root, a["glb"]), tmp
+            task.automated, task.replace_existing, task.save = True, True, False
+            tasks.append(task)
+        tools.import_asset_tasks(tasks)
+        for a, task in zip(batch, tasks):
+            mesh = _move_import(task, a["id"])
+            ns = mesh.get_editor_property("nanite_settings")
+            ns.enabled = True
+            mesh.set_editor_property("nanite_settings", ns)
+            eal.set_metadata_tag(mesh, "ap:glb_sha", digests[a["id"]])
+            meshes[a["id"]] = mesh
+            report["assets"]["imported"].append(a["id"])
+        share = round((time.time() - t0) / len(batch), 2)     # a batch builds together: each its share
+        for a in batch:
+            times[a["id"]] = share
+        log(f"library: imported {k + len(batch)} of {len(todo)} ({share} s each)")
+    for a in lib:
+        mesh, dirty = meshes[a["id"]], a in todo
+        ns = mesh.get_editor_property("nanite_settings")
+        if not ns.enabled:                        # kept from before, but Nanite was off
+            ns.enabled = True
+            mesh.set_editor_property("nanite_settings", ns)
+            dirty = True
+        own = entries.get(a["entry"])             # None: a TRELLIS build keeps its GLB's materials
+        for i, sm in enumerate(mesh.get_editor_property("static_materials") if own is not None else []):
+            slot = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
+            spec = own.get(slot)
+            if spec is None:
+                report["warnings"].append(f"{a['entry']}: no material for slot {slot}")
+                continue
+            key = (a["entry"], slot)
+            if key not in mis:
+                mis[key] = amp.slot_instance(a["entry"], slot, spec, surface, master, report)
+            if mesh.get_material(i) != mis[key]:
+                mesh.set_material(i, mis[key])
+                dirty = True
+        if dirty:
+            eal.save_loaded_asset(mesh)
+    return meshes
+
+
+def place_library(man, meshes, eas, report):
+    """One actor per library build, attached to its slot's actor at its relative transform;
+    pipeline library actors the manifest no longer has go."""
+    slots, have = {}, {}
+    for a in eas.get_all_level_actors():
+        tg = tagged(a)
+        if "ap:id" in tg:
+            slots[tg["ap:id"]] = a
+        if tg.get("ap:lib"):
+            have[tg["ap:lib"]] = a
+    rep = report.setdefault("library", {"placed": 0, "removed": 0, "unattached": []})
+    keep = unreal.AttachmentRule.KEEP_RELATIVE
+    for s in man["slots"]:
+        parent = slots.get(s["id"])
+        for r in s.get("library") or []:
+            a = have.pop(r["key"], None)
+            if a is None:
+                a = eas.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(*r["world"]["loc"]),
+                                               unreal.Rotator(*r["world"]["rot"]))
+            a.static_mesh_component.set_static_mesh(meshes[r["asset"]])
+            a.set_actor_label(f"AP_Lib_{r['key']}")
+            set_tags(a, [f"ap:lib={r['key']}", f"ap:slot={s['id']}", f"ap:entry={r['entry']}", "ap:source=pipeline-lib"])
+            a.set_folder_path(f"{s['folder']}/{s['id']}")
+            if parent is not None and parent.root_component is not None:
+                a.attach_to_actor(parent, "", keep, keep, keep, False)
+                a.set_actor_relative_transform(tr(r["relative"]), False, False)
+            else:                                 # no slot actor to hang it on: at its world place
+                a.set_actor_transform(tr(r["world"]), False, False)
+                rep["unattached"].append(r["key"])
+            rep["placed"] += 1
+    for a in have.values():
+        eas.destroy_actor(a)
+        rep["removed"] += 1
+
+
+def place_terrain(man, eas, report):
+    """The outer ring in place of its greybox slot, and the auto material on the terrain slots."""
+    t = man.get("terrain")
+    report["landscape"] = any(isinstance(a, unreal.LandscapeProxy) for a in eas.get_all_level_actors())
+    if not t:
+        return
+    actors = {tagged(a).get("ap:id"): a for a in eas.get_all_level_actors() if "ap:id" in tagged(a)}
+    old = [a for a in eas.get_all_level_actors() if tagged(a).get("ap:terrain") == "outer"]
+    ring = eal.load_asset(t["outer_ring"]) if eal.does_asset_exist(t["outer_ring"]) else None
+    slot = actors.get(t.get("outer_slot"))
+    if ring is None or slot is None:
+        report["warnings"].append(f"outer ring not placed: {t['outer_ring']} missing (ap terrain ue)" if ring is None
+                                  else f"outer ring not placed: no slot actor {t.get('outer_slot')}")
+    else:
+        a = old.pop(0) if old else eas.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(0, 0, 0))
+        a.static_mesh_component.set_static_mesh(ring)
+        a.set_actor_label("AP_Terrain_outer")
+        set_tags(a, ["ap:terrain=outer", "ap:source=pipeline-lib"])
+        a.set_folder_path("AP/Terrain")
+        a.detach_from_actor()
+        a.set_actor_transform(unreal.Transform(), False, False)    # the ring comes in world coordinates
+        keep = unreal.AttachmentRule.KEEP_WORLD
+        a.attach_to_actor(slot, "", keep, keep, keep, False)
+        for ism in ism_components(slot).values():   # its greybox stand-in goes
+            ism.clear_instances()
+        report["terrain_outer"] = True
+    for a in old:
+        eas.destroy_actor(a)
+    mi = eal.load_asset(t["auto_material"]) if eal.does_asset_exist(t["auto_material"]) else None
+    if mi is None:
+        report["warnings"].append(f"terrain material {t['auto_material']} missing (ap terrain ue)")
+        return
+    for sid in t.get("material_slots") or []:
+        for ism in ism_components(actors[sid]).values() if sid in actors else []:
+            for i in range(ism.get_num_materials()):
+                ism.set_material(i, mi)
+    report["terrain_material"] = t.get("material_slots") or []
+
+
 def place_vegetation(root, eas, report):
     """Vegetation points (export/vegetation.json) as TargetPoint actors a PCG graph reads by tag
     (Get Actor Data, by tag ap:veg=<type>; ap:size=<w>x<d> metres): street-tree slots and the
@@ -494,8 +685,12 @@ def main(args):
     master = master_material()
     meshes = {}
     for a in man["assets"]:
+        t0 = time.time()
         meshes[a["id"]] = import_mesh(a, root, material_instance(a, master, report), report)
+        if a["id"] in report["assets"]["imported"]:
+            report.setdefault("import_seconds", {})[a["id"]] = round(time.time() - t0, 2)
     clean_tmp()
+    lib_meshes = import_library(man, root, master, args, report)
     mats = layout_materials(man, master, report)
     by_tag = {}
     env = set()
@@ -506,8 +701,14 @@ def main(args):
                 by_tag[(k, tg[k])] = a
         if "ap:env" in tg:
             env.add(tg["ap:env"])
-    report["environment"] = environment(eas, env)
+    report["environment"] = environment(eas, env, lighting=bool(args.get("lighting")))
+    if args.get("lighting"):
+        import ap_lighting
+        envs = {tagged(a)["ap:env"]: a for a in eas.get_all_level_actors() if "ap:env" in tagged(a)}
+        ap_lighting.apply(args["lighting"], envs, report, owned=True)
     place_slots(man, meshes, eas, by_tag, args, report, mats)
+    place_terrain(man, eas, report)
+    place_library(man, lib_meshes, eas, report)
     cams = place_cameras(man, eas, by_tag, args, report)
     sequence(man, cams, report)
     if args.get("vegetation"):
@@ -531,6 +732,11 @@ def main(args):
     eal.save_directory("/Game/AP", only_if_is_dirty=False, recursive=True)
     les.save_current_level()
     report["checks"] = checks(man, meshes, eas)
+    report["checks"]["nanite_off"] += [k for k, m in lib_meshes.items() if not m.get_editor_property("nanite_settings").enabled]
+    if report.get("terrain_outer"):              # the outer ring stands in for that slot's greybox
+        outer = (man.get("terrain") or {}).get("outer_slot")
+        report["checks"]["instance_mismatch"] = [x for x in report["checks"]["instance_mismatch"]
+                                                 if not x.startswith(f"{outer}/")]
     c = report["checks"]
     report["ok"] = not (c["nanite_off"] or c["missing_mi"] or c["instance_mismatch"])
     return report

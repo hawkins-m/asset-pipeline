@@ -64,6 +64,40 @@ def merged(base: dict, over: dict | None) -> dict:
     return out
 
 
+def sun_direction(camera, sun: dict) -> dict:
+    """The UE sun {yaw, pitch, temperature, lux} for a preset's sun {elevation, offset (deg right
+    of the view), temperature, lux} seen from a camera (Blender world 4x4)."""
+    C = np.asarray(camera, float)
+    fwd, right = -C[:3, 2].copy(), C[:3, 0].copy()
+    fwd[2] = right[2] = 0
+    fwd, right = fwd / np.linalg.norm(fwd), right / np.linalg.norm(right)
+    o = np.radians(sun["offset"])
+    travel = -(fwd * np.cos(o) + right * np.sin(o))
+    return {"yaw": float(np.degrees(np.arctan2(-travel[1], travel[0]))), "pitch": -float(sun["elevation"]),
+            "temperature": sun.get("temperature"), "lux": sun.get("lux")}
+
+
+def city_lighting(store: ProjectStore) -> dict:
+    """The city level's light from the project's look defaults (DEFAULTS < site/look_tests/
+    defaults.json < its "city" key): sun, sky, fog, white balance and an optional exposure_bias.
+    The sun's direction is set against a reference shot: the defaults' "shot", else the first
+    shot locked on a frame, else the first shot."""
+    from .stages import sw_site
+    own = read_json(preset_dir(store) / "defaults.json", default={}) or {}
+    p = merged(merged(DEFAULTS, own), own.get("city"))
+    gb = sw_site.load_greybox(store)
+    locked = {s.id: s.locked for s in sw_site.load_layout(store).shots}
+    shots = gb["shots"]
+    ref = (next((s for s in shots if s["id"] == p.get("shot")), None)
+           or next((s for s in shots if locked.get(s["id"]) and locked[s["id"]] != "greybox"), None)
+           or (shots[0] if shots else None))
+    if ref is None:
+        raise ValueError("no shots to set the sun against")
+    return {"sun": sun_direction(ref["matrix"], p["sun"]), "sky": p["sky"], "fog": p["fog"],
+            "white_balance": p.get("white_balance"), "exposure_bias": p.get("exposure_bias"),
+            "reference_shot": ref["id"], "clouds": p.get("clouds", True)}
+
+
 def preset_dir(store: ProjectStore) -> Path:
     return store.root / "site" / "look_tests"
 

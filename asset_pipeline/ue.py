@@ -171,36 +171,45 @@ def orphan_breakdown(orphans: list[dict]) -> dict[str, int]:
 
 
 def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False, expect: int | None = None,
-            confirm=None, reset_only: list[str] | None = None, vegetation: bool = False) -> dict:
+            confirm=None, reset_only: list[str] | None = None, vegetation: bool = False,
+            lighting: dict | None = None) -> dict:
     """Import export/manifest.json into the project's UE level.
 
     prune deletes the pipeline actors missing from the manifest, but the editor script only
     does it when their count equals `expect`, or (no expect) is at most PRUNE_MAX. Otherwise
     nothing is deleted, and confirm(count, breakdown) decides: True reruns the import pruning
     exactly that count. confirm=None (headless) never deletes past the check.
-    reset_only: with reset_layout, move back only these slot ids (e.g. the stale ones)."""
-    rep = _import(store, reset_layout, prune, expect, reset_only, vegetation=vegetation)
+    reset_only: with reset_layout, move back only these slot ids (e.g. the stale ones).
+    lighting: look.city_lighting's preset for the level's AP_Env actors (`ap ue build`)."""
+    rep = _import(store, reset_layout, prune, expect, reset_only, vegetation=vegetation, lighting=lighting)
     n = rep.get("prune_refused")
     if prune and n is not None and confirm is not None and confirm(n, orphan_breakdown(rep["orphans"])):
-        rep = _import(store, reset_layout, True, n, reset_only, vegetation=vegetation)
+        rep = _import(store, reset_layout, True, n, reset_only, vegetation=vegetation, lighting=lighting)
     return rep
 
 
 def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | None,
-            reset_only: list[str] | None = None, vegetation: bool = False) -> dict:
+            reset_only: list[str] | None = None, vegetation: bool = False, lighting: dict | None = None) -> dict:
     man_path = s7_export.export_dir(store) / "manifest.json"
     if not man_path.is_file():
         raise FileNotFoundError("no export/manifest.json (run `ap export` first)")
     # The importer's temp folder is emptied at the end of every run, but in the commandlet
     # its redirectors are only deleted in memory: their .uasset files stay, and the next
     # import of a changed GLB there fails ("already an asset of class ObjectRedirector").
-    tmp = project_dir(store) / "Content" / "AP" / "_import"
-    if tmp.is_dir() and not editor_running(uproject(store)):
-        shutil.rmtree(tmp)
+    content = project_dir(store) / "Content" / "AP"
+    if not editor_running(uproject(store)):        # (the library builds' temp folders likewise)
+        for tmp in [content / "_import", *content.glob("CityLibrary/_import_*")]:
+            if tmp.is_dir():
+                shutil.rmtree(tmp)
+    mask = work_dir(store) / "T_AP_White_M.png"      # the default roughness mask of library materials
+    mask.parent.mkdir(parents=True, exist_ok=True)
+    if not mask.is_file():
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)
     t = time.time()
     rep = run_script(store, "ap_import.py", {"manifest": str(man_path), "reset_layout": reset_layout,
                                              "prune": prune, "prune_expect": expect, "prune_max": PRUNE_MAX,
-                                             "reset_only": reset_only, "vegetation": vegetation},
+                                             "reset_only": reset_only, "vegetation": vegetation,
+                                             "mask_default": str(mask), "lighting": lighting},
                      "UE import")
     if "error" in rep:
         raise RuntimeError(f"UE import failed: {rep['error']}\n{rep.get('traceback', '')}")
@@ -210,7 +219,11 @@ def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | 
     rep["ok"] = rep["ok"] and not rep["sample_errors"]
     rep["seconds"] = round(time.time() - t, 1)
     write_json(work_dir(store) / "ap_import_report.json", rep)
+    secs = rep.get("import_seconds") or {}
+    if secs:
+        write_json(work_dir(store) / "import_seconds.json", secs)
     store.log_run({"stage": "ue.import", "ok": rep["ok"], "imported": len(rep["assets"]["imported"]),
+                   "library_placed": (rep.get("library") or {}).get("placed", 0), "import_seconds_total": round(sum(secs.values()), 1),
                    "created": len(rep["actors"]["created"]), "instances": rep["checks"]["instances_total"],
                    "pruned": len(rep.get("pruned", [])), "seconds": rep["seconds"]})
     return rep
@@ -614,13 +627,8 @@ def look_scene(store: ProjectStore, name: str, shot: str, placements: list[dict]
     w, h = s["resolution"]
     cam = {"id": f"look_{name}", "transform": _blender_to_ue_xf_cam(C), "focal_mm": s["lens_mm"],
            "sensor_mm": [s["sensor_mm"], round(s["sensor_mm"] * h / w, 4)], "resolution": [w, h]}
-    fwd, right = -C[:3, 2].copy(), C[:3, 0].copy()
-    fwd[2] = right[2] = 0
-    fwd, right = fwd / np.linalg.norm(fwd), right / np.linalg.norm(right)
-    o = np.radians(sun["offset"])
-    travel = -(fwd * np.cos(o) + right * np.sin(o))
-    sun_ue = {"yaw": float(np.degrees(np.arctan2(-travel[1], travel[0]))), "pitch": -float(sun["elevation"]),
-              "temperature": sun.get("temperature"), "lux": sun.get("lux")}
+    from .look import sun_direction
+    sun_ue = sun_direction(C, sun)
     mask = work_dir(store) / "T_AP_White_M.png"
     mask.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", (8, 8), (255, 255, 255)).save(mask)

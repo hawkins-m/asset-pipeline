@@ -440,7 +440,32 @@ out of them as anchor images, like scenes. The UI has the same steps in the Styl
 ## Unreal Engine 5.8 (export and import)
 
 ```
+ap ue build my-project                 # the whole city in the level, headless (below)
+ap ue build my-project --use-active    # every built asset's Active version, approved or not
+ap ue build my-project --reset-layout  # also move back slots you moved by hand in Unreal
+ap ue build my-project --render        # then render the shots (GPU 1, only while ComfyUI is down)
+```
+
+**`ap ue build`** runs, with the editor closed: backup → export with library builds → the
+terrain assets if the outer ring changed → import → the project's default light → optional
+renders, and prints a short report (builds placed, slots still greybox, time, warnings).
+- Library builds replace their greybox where they can: Approved ones by default
+  (`--use-active` for previews). A kit slot goes whole; a block of several buildings goes only
+  when every building in it has a build, otherwise it stays greybox (no half-built blocks).
+- Each build is an actor `AP_Lib_<key>` attached to its slot's actor, so moving a slot in Unreal
+  moves its buildings. Builds are rebuilt from the manifest on every run.
+- Hand moves are kept: only slots an earlier greybox put somewhere else move back
+  (`--only-stale`, the default).
+- Re-runs are fast: a library build whose GLB is unchanged isn't imported again (the first import
+  of several hundred builds takes about 15-20 minutes).
+- The light comes from `site/look_tests/defaults.json` (its `"city"` key overrides for the city
+  level). A light setting you change in Unreal is kept on later builds.
+- The outer ring replaces its greybox once `ap terrain outer` has built it. A Landscape stays
+  optional and manual (see "Terrain beyond the city").
+
+```
 ap export my-project            # export/: one GLB per greybox mesh (stand-ins) + manifest.json
+ap export my-project --assets   # ... with library builds in place (what ap ue build exports)
 ap ue import my-project         # headless, no GPU: ~1 min the first time, ~10 s when unchanged
 ap ue render my-project         # PNGs through each shot camera (full editor offscreen, GPU 0)
 ap ue pull-layout my-project    # UE level -> site/ue_layout.json (after layout edits in UE)

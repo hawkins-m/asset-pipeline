@@ -37,7 +37,7 @@ def fake_import(monkeypatch, ap_import):
     """ue._import standing in for the editor run, applying the script's own rule."""
     calls = []
 
-    def run(store, reset_layout, prune, expect, n=0, vegetation=False):
+    def run(store, reset_layout, prune, expect, n=0, vegetation=False, lighting=None):
         calls.append({"prune": prune, "expect": expect})
         orphans = _orphans(state["n"])
         rep = {"orphans": orphans, "pruned": []}

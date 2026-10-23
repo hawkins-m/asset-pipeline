@@ -1013,6 +1013,15 @@ def _print_ue_report(rep) -> None:
           f"{len(rep['actors']['kept_transform'])} kept their UE transform, {len(rep['actors']['reset'])} reset; "
           f"{c['instances_total']} instances, {c['cameras']} cameras; sequence {rep['sequence']['path']} "
           f"({rep['sequence']['sections']} shots) in {rep['seconds']} s")
+    lib = rep.get("library") or {}
+    if lib:
+        print(f"library builds: {lib['placed']} placed, {lib['removed']} removed"
+              + (f", {len(lib['unattached'])} without a slot actor (placed in the world)" if lib.get("unattached") else ""))
+    secs = rep.get("import_seconds") or {}
+    if secs:
+        slow = sorted(secs.items(), key=lambda kv: -kv[1])[:3]
+        print(f"import time: {sum(secs.values()):.0f} s for {len(secs)} assets (slowest: "
+              + ", ".join(f"{k} {v:.1f} s" for k, v in slow) + "); per asset in export/ue/import_seconds.json")
     if rep.get("moved_in_ue"):
         print(f"moved in UE (kept): {', '.join(rep['moved_in_ue'])}")
     for k in ("nanite_off", "missing_mi", "instance_mismatch"):
@@ -1091,6 +1100,12 @@ def cmd_ue(a) -> None:
     elif a.action == "pull-layout":
         rep = ue.pull_layout(store)
         print(f"{len(rep['actors'])} actors -> {store.root / 'site/ue_layout.json'}")
+    elif a.action == "build":
+        from . import ue_build
+        if a.reset_layout and a.only_stale:
+            raise SystemExit("--reset-layout or --only-stale, not both (build keeps hand moves by default: --only-stale)")
+        r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render)
+        print("\n".join(ue_build.report_lines(r)))
     elif a.action == "backup":
         rep = ue.backup(store, keep=a.keep, force=a.force)
         print(f"{rep['snapshot']}: {rep['files']} files, {rep['new_mb']} MB new (the rest hard-linked), "
@@ -1634,7 +1649,9 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
-    p.add_argument("action", choices=["init", "import", "stale", "render", "look", "pull-layout", "backup"])
+    p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup"],
+                   help="build: the whole city headless (backup, export with library builds, terrain, import, "
+                        "light, optional --render; keeps hand moves unless --reset-layout)")
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="render: only these shots; look: the look preset's name "
                                             "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")
@@ -1651,6 +1668,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--vegetation", action="store_true",
                    help="import: also place the vegetation points (export/vegetation.json) as tagged TargetPoints for a "
                         "PCG graph (untested in Unreal as of 2026-10-16)")
+    p.add_argument("--use-active", action="store_true",
+                   help="build: place every built asset's Active version, approved or not (previews)")
+    p.add_argument("--render", action="store_true",
+                   help="build: render the shots afterwards (GPU 1, only while ComfyUI is down)")
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)

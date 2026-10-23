@@ -18,11 +18,13 @@ Mixed slots (no partial slots):
 
 Each placed build is an actor of its own in Unreal, attached to its slot's actor: the manifest
 carries its transform relative to the slot, so a slot moved by hand in Unreal takes its builds
-along.
+along. Their GLBs go to export/library/ without embedded textures (`strip_textures`: the
+importer gives them the entry's material instances; Interchange would import every map).
 """
+import json
 import math
-import os
 import shutil
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -135,6 +137,65 @@ def actor_rows(placed: list[dict], slots: dict[str, dict]) -> dict[str, list[dic
     return out
 
 
+TEX_KEYS = ("baseColorTexture", "metallicRoughnessTexture", "normalTexture", "occlusionTexture", "emissiveTexture")
+
+
+def strip_textures(data: bytes) -> bytes:
+    """A GLB without its embedded images: textures, images and samplers go, materials lose their
+    texture slots (names and factors stay: the importer assigns its own instances by material
+    name), and the binary chunk keeps only the buffer views something else still uses."""
+    n = struct.unpack_from("<I", data, 12)[0]
+    js = json.loads(data[20:20 + n])
+    off = 20 + n
+    binb = data[off + 8:off + 8 + struct.unpack_from("<I", data, off)[0]] if off < len(data) else b""
+    drop = {im["bufferView"] for im in js.get("images", []) if "bufferView" in im}
+    for k in ("images", "textures", "samplers"):
+        js.pop(k, None)
+    for m in js.get("materials", []):
+        pbr = m.get("pbrMetallicRoughness") or {}
+        for k in TEX_KEYS:
+            pbr.pop(k, None)
+            m.pop(k, None)
+        m.get("extensions", {}).pop("KHR_materials_emissive_strength", None)
+    used = [e for e in js.get("extensionsUsed", []) if e != "KHR_texture_transform"]
+    if used:
+        js["extensionsUsed"] = used
+    else:
+        js.pop("extensionsUsed", None)
+    js.pop("extensionsRequired", None) if not js.get("extensionsRequired") else None
+    views, remap, out = js.get("bufferViews", []), {}, bytearray()
+    kept = []
+    for i, v in enumerate(views):
+        if i in drop:
+            continue
+        while len(out) % 4:
+            out.append(0)
+        start = v.get("byteOffset", 0)
+        chunk = binb[start:start + v["byteLength"]]
+        remap[i] = len(kept)
+        kept.append(v | {"byteOffset": len(out)})
+        out += chunk
+    js["bufferViews"] = kept
+    for a in js.get("accessors", []):
+        if "bufferView" in a:
+            a["bufferView"] = remap[a["bufferView"]]
+        for part in ("indices", "values"):
+            sp = (a.get("sparse") or {}).get(part)
+            if sp:
+                sp["bufferView"] = remap[sp["bufferView"]]
+    while len(out) % 4:
+        out.append(0)
+    if js.get("buffers"):
+        js["buffers"][0]["byteLength"] = len(out)
+    jb = json.dumps(js, separators=(",", ":"), sort_keys=True).encode()
+    jb += b" " * (-len(jb) % 4)
+    total = 12 + 8 + len(jb) + (8 + len(out) if out else 0)
+    glb = struct.pack("<III", 0x46546C67, 2, total) + struct.pack("<II", len(jb), 0x4E4F534A) + jb
+    if out:
+        glb += struct.pack("<II", len(out), 0x004E4942) + bytes(out)
+    return glb
+
+
 # --- from the project ------------------------------------------------------------------------
 
 def planned_per_slot(store: ProjectStore, gb: dict) -> dict[str, int]:
@@ -182,6 +243,21 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
             "entries": entries, "missing_children": missing}
 
 
+OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain_build.ue_assets)
+TERRAIN_MI = "/Game/AP/Terrain/MI_AP_TerrainAuto"
+
+
+def terrain_section(gb: dict) -> dict | None:
+    """The importer's terrain step: the outer ring's greybox slot (it goes when SM_OuterRing is in
+    the project) and the terrain slots that take the auto material."""
+    ids = [s["id"] for s in gb["slots"] if s["type"] == "terrain"]
+    if not ids:
+        return None
+    outer = next((i for i in ids if i.endswith("outer")), None)
+    return {"outer_slot": outer, "material_slots": [i for i in ids if i != outer],
+            "outer_ring": OUTER_RING, "auto_material": TERRAIN_MI}
+
+
 def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Path, use_active: bool = False,
                     log=print) -> dict:
     """Put the library layer into a stand-in manifest (in place): the placed builds' GLBs under
@@ -205,12 +281,10 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
             continue
         dst = lib / f"{aid}.glb"
         src = store.root / p["glb"]
-        try:
-            os.link(src, dst)
-        except OSError:
-            shutil.copyfile(src, dst)
+        raw = src.read_bytes()
+        dst.write_bytes(strip_textures(raw))         # Unreal would import every embedded map otherwise
         assets[aid] = {"id": aid, "kind": "library", "entry": p["entry"], "glb": f"{LIB_DIR}/{aid}.glb",
-                       "source": p["glb"]}
+                       "source": p["glb"], "stripped_kb": round((len(raw) - dst.stat().st_size) / 1024)}
     for s in m["slots"]:
         mode = pl["replaced"].get(s["id"])
         if mode is None:
@@ -222,6 +296,7 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     m["library_assets"] = sorted(assets.values(), key=lambda a: a["id"])
     m["library_entries"] = {e: ue.library_slots(store.root / j) for e, j in sorted(pl["entries"].items())}
     m["source"] = "library+greybox"
+    m["terrain"] = terrain_section(gb)
     held_entries = sorted({h["entry"] for h in pl["held"]})
     m["library"] = {"use_active": use_active, "placed": len(pl["placed"]), "parents": pl["parents"],
                     "slots_replaced": len(pl["replaced"]), "held": len(pl["held"]), "held_entries": held_entries,

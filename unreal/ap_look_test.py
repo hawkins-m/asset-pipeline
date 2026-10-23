@@ -25,6 +25,7 @@ import unreal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ap_import  # noqa: E402
+import ap_lighting  # noqa: E402
 import ap_material_preview as amp  # noqa: E402
 
 eal = unreal.EditorAssetLibrary
@@ -269,53 +270,19 @@ def main(args):
         eal.save_loaded_asset(m)
         a = spawn(eas, unreal.StaticMeshActor, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), f"AP_Look_{name}", [])
         a.static_mesh_component.set_static_mesh(m)
-    # light: sun at the frame's direction, sky, clouds, haze
+    # light: sun at the frame's direction, sky, clouds, haze (ap_lighting, shared with the city level)
     s = args["sun"]
-    sun = spawn(eas, unreal.DirectionalLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, s["pitch"], s["yaw"]),
-                "AP_Look_sun", [])
-    sun.light_component.set_editor_property("atmosphere_sun_light", True)
-    sun.light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
-    if s.get("lux"):
-        sun.light_component.set_intensity(s["lux"])
-    if s.get("temperature"):
-        sun.light_component.set_editor_property("use_temperature", True)
-        sun.light_component.set_editor_property("temperature", s["temperature"])
-    sky = spawn(eas, unreal.SkyLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, 0, 0), "AP_Look_skylight", [])
-    sky.light_component.set_editor_property("real_time_capture", True)
-    sky.light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
-    sk = args.get("sky") or {}
-    if sk.get("intensity") is not None:     # raised for the shadows' cool fill
-        sky.light_component.set_intensity(float(sk["intensity"]))
-    if sk.get("color"):
-        sky.light_component.set_light_color(unreal.LinearColor(*sk["color"], 1.0))
+    lights = {"sun": spawn(eas, unreal.DirectionalLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, s["pitch"], s["yaw"]),
+                           "AP_Look_sun", []),
+              "skylight": spawn(eas, unreal.SkyLight, unreal.Vector(0, 0, 50000), unreal.Rotator(0, 0, 0), "AP_Look_skylight", []),
+              "fog": spawn(eas, unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_fog", [])}
     spawn(eas, unreal.SkyAtmosphere, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_atmosphere", [])
-    fog = spawn(eas, unreal.ExponentialHeightFog, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_fog", [])
-    fg = args.get("fog") or {"density": args.get("fog_density", 0.02)}
-    fc = fog.component
-    fc.set_editor_property("fog_density", fg["density"])
-    for k, prop in (("falloff", "fog_height_falloff"), ("start_cm", "start_distance")):
-        if k in fg:
-            fc.set_editor_property(prop, fg[k])
-    if "color" in fg:
-        for prop in ("fog_inscattering_luminance", "fog_inscattering_color"):
-            try:
-                fc.set_editor_property(prop, unreal.LinearColor(*fg["color"], 1.0))
-                break
-            except Exception:
-                continue
     if args.get("exposure_bias") is not None:     # manual exposure, set on the paving by the caller
-        ppv = spawn(eas, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_exposure", [])
-        ppv.set_editor_property("unbound", True)
-        stt = ppv.get_editor_property("settings")
-        pp = [("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL),
-              ("auto_exposure_apply_physical_camera_exposure", False),
-              ("auto_exposure_bias", float(args["exposure_bias"]))]
-        if args.get("white_balance"):            # the camera's white point (6500 K: neutral)
-            pp.append(("white_temp", float(args["white_balance"])))
-        for prop, val in pp:
-            stt.set_editor_property(f"override_{prop}", True)
-            stt.set_editor_property(prop, val)
-        ppv.set_editor_property("settings", stt)
+        lights["post"] = spawn(eas, unreal.PostProcessVolume, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0),
+                               "AP_Look_exposure", [])
+    ap_lighting.apply({"sun": s, "sky": args.get("sky"), "fog": args.get("fog") or {"density": args.get("fog_density", 0.02)},
+                       "white_balance": args.get("white_balance") if "post" in lights else None,
+                       "exposure_bias": args.get("exposure_bias")}, lights, report)
     try:
         spawn(eas, unreal.VolumetricCloud, unreal.Vector(0, 0, 0), unreal.Rotator(0, 0, 0), "AP_Look_clouds", [])
         report["clouds"] = True
