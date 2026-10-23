@@ -55,7 +55,8 @@ function assetReview(a) {
     ${a.reroll ? `<div class="reroll-form row" hidden><input type="text" class="reroll-guidance" maxlength="500"
         placeholder="Guidance (optional): taller windows, an open arcade…" aria-label="Guidance for the reroll">
       <button type="button" class="small default reroll-go" title="Start the reroll; the new version appears under Versions.">Go</button>
-      <button type="button" class="small reroll-cancel" title="Close without rerolling.">Cancel</button></div>` : ""}`;
+      <button type="button" class="small reroll-cancel" title="Close without rerolling.">Cancel</button>
+      <div class="hint reroll-settings" style="margin:0;flex-basis:100%"></div></div>` : ""}`;
   const me = $(".manage-entry", el);
   if (me) me.onclick = () => manageEntry(assetEntry(x.id));
   for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {
@@ -106,7 +107,7 @@ function assetReview(a) {
     const rrJobs = activeJobs("library.reroll", {asset: x.id});
     rr.disabled = !!(rrJobs.length || ["library.rebuild", "library.brief_build"].some(k => activeJobs(k, {asset: x.id}).length));
     if (rrJobs.length) { rr.textContent = rrJobs[0].status === "queued" ? "Queued…" : "Rerolling…"; rr.after(stopButton(rrJobs)); }
-    const open = on => { form.hidden = !on; rr.setAttribute("aria-expanded", on); if (on) field.focus(); };
+    const open = on => { form.hidden = !on; rr.setAttribute("aria-expanded", on); if (on) { field.focus(); rerollSettings(x.id, form); } };
     rr.onclick = () => open(form.hidden);
     $(".reroll-cancel", el).onclick = () => open(false);
     const go = async () => {
@@ -180,3 +181,16 @@ $("#cut-views").onclick = async () => {
   try { await api(`/api/projects/${slug}/views/cut`, {}); await load(); }
   catch (err) { alert(errorText(err)); }
 };
+
+
+// Reroll's guidance box: the settings this asset's builder has, in a gray line and the placeholder
+async function rerollSettings(asset, form) {
+  const line = $(".reroll-settings", form), field = $(".reroll-guidance", form);
+  if (line.dataset.loaded === asset) return;
+  try {
+    const st = await api(`/api/projects/${slug}/library/asset/${encodeURIComponent(asset)}/settings`, undefined, "GET");
+    line.textContent = `Settings this builder has: ${st.labels.join(", ")}.`;
+    field.placeholder = `Guidance (optional): ${(st.examples || st.labels.slice(0, 4)).join(", ")}…`;
+    line.dataset.loaded = asset;
+  } catch (err) { line.textContent = ""; }
+}

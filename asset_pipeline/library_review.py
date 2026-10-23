@@ -193,6 +193,8 @@ REROLL_FILES = ("procedural.glb", "procedural.zones.json", "procedural.json")
 
 
 def _short(v) -> str:
+    if v is None:
+        return "auto"                                   # unset: the sheet reading or the default decides
     return json.dumps(v) if isinstance(v, (list, dict)) else str(v)
 
 
@@ -225,8 +227,10 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     version in use: the brief, the build on disk, the review status and the version in use are put
     back afterwards, also when a step fails (then no version is added). to_cpu: the job leaves
     GPU 0 for the Blender build (jobs.hop).
-    A build byte-identical to an existing version's GLB adds no version: the result says which
-    one it matches and why ("unchanged", "message"). A new version carries "changes", one line
+    A build made from the same input as an existing version (kit_proc.build_sha: parts,
+    materials and textures by content, shading, the script) or byte-identical to its GLB adds no
+    version: the result says which one it matches and why ("unchanged", "message"). Guidance
+    that no setting of this builder carries adds none either and lists the settings it has. A new version carries "changes", one line
     on what changed in the brief and what the guidance asked for that no setting covers."""
     from . import brief_guide, building_proc, library_entries, versions
     sp = kit_proc.spec_path(store, asset)
@@ -244,8 +248,10 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     cur = versions.current(store, asset)
     approved = {r["n"] for r in versions.load(store, asset) if r["approved"]}
     rev = reviews(store).get(asset)
-    hashes = {}                                            # the existing versions' GLBs, before the build replaces one
-    for r in versions.load(store, asset):
+    builds, hashes = {}, {}                               # what the existing versions were built from, and their GLBs
+    for r in versions.load(store, asset):                 # (a version from before build_sha: its GLB's hash)
+        if r.get("build_sha"):
+            builds.setdefault(r["build_sha"], r["n"])
         g = versions.version_glb(store, asset, r)
         if g is not None:
             hashes.setdefault(filestore.digest(g), r["n"])
@@ -260,6 +266,10 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             at(1, "VLM: brief edits from the guidance…")
             prop = brief_guide.propose(store, asset, sheet, guidance, view)
             unsupported = prop.get("unsupported") or []
+            if not prop["edits"]:                          # nothing to build: no version
+                return {"version": None, "current": cur, "guidance": guidance, "unchanged": True,
+                        "message": "Guidance didn't match any setting this builder has: "
+                                   + ", ".join(prop.get("settings") or []) + "."}
             brief_guide.apply(store, asset, prop["edits"], guidance)
         else:
             at(1, "VLM: measuring the sheet again…")
@@ -272,7 +282,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         line = change_line(changes, unsupported)
         res = kit_proc.build_any(store, asset, log=log, make_current=False)
         vn = res["version"]
-        same = hashes.get(filestore.digest(out / "procedural.glb"))
+        same = builds.get(res.get("build_sha")) or hashes.get(filestore.digest(out / "procedural.glb"))
         if same is not None:                               # nothing new: no version for it
             versions.delete(store, asset, vn)
             vn = None

@@ -189,3 +189,45 @@ def test_curved_forms_shade_smooth_by_angle_by_default():
     assert bp.shading_of({"form": "cube"}, box) is None                        # blender_kit's default
     assert bp.shading_of({"form": "cube", "shading": "smooth"}, box) == {"smooth": True, "angle": 30.0}
     assert bp.shading_of({"form": "hall_vault", "shading": "flat"}, box) == {"smooth": False}
+
+
+def _hall(proj):
+    sp = _setup(proj)
+    b = read_json(sp)
+    b["dims"], b["form"], b["features"] = [43, 28, 19.5], "hall_vault", {}
+    write_json(sp, b)
+    return sp
+
+
+def test_a_hall_vault_offers_only_the_settings_its_builder_uses(proj):
+    sp = _hall(proj)
+    st = brief_guide.settings(read_json(sp))
+    assert st["labels"] == ["shading (smooth/flat)", "size (width, depth, height)", "materials (base, wall, top)",
+                            "texture scale", "texture source", "plinth height", "vault thickness", "ribs", "end rims",
+                            "skylight", "ridge cap", "end screens", "market stalls", "apron"]
+    assert "features.ribs" in st["paths"] and "features.planter" not in st["paths"]
+    assert not any(p.startswith("params.") for p in st["paths"])           # the hall has no storey or bay rhythm
+    assert st["examples"] == ["shading", "size", "plinth height", "vault thickness", "ribs"]
+
+
+def test_guidance_edits_to_settings_the_builder_ignores_are_dropped(proj):
+    _hall(proj)
+    llm = FakeLLM([{"path": "features.planter", "after": "none", "why": "monolithic"},
+                   {"path": "features.vault_t", "after": 0.9, "why": "heavier"}])
+    r = brief_guide.propose(proj, "hall-a", SHEET, "more monolithic and brutalist", llm=llm)
+    assert [e["path"] for e in r["edits"]] == ["features.vault_t"]
+    assert {d["path"]: d["reason"] for d in r["dropped"]} == {"features.planter": "this builder doesn't use it"}
+    assert "This builder's settings: shading (smooth/flat)" in llm.prompts[0] and "brutalist" in llm.prompts[0]
+    assert "features.planter" not in llm.prompts[0].split("Current brief fields")[1]
+
+
+def test_build_sha_follows_what_is_built_not_where_or_the_texture_path(tmp_path):
+    tex_a, tex_b = tmp_path / "a.jpg", tmp_path / "b.jpg"
+    tex_a.write_bytes(b"concrete")
+    tex_b.write_bytes(b"concrete")
+    job = {"name": "x", "out": "/one/procedural.glb", "parts": [{"kind": "box"}], "materials": {"wall": {"base": str(tex_a)}}}
+    same = job | {"name": "y", "out": "/two/procedural.glb", "materials": {"wall": {"base": str(tex_b)}}}
+    assert kit_proc.build_sha(job) == kit_proc.build_sha(same)
+    tex_b.write_bytes(b"brick")
+    assert kit_proc.build_sha(job) != kit_proc.build_sha(same)
+    assert kit_proc.build_sha(job) != kit_proc.build_sha(job | {"shading": {"smooth": False}})

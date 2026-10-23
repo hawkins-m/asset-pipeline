@@ -14,6 +14,7 @@ patch of the material, box-mapped on every other face.
 
 Output: 3d/library/<asset id>/procedural.glb (+ procedural.json, the maps in procedural/).
 """
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -228,6 +229,23 @@ def zones_path(glb: Path) -> Path:
     return glb.with_name(glb.stem + ".zones.json")
 
 
+def build_sha(job: dict) -> str:
+    """What decides a build's result: the Blender job without its output paths, every texture by
+    its content (not its path) and the script itself. Two builds with the same build_sha make the
+    same model, whatever the GLB's bytes (library_review.reroll adds no version for it)."""
+    def norm(v):
+        if isinstance(v, dict):
+            return {k: norm(x) for k, x in sorted(v.items())}
+        if isinstance(v, list):
+            return [norm(x) for x in v]
+        if isinstance(v, str) and v.startswith("/") and Path(v).is_file():
+            return "sha:" + filestore.digest(Path(v))
+        return v
+    core = {k: v for k, v in job.items() if k not in ("name", "out")}
+    blob = json.dumps(norm(core), sort_keys=True) + filestore.digest(SCRIPT)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: dict, glb: Path, maps: Path,
                 repeat: int = 1, width: float | None = None, extra: dict | None = None, log=print,
                 shading: dict | None = None) -> dict:
@@ -254,7 +272,8 @@ def run_blender(store: ProjectStore, asset: str, parts: list[dict], materials: d
         raise RuntimeError("blender_kit wrote no report:\n" + "\n".join(log_path.read_text().splitlines()[-20:]))
     zrec = zone_records(zones)
     write_json(zones_path(glb), {"asset": asset, "frame": "building: metres, z up, front facing -Y", "zones": zrec})
-    res = json.loads(lines[-1]) | (extra or {}) | {"parts": len(parts), "repeat": repeat, "zones": len(zrec)}
+    res = json.loads(lines[-1]) | (extra or {}) | {"parts": len(parts), "repeat": repeat, "zones": len(zrec),
+                                                   "build_sha": build_sha(job)}
     if repeat == 1 and glb == out_dir(store, asset) / "procedural.glb":
         from .areas import brief_sha                 # batch builds skip a build whose brief hasn't changed
         res["brief_sha"] = brief_sha(store, asset)

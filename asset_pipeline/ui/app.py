@@ -1531,6 +1531,18 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         except FileNotFoundError as e:
             raise HTTPException(404, str(e))
 
+    @app.get("/api/projects/{slug}/library/asset/{asset}/settings")
+    def library_settings(slug: str, asset: str):
+        """What a procedural asset's builder can be steered by (Reroll's guidance box): the
+        settings' short names and the brief fields behind them (brief_guide.settings)."""
+        from .. import brief_guide, kit_proc
+        brief = read_json(kit_proc.spec_path(_store(slug), asset), default=None)
+        if not brief:
+            raise HTTPException(404, f"{asset} has no procedural brief")
+        if brief.get("kind") != "building":
+            return {"labels": ["the kit piece's measurements (Asset review)"], "paths": []}
+        return brief_guide.settings(brief)
+
     @app.post("/api/projects/{slug}/library/asset/{asset}/reroll")
     def library_reroll(slug: str, asset: str, req: RerollReq):
         """Reroll (Views and 3D): a new procedural version from the asset's current sheet, steered

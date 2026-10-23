@@ -241,3 +241,14 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   deletes those twin faces before the weld (`remove_doubles` keeps one of each pair, which hides
   them from a check after it); afterwards the vault had no split seams under 30 deg, only its real
   corners. Brief `shading` (auto | smooth | flat): auto smooths curved forms at 30 deg.
+- **"Guidance does nothing" (2026-10-22, later):** an ap ui still running the code from before
+  the reroll changes (no change line, no duplicate check) while the Blender script, read fresh
+  each build, already had the new face handling. The guidance had reached the brief: "concrete
+  outside" set materials the sheet reading already chose (concrete in every band), and
+  "brutalist" added a planter style to a form with no planters, so both builds were identical.
+  Now the vision model only sees the fields the builder uses (`building_proc.steerable`: each
+  setting nudged and the parts regenerated, no Blender), duplicates are matched on
+  `kit_proc.build_sha` (the Blender job with textures by content, plus the script) as well as the
+  GLB hash, and guidance with no matching setting ends the job without a version. Run without the
+  "never stand in for something with no field" rule, the local VLM answered "a gold dome with a
+  flag" by removing the hall's ridge cap.

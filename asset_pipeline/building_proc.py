@@ -23,6 +23,8 @@ The brief (the project's library/kits/<asset>.json, kind "building"):
               (CURVED_FORMS, and any building with a shell part: drum, dome, apse, rotunda) at
               SMOOTH_ANGLE and the rest at blender_kit's 35 deg; flat keeps every face flat
 """
+import copy
+import json
 from pathlib import Path
 
 import numpy as np
@@ -435,6 +437,85 @@ def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, d
     parts = generate(brief["form"], dims or brief["dims"], sheet | brief.get("params", {}), f)
     return kit_proc.run_blender(store, asset, parts, mats, out or d / "procedural.glb", maps, log=log,
                                 extra={"form": brief["form"]}, shading=shading_of(brief, parts))
+
+
+# fields that act in Blender, not on the parts: always steerable
+BLENDER_FIELDS = ("dims", "surface", "shading")
+BLENDER_PREFIXES = ("material_types.", "material_scale.")
+
+
+def _nudges(path: str, v) -> list:
+    """Other valid values for a brief field, to see whether the builder reads it (several: a
+    rib count of 1 draws no rib, a side of 2 is the same side as 1)."""
+    from . import brief_guide
+    if isinstance(v, bool):
+        return [not v]
+    if isinstance(v, int):
+        return [v + 2, -v, v - 1]
+    if isinstance(v, float):
+        return [round(v * 1.25 + 0.05, 4), round(v * 0.5, 4)]
+    if v is None and path.startswith("params."):
+        return [4.0]
+    if isinstance(v, str):
+        return [o for o in (brief_guide._enum(path) or []) if o != v][:3]
+    if path.endswith(".pattern") and isinstance(v, list):
+        from .building_gen import BAY_KINDS
+        return [[k] for k in BAY_KINDS if k not in v][:2]
+    if isinstance(v, list) and v and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+        return [[x + 1 if isinstance(x, int) else round(x * 1.1 + 0.05, 4) for x in v]]
+    return []
+
+
+def group_of(path: str) -> str:
+    """The setting a brief field belongs to: features.<part>, params.<key>, material_types,
+    material_scale, dims, surface or shading."""
+    head, _, rest = path.partition(".")
+    if head == "features":
+        return "features." + rest.split(".")[0]
+    return path if head == "params" else head
+
+
+def steerable(brief: dict) -> list[str]:
+    """The brief fields (brief_guide.values paths) this building's builder actually uses, by
+    setting (group_of): those that act in Blender (size, materials, texture scale and source,
+    shading) and each form part or param where changing one of its fields changes the generated
+    parts (planters on a form without planters don't). A part counts as a whole, so its fields
+    that only matter once its pattern or kind uses them (a loggia's depth) stay offered.
+    Pure Python: no Blender."""
+    from . import brief_guide, building_gen
+    vals = brief_guide.values(brief)
+    if not vals:
+        return []
+    form, dims = brief["form"], brief["dims"]
+    meas = brief.get("measured") or {}
+    params = {k: meas[k] for k in ("bay_m", "storey_h") if meas.get(k)} | (brief.get("params") or {})
+    f = building_gen.form_features(form, brief.get("features"))
+
+    def key(params_, f_):
+        try:
+            return json.dumps(generate(form, dims, params_, f_), sort_keys=True, default=str)
+        except Exception as ex:                    # noqa: BLE001 (a value it reads and rejects still counts)
+            return f"error: {ex}"
+    base = key(params, f)
+    live = set()
+    for path, v in vals.items():
+        g = group_of(path)
+        if g in live:
+            continue
+        if path in BLENDER_FIELDS or path.startswith(BLENDER_PREFIXES):
+            live.add(g)
+            continue
+        for nv in _nudges(path, v):
+            if path.startswith("params."):
+                k = key(params | {path.split(".", 1)[1]: nv}, f)
+            else:
+                f2 = copy.deepcopy(f)
+                brief_guide._set(f2, path.split(".", 1)[1], nv)
+                k = key(params, f2)
+            if k != base:
+                live.add(g)
+                break
+    return [p for p in vals if group_of(p) in live]
 
 
 def shading_of(brief: dict, parts: list[dict]) -> dict | None:

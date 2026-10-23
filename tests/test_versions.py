@@ -532,19 +532,48 @@ def test_a_reroll_version_says_what_changed_in_the_brief(store, monkeypatch):
     assert res["message"].startswith("v2: Brief: params.w")
 
 
-def test_a_reroll_identical_to_an_existing_version_adds_none_and_says_why(store, monkeypatch):
+def test_guidance_no_setting_carries_adds_no_version_and_lists_the_settings(store, monkeypatch):
     from asset_pipeline import brief_guide
     _fake_reroll_deps(store, monkeypatch)
     _build(store)
     monkeypatch.setattr(brief_guide, "propose", lambda *a, **k: {"edits": [], "dropped": [], "brief_made": False,
-                                                                 "unsupported": ["rounded corners"]})
-    monkeypatch.setattr(brief_guide, "apply", lambda store, asset, edits, guidance: None)
+                                                                 "unsupported": ["rounded corners"],
+                                                                 "settings": ["shading (smooth/flat)", "vault thickness"]})
+    built = []
+    monkeypatch.setattr(kit_proc, "build_any", lambda *a, **k: built.append(1))
     res = lr.reroll(store, "gate", "rounded corners")
-    assert res["version"] is None and res["unchanged"] and res["same_as"] == 1
-    assert res["message"] == ("Nothing changed: the build is identical to v1 (the brief came out the same). "
-                              "No setting for: rounded corners.")
+    assert res["version"] is None and res["unchanged"] and not built
+    assert res["message"] == "Guidance didn't match any setting this builder has: shading (smooth/flat), vault thickness."
     assert [r["n"] for r in versions.load(store, "gate")] == [1] and versions.current(store, "gate") == 1
-    assert not versions.vdir(store, "gate", 2).exists()
+
+
+def test_a_reroll_built_from_the_same_input_adds_no_version_even_when_the_glb_bytes_differ(store, monkeypatch):
+    _fake_reroll_deps(store, monkeypatch)
+
+    def build(store, asset, log=print):                    # an export with a timestamp: new bytes every time
+        out = kit_proc.out_dir(store, asset)
+        out.mkdir(parents=True, exist_ok=True)
+        filestore.detach(out / "procedural.glb")
+        (out / "procedural.glb").write_bytes(b"glb" + os.urandom(16))
+        filestore.intern(store, out / "procedural.glb")
+        from asset_pipeline.areas import brief_sha
+        res = {"faces": 12, "brief_sha": brief_sha(store, asset), "build_sha": "same-parts-and-materials"}
+        write_json(out / "procedural.json", res)
+        return res
+    monkeypatch.setattr(kit_proc, "build", build)
+    _build(store)
+    res = lr.reroll(store, "gate", "wider")
+    assert res["version"] is None and res["unchanged"] and res["same_as"] == 1
+    assert res["message"] == ("Nothing changed: the build is identical to v1 "
+                              "(the brief edits (params.w 10.0 → 14.0) build the same model).")
+    assert [r["n"] for r in versions.load(store, "gate")] == [1] and not versions.vdir(store, "gate", 2).exists()
+
+
+def test_every_procedural_version_card_has_a_what_changed_line(store, monkeypatch):
+    _build(store)
+    _build(store, params={"w": 12.0})
+    lines = {v["n"]: v["changes"] for v in versions.listing(store, "gate")["versions"]}
+    assert lines == {1: "First build with a kept brief.", 2: "Brief: params.w 10.0 → 12.0."}
 
 
 def test_change_line_names_what_has_no_setting():

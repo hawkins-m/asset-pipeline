@@ -170,7 +170,7 @@ def record_procedural(store: ProjectStore, asset: str, report: dict | None = Non
     report = dict(report or {})
     row = {"n": n, "kind": "procedural", "created": created or _now(), "source": _source_of(brief),
            "thumb": None, "bytes": 0, "pinned": False, "approved": False, "files": [], "note": "",
-           "brief_sha": report.get("brief_sha")}
+           "brief_sha": report.get("brief_sha"), "build_sha": report.get("build_sha")}
     settings_ = {"surface": surface or brief.get("surface") or "auto", "report": report}
     row |= _fill_procedural(store, asset, n, brief, settings_, thumbs=thumbs)
     row["bytes"] = _dir_size(vdir(store, asset, n))
@@ -320,15 +320,39 @@ def _view(store, r, cur) -> dict:
     return o
 
 
+def change_lines(store: ProjectStore, asset: str, rows: list[dict], plan: str = PLAN) -> dict[int, str]:
+    """Every procedural version's "what changed" line: the one a reroll stored, else its brief
+    against the version before it (library_review.change_line)."""
+    from . import library_review as lr
+    out, prev = {}, None
+    for r in sorted(rows, key=lambda r: r["n"]):
+        if r["kind"] != "procedural":
+            continue
+        b = read_json(vdir(store, asset, r["n"], plan) / "brief.json", default=None)
+        if r.get("changes"):
+            out[r["n"]] = r["changes"]
+        elif b is None:
+            out[r["n"]] = "No brief kept for this version."
+        elif prev is None:
+            out[r["n"]] = "First build with a kept brief."
+        else:
+            out[r["n"]] = lr.change_line(lr.brief_changes(prev, b), [])
+        prev = b if b is not None else prev
+    return out
+
+
 def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
-    """The strip: versions newest first, sizes, what retention would remove."""
+    """The strip: versions newest first, sizes, what retention would remove, and each procedural
+    version's "what changed" line."""
     if not has_bank(store, asset, plan):
         migrate_asset(store, asset, plan)
     rows = load(store, asset, plan)
     cur = current(store, asset, plan)
     pr = prune(store, asset, dry_run=True, plan=plan)
+    lines = change_lines(store, asset, rows, plan)
     return {"asset": asset, "keep": keep_limit(store), "current": cur,
-            "versions": [_view(store, r, cur) for r in sorted(rows, key=lambda r: -r["n"])],
+            "versions": [_view(store, r, cur) | ({"changes": lines[r["n"]]} if r["n"] in lines else {})
+                         for r in sorted(rows, key=lambda r: -r["n"])],
             "bytes": sum(r["bytes"] for r in rows), "prunable": pr["remove"], "prunable_bytes": pr["bytes"]}
 
 

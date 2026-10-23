@@ -39,6 +39,9 @@ Rules:
 - Change only what the guidance asks for, and a field at most once. At most {max_edits} edits.
 - "why" is one short sentence naming what you saw on the sheet or read in the guidance.
 - If nothing can be expressed with these fields, return an empty list.
+- Every edit must carry out something the guidance asks for. Never remove or change a part the
+  guidance doesn't mention to make room for, or stand in for, something that has no field (a dome,
+  a flag, a colour): list that in "unsupported" and make no edit for it.
 - List in "unsupported" each thing the guidance asks for that no field can express, as a short
   phrase (2-4 words, e.g. "rounded corners"); leave it empty when everything is covered.
 
@@ -55,6 +58,13 @@ each floor) -> arcade.gallery.grid (w, proj); a set-back top storey -> attic (st
 side_setback 0 when the sides are party walls). A face with no openings (a party wall) -> its pattern
 ["solid"] and its ground kind solid. Smooth shading, soft curves, no faceted look -> shading smooth;
 hard faceted surfaces -> shading flat. A part marked "off" is switched on by editing any of its fields.
+
+Broad style words: carry them out with the listed fields where that is reasonable, and only with
+fields that exist (e.g. brutalist or monolithic -> thicker walls or vault, heavier rims or ribs,
+fewer or smaller openings, plain concrete materials). A field already at the value asked for is no
+change: leave it out.
+
+This builder's settings: {labels}
 
 Current brief fields (path = value [choices]):
 {catalogue}
@@ -144,6 +154,44 @@ def catalogue_text(vals: dict, off: set | frozenset = frozenset()) -> str:
     return "\n".join(rows)
 
 
+# --- what a builder can be steered by ------------------------------------------------------
+
+GROUP_LABELS = {"shading": "shading (smooth/flat)", "dims": "size (width, depth, height)",
+                "material_types": "materials (base, wall, top)", "material_scale": "texture scale",
+                "surface": "texture source", "params.storey_h": "storey height", "params.bay_m": "bay width"}
+PART_LABELS = {"base_h": "plinth height", "vault_t": "vault thickness", "end_rim": "end rims",
+               "end_screen": "end screens", "stalls": "market stalls", "wall_t": "wall thickness"}
+LEAD = ("shading", "dims", "material_types", "material_scale", "surface")
+
+
+def _part_label(key: str) -> str:
+    if key in PART_LABELS:
+        return PART_LABELS[key]
+    for suf, word in (("_h", " height"), ("_t", " thickness"), ("_w", " width"), ("_m", "")):
+        if key.endswith(suf):
+            return key[:-len(suf)].replace("_", " ") + word
+    return key.replace("_", " ")
+
+
+def setting_labels(paths) -> list[str]:
+    """Short names for the settings behind brief fields (building_proc.group_of), the Blender
+    ones first: "shading (smooth/flat)", "size (...)", ..., "vault thickness", "end rims"."""
+    from .building_proc import group_of
+    groups = list(dict.fromkeys(group_of(p) for p in paths))
+    groups.sort(key=lambda g: LEAD.index(g) if g in LEAD else len(LEAD))
+    return [GROUP_LABELS.get(g) or _part_label(g.split(".", 1)[1]) for g in groups]
+
+
+def settings(brief: dict) -> dict:
+    """{paths, labels, examples}: the fields this asset's builder uses, their settings' short
+    names, and a few for the guidance box's placeholder."""
+    from .building_proc import steerable
+    paths = steerable(brief)
+    labels = setting_labels(paths)
+    own = [lb for lb in labels if lb not in GROUP_LABELS.values()]       # the form's own parts
+    return {"paths": paths, "labels": labels, "examples": ["shading", "size"] + own[:3]}
+
+
 # --- applying edits --------------------------------------------------------------------------
 
 def _set(d: dict, path: str, value) -> None:
@@ -200,8 +248,10 @@ def _coerce(before, after):
     return str(after)
 
 
-def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tuple[list[dict], list[dict]]:
-    """(edits kept, dropped with reasons). raw rows have path, after, why; `before` is filled in."""
+def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict],
+          allowed: set | None = None) -> tuple[list[dict], list[dict]]:
+    """(edits kept, dropped with reasons). raw rows have path, after, why; `before` is filled in.
+    allowed: the fields the builder uses (settings()["paths"]); others are dropped."""
     off: set = set()
     vals = values(brief, off)
     base_errs = set(lr.validate(store, asset, brief)["errors"])
@@ -211,6 +261,9 @@ def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict]) -> tupl
         row = {"path": path, "after": r["after"], "why": why}
         if path not in vals:
             dropped.append(row | {"reason": "not a field of this brief"})
+            continue
+        if allowed is not None and path not in allowed:
+            dropped.append(row | {"reason": "this builder doesn't use it"})
             continue
         if path in seen:
             dropped.append(row | {"reason": "the same field twice"})
@@ -278,10 +331,12 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
     if brief.get("kind") != "building":
         raise ValueError(f"{asset} is a kit piece: edit its measurements in Asset review")
     off: set = set()
-    vals = values(brief, off)
+    st = settings(brief)
+    allowed = set(st["paths"])
+    vals = {k: v for k, v in values(brief, off).items() if k in allowed}
     r = structured(llm or llm_for(None),
                    PROMPT.format(asset=asset, form=brief.get("form"), guidance=guidance, max_edits=max_edits,
-                                 catalogue=catalogue_text(vals, off)),
+                                 labels=", ".join(st["labels"]), catalogue=catalogue_text(vals, off)),
                    [_image(store, brief, sheet)], Edits, system=SYSTEM)
     raw = [e.model_dump() for e in r.edits]
     unsupported = [u.strip() for u in r.unsupported if u.strip()]
@@ -289,12 +344,12 @@ def propose(store: ProjectStore, asset: str, sheet: str, guidance: str, view="fr
         if not any(e["path"] == "shading" for e in raw):
             raw.append({"path": "shading", "after": "smooth", "why": "the guidance asks for smooth shading"})
         unsupported = [u for u in unsupported if not re.search(r"smooth|facet|shad", u, re.I)]
-    kept, dropped = check(store, asset, brief, raw)
+    kept, dropped = check(store, asset, brief, raw, allowed)
     extra = [{"path": e["path"], "after": e["after"], "why": e["why"], "reason": f"more than {max_edits} edits"}
              for e in kept[max_edits:]]
-    unsupported += [d["path"] for d in dropped if d["reason"] == "not a field of this brief"]
+    unsupported += [d["path"] for d in dropped if d["reason"] in ("not a field of this brief", "this builder doesn't use it")]
     return {"edits": kept[:max_edits], "dropped": dropped + extra, "brief_made": made,
-            "unsupported": list(dict.fromkeys(unsupported))}
+            "unsupported": list(dict.fromkeys(unsupported)), "settings": st["labels"]}
 
 
 def apply(store: ProjectStore, asset: str, edits: list[dict], guidance: str) -> dict:
