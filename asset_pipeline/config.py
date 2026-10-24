@@ -25,12 +25,38 @@ ENV_OVERRIDES = {
     "AP_COMFY_URL": ("comfyui", "url"),
     "AP_COMFY_BACKEND": ("comfyui", "backend"),
     "AP_COMFY_SDK_URL": ("comfyui", "sdk_url"),
+    "AP_COMFY_MODELS": ("comfyui", "models_dir"),
+    "AP_DINOV3_REPO": ("models", "dinov3_repo"),
     "AP_UE_EDITOR_CMD": ("unreal", "editor_cmd"),
     "AP_UE_PROJECTS": ("unreal", "projects_dir"),
     "AP_UE_BACKUPS": ("unreal", "backup_dir"),
     "AP_GPU_VISION": ("jobs", "gpu0_gpu"),
     "AP_GPU_COMFY": ("jobs", "comfy_gpu"),
 }
+# Every other environment variable the code or scripts read, with what it does. Settings belong in
+# the user config; these are run-time switches, build knobs and standard variables.
+# tests/test_registry.py fails on a read of an AP_/COMFY/HF_/TRELLIS_/PROXY_ variable not listed here
+# (or in ENV_OVERRIDES / SECRET_KEYS).
+ENV_VARS = {
+    "AP_ROOT": "storage folder for this shell (wins over [paths] ap_root)",
+    "AP_CONFIG_DIR": "the user config folder (default ~/.config/terraformer)",
+    "AP_VENV": "the orchestrator venv scripts/ap runs (default [paths] venv)",
+    "AP_ALLOW_PAID_APIS": "1 lets paid backends run for one command",
+    "AP_UE_ARGS": "extra UnrealEditor-Cmd arguments (debugging)",
+    "AP_UE_BACKUP_KEEP": "UE snapshots kept ([unreal] backup_keep)",
+    "AP_TORCH": "PyTorch build for model venvs: rocm7.2 or cu128 (scripts/torch_index.sh; the hardware profile)",
+    "AP_PROFILE": "hardware profile for this shell ([hardware] profile)",
+    "COMFYUI_URL": "ComfyUI address for scripts/comfy_api_proxy.sh (ap passes [comfyui] url)",
+    "COMFYUI_MODELS": "scripts/fetch_models.sh: ComfyUI models folder (same as AP_COMFY_MODELS)",
+    "COMFY_BASE_URL": "set by sdk_client for comfy-sdk while it is constructed",
+    "HF_ENDPOINT": "Hugging Face mirror for downloads (default https://huggingface.co)",
+    "HF_HOME": "Hugging Face cache for model venvs (<storage>/hf)",
+    "TRELLIS_GPU": "GPU for one scripts/trellis run ([jobs] gpu0_gpu)",
+    "PROXY_PORT": "comfy-api-proxy port (ap passes [comfyui] sdk_url's port)",
+    "PROXY_VERSION": "comfy-api-proxy version scripts/comfy_api_proxy.sh installs",
+    "GFX1201_GUARD": "scripts/gfx1201_guard.py switch (ROCm gfx1201 workarounds)",
+}
+
 # API keys secrets.toml may hold ([keys] NAME = "value"); the environment wins over the file
 SECRET_KEYS = ("COMFY_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "HF_TOKEN")
 

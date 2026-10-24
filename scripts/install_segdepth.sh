@@ -23,15 +23,12 @@ stage_venv() {
   "$PY" -m pip install "transformers>=4.57" accelerate pillow huggingface_hub scipy
 }
 
-stage_models() {
-  for repo in shi-labs/oneformer_ade20k_swin_large depth-anything/Depth-Anything-V2-Small-hf; do
-    "$ENV/bin/hf" download "$repo" --local-dir "$MODELS/${repo#*/}"
-  done
+stage_models() {        # the manifest's files, checksums and resume (config/models.toml)
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap" models download oneformer-ade20k depth-anything-v2-small
 }
 
 stage_mask2former() {   # experimental A/B only
-  "$ENV/bin/hf" download facebook/mask2former-swin-large-ade-semantic \
-    --local-dir "$MODELS/mask2former-swin-large-ade-semantic"
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap" models download mask2former-ade20k
 }
 
 [ $# -gt 0 ] || set -- venv models

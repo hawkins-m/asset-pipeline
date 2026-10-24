@@ -47,6 +47,9 @@ ITEMS = [
          optional=True),
     Item("comfy_cwd", "ComfyUI folder", "comfyui.service.cwd",
          "The folder the launch command runs in (your ComfyUI checkout).", "path", optional=True),
+    Item("comfy_models_dir", "ComfyUI models folder", "comfyui.models_dir",
+         "Your ComfyUI's models folder: `ap models download` puts the ComfyUI models there (found from a running "
+         "ComfyUI).", "path"),
     Item("comfy_api_key", "Comfy account API key", "secret:COMFY_API_KEY",
          "Only for Comfy Cloud, a paid service (not the default, not needed for a local ComfyUI).", "secret",
          optional=True, when="backend=sdk"),
@@ -56,6 +59,12 @@ ITEMS = [
     Item("anthropic_key", "Anthropic API key", "secret:ANTHROPIC_API_KEY",
          "Needed only because the default vision LLM is Claude (paid; runs need AP_ALLOW_PAID_APIS=1).", "secret",
          when="paid=claude"),
+    Item("hf_token", "Hugging Face token", "secret:HF_TOKEN",
+         "Only for gated models (FLUX.1 Redux dev; DINOv3 for TRELLIS): accept each license on its model page, then "
+         "paste a read token from huggingface.co/settings/tokens. `hf auth login` works too.", "secret", optional=True),
+    Item("models", "Models", "info:models",
+         "The model files the pipeline needs (config/models.toml): `ap models list` shows each, `ap models download "
+         "--required` gets what's missing.", "info"),
     Item("blender", "Blender", "tools.blender",
          "The Blender executable (greybox, procedural buildings, renders). Blender 4.2 or newer.", "path"),
     Item("unreal", "Unreal Engine", "unreal.editor_cmd",
@@ -97,7 +106,7 @@ def _shown(item: Item, values: dict) -> bool:
 
 
 def current(item: Item) -> str:
-    if item.key.startswith("secret:"):
+    if item.key.startswith(("secret:", "info:")):
         return ""                                   # never sent back; `has_value` says whether one is set
     v = config.get(item.key, "")
     return "" if v is None else str(v)
@@ -105,6 +114,9 @@ def current(item: Item) -> str:
 
 def _has_secret(item: Item) -> bool:
     name = item.key.removeprefix("secret:")
+    if name == "HF_TOKEN":
+        from . import models
+        return bool(models.hf_token())                # `hf auth login` counts too
     return bool(os.environ.get(name) or config.secrets().get(name))
 
 
@@ -158,6 +170,8 @@ def detect() -> dict[str, str]:
     d["sdk_url"] = config.get("comfyui.sdk_url") or "http://127.0.0.1:8190"
     if Path("~/ComfyUI/main.py").expanduser().is_file() and not config.user().get("comfyui", {}).get("service", {}).get("cwd"):
         d["comfy_cwd"] = "~/ComfyUI"
+    if (md := _comfy_models_dir(d["comfy_url"])):
+        d["comfy_models_dir"] = md
     if (b := _blender_candidates()):
         d["blender"] = b[0]
     if (u := _unreal_candidates()):
@@ -170,6 +184,26 @@ def detect() -> dict[str, str]:
         comfy = str(len(gpus) - 1)                     # one GPU: both on it
     d["gpu_comfy"] = comfy
     return d
+
+
+def _comfy_models_dir(url: str) -> str:
+    """The configured folder, else the one a running ComfyUI reports, else <ComfyUI folder>/models."""
+    if config.get("comfyui.models_dir"):
+        return str(config.get("comfyui.models_dir"))
+    from .comfy.client import ComfyClient, ComfyError
+    import httpx
+    c = ComfyClient(url, timeout_s=2)
+    c.http.timeout = httpx.Timeout(2)
+    try:
+        ck = (c.folder_paths().get("checkpoints") or [""])[0]
+        if ck:
+            return str(Path(ck).parent)
+    except (ComfyError, httpx.HTTPError, ValueError):
+        pass
+    finally:
+        c.http.close()
+    cwd = Path(os.path.expanduser(str(config.get("comfyui.service.cwd") or "~/ComfyUI")))
+    return str(cwd / "models") if (cwd / "models").is_dir() else ""
 
 
 def _ue_projects_default() -> Path:
@@ -213,7 +247,7 @@ def _test_storage(v: str, _all: dict) -> dict:
         return _res(False, "Choose a folder.")
     p = Path(v).expanduser()
     if not p.is_absolute():
-        return _res(False, "Use a full path, e.g. /home/you/terraformer-data.")
+        return _res(False, "Use a full path, e.g. /data/terraformer (or ~/terraformer).")
     probe = p
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent
@@ -326,17 +360,20 @@ def _check_cwd(v: str, _all: dict) -> dict:
                 warn=not (p / "main.py").is_file())
 
 
-def _test_secret(name: str, paid: bool, optional: bool = False):
+def _test_secret(name: str, paid: bool, optional: bool = False, unset: str = "Not set: not needed for a local ComfyUI."):
     def t(v: str, _all: dict) -> dict:
         have = v or os.environ.get(name) or config.secrets().get(name)
+        if not have and name == "HF_TOKEN":
+            from . import models
+            have = models.hf_token()
         if not have and optional:
-            return _res(True, "Not set: not needed for a local ComfyUI.", warn=True)
+            return _res(True, unset, warn=True)
         if not have:
             return _res(False, f"No {name} set.")
         if len(have.strip()) < 16:
             return _res(False, f"{name} looks too short to be a key.")
-        return _res(True, f"{name} is set. Not checked online: that would call a paid service; "
-                          "the first real run tells.", warn=True)
+        return _res(True, f"{name} is set. Not checked online: " + ("that would call a paid service; the first real "
+                          "run tells." if paid else "the first download tells."), warn=True)
     return t
 
 
@@ -419,6 +456,33 @@ def _test_gpu(v: str, all_: dict) -> dict:
     return _res(True, msg)
 
 
+def _test_comfy_models_dir(v: str, _all: dict) -> dict:
+    from . import models
+    if not v:
+        return _res(False, "Set your ComfyUI's models folder (it has checkpoints/, loras/, … in it).")
+    p = Path(v).expanduser()
+    if not p.is_dir():
+        return _res(False, f"{p} isn't a folder.")
+    comfy = [m for m in models.load() if m.root == "comfyui" and models.required(m)]
+    have = [m for m in comfy if all((p / f.dest).is_file() for f in m.files)]
+    msg = f"Works: {p}; {len(have)} of {len(comfy)} required ComfyUI models in it."
+    if len(have) < len(comfy):
+        return _res(True, msg + " Get the rest: " + models.download_command([m.id for m in comfy if m not in have]), warn=True)
+    return _res(True, msg)
+
+
+def _test_models(_v: str, _all: dict) -> dict:
+    from . import models
+    miss = models.missing()
+    if not miss:
+        return _res(True, "Every required model is installed.")
+    size = sum(models.status(m)["missing_bytes"] for m in miss)
+    gated = [m.id for m in miss if m.gated]
+    return _res(False, f"{len(miss)} required model(s) missing ({models.gb(size)}): run "
+                       f"{models.download_command([m.id for m in miss])}"
+                + (f". Gated: {', '.join(gated)} (accept the license on its page and set the Hugging Face token)." if gated else "."))
+
+
 def _test_choice(v: str, _all: dict) -> dict:
     if v not in ("sdk", "httpx"):
         return _res(False, "Choose sdk or httpx.")
@@ -428,7 +492,9 @@ def _test_choice(v: str, _all: dict) -> dict:
 
 TESTS = {
     "storage": _test_storage, "comfy_backend": _test_choice, "comfy_url": _test_comfy_url, "sdk_url": _test_sdk,
-    "comfy_launch": _test_launch, "comfy_cwd": _test_cwd,
+    "comfy_launch": _test_launch, "comfy_cwd": _test_cwd, "comfy_models_dir": _test_comfy_models_dir,
+    "hf_token": _test_secret("HF_TOKEN", False, optional=True,
+                             unset="Not set: needed only to download a gated model (see Models below)."), "models": _test_models,
     "comfy_api_key": _test_secret("COMFY_API_KEY", True, optional=True), "gemini_key": _test_secret("GEMINI_API_KEY", True),
     "anthropic_key": _test_secret("ANTHROPIC_API_KEY", True), "blender": _test_blender, "unreal": _test_unreal,
     "unreal_projects": _test_ue_projects, "gpu_vision": _test_gpu, "gpu_comfy": _test_gpu,
@@ -464,7 +530,7 @@ def save(values: dict, secrets: dict | None = None) -> dict:
     remove = []
     for item_id, v in values.items():
         item = BY_ID.get(item_id)
-        if not item or item.key.startswith("secret:"):
+        if not item or item.key.startswith(("secret:", "info:")):
             continue
         v = "" if v is None else str(v).strip()
         sec, _, key = item.key.rpartition(".")

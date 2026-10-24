@@ -10,8 +10,11 @@ source "$REPO/scripts/build_env_common.sh"
 vendor="$(ap_gpu_vendor)"
 # ROCm toolchain/arch exports only on AMD; on NVIDIA only the common ones (untested).
 [ "$vendor" = nvidia ] || source "$REPO/scripts/rocm_build_env.sh"
-# Machine-local settings (e.g. AP_DINOV3_REPO), outside the repo.
+# Machine-local settings, outside the repo: older installs keep them in local.env; the DINOv3 mirror
+# is [models] dinov3_repo in the user config (config/models.toml lists the allowed mirrors).
 [ -f "$AP_ROOT/local.env" ] && source "$AP_ROOT/local.env"
+dino="$(python3 "$REPO/scripts/ap_config.py" models.dinov3_repo 2>/dev/null || true)"
+[ -n "$dino" ] && export AP_DINOV3_REPO="${AP_DINOV3_REPO:-$dino}"
 
 if [ $# -lt 1 ] || [ "$1" = -h ] || [ "$1" = --help ]; then
   sed -n 2,6p "$0" | sed 's/^# \{0,1\}//'

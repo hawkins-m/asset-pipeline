@@ -5,7 +5,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from asset_pipeline import cli, config, doctor, gpu, preflight, setup
+from asset_pipeline import cli, config, doctor, gpu, models, setup
 from asset_pipeline.jobs import JobQueue
 from asset_pipeline.ui import app as ui_app
 from asset_pipeline.ui import setup_api
@@ -23,9 +23,10 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(setup, "proxy_installed", lambda: tmp_path / "proxy")
     monkeypatch.setattr(doctor, "check_comfy_models", lambda url: doctor._c("comfy_models", "ComfyUI models", True, "all 5"))
     monkeypatch.setattr(setup, "_test_blender", lambda v, a: {"ok": True, "warn": False, "message": "Works: Blender 5.2"})
-    ok = [preflight.Check("Vision LLM (Qwen3-VL)", True, "usable: 8b"), preflight.Check("Segmentation/depth (x)", True, "ok"),
-          preflight.Check("TRELLIS.2 (y)", True, "ok", False)]
-    monkeypatch.setattr(preflight, "local_checks", lambda: ok)
+    monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [])   # every model installed
+    for env in ("envs/llamacpp/llama-server", "envs/segdepth/bin/python", "envs/trellis2/bin/python", "src/TRELLIS.2/x"):
+        (tmp_path / env).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / env).write_text("")
 
     class Client:
         def health(self):
@@ -78,12 +79,19 @@ def test_sdk_needs_the_proxy_installed_but_not_running(box, monkeypatch):
 
 def test_missing_gpu_and_vision_model(box, monkeypatch):
     monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 8}])
-    monkeypatch.setattr(preflight, "local_checks", lambda: [
-        preflight.Check("Vision LLM (Qwen3-VL)", False, "none installed"), preflight.Check("Segmentation/depth (x)", True, "ok"),
-        preflight.Check("TRELLIS.2 (y)", False, "missing", False)])
+    gone = {"vlm": ["vlm-32b"], "trellis": ["trellis2-4b", "birefnet"]}
+    monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [models.get(i) for i in gone.get(feature, [])])
     rep = doctor.report()
     assert "doesn't exist" in _by(rep)["gpus"]["detail"] and rep["missing"] == 2
+    assert _by(rep)["vlm"]["fix"] == "ap models download vlm-32b"                # the exact command, from the manifest
+    assert _by(rep)["trellis"]["fix"] == "ap models download trellis2-4b birefnet" and _by(rep)["trellis"]["optional"]
     assert not rep["features"]["vlm"]["ok"] and not rep["features"]["trellis"]["ok"] and rep["features"]["blender"]["ok"]
+
+
+def test_a_missing_model_env_names_its_install_script(box):
+    (box / "envs/segdepth/bin/python").unlink()
+    c = _by(doctor.report())["segdepth"]
+    assert c["level"] == "fail" and c["fix"] == "scripts/install_segdepth.sh venv"
 
 
 def test_ap_doctor_exit_code_and_text(box, monkeypatch, capsys):

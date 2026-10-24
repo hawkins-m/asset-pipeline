@@ -1,0 +1,425 @@
+# Every model the pipeline loads: the one list `ap models`, `ap doctor`, Setup and the installer read.
+# A new model goes here (and in the README's models and licenses table) before any code loads it;
+# tests/test_registry.py fails otherwise. Files are pinned to a revision with their size and checksum
+# (sha256 for LFS files, the git blob sha1 for small ones), read from the Hugging Face API.
+#
+# need:   required      on every install (the demo path)
+#         local.model   required when [local] model (or fallback) names its `select` value
+#         optional      only for one route (TRELLIS); off without it
+#         experimental  not part of the default pipeline
+# root:   comfyui   [comfyui] models_dir (your ComfyUI's models folder)
+#         models    <storage>/models
+#         hf_cache  <storage>/hf/hub (the Hugging Face cache layout; TRELLIS.2 loads these by repo id)
+# gated:  false | "auto" (accept the license on the model page; granted at once) | "manual" (the owner reviews)
+# vram_gb: free VRAM the feature needs while this model runs (0: counted with the feature's main model)
+
+[[model]]
+id = "flux1-dev-fp8"
+title = "FLUX.1-dev (fp8)"
+used_by = "Concept frames, style scenes and reference sheets (ComfyUI)"
+feature = "comfy"
+need = "required"
+license = "FLUX.1 [dev] Non-Commercial License"
+repo = "Comfy-Org/flux1-dev"
+revision = "83c446ef27a6ac1e9e36ecf13257283aa12cf22a"
+gated = false
+root = "comfyui"
+vram_gb = 24
+files = [
+  { src = "flux1-dev-fp8.safetensors", dest = "checkpoints/flux1-dev-fp8.safetensors", size = 17246524772, sha256 = "8e91b68084b53a7fc44ed2a3756d821e355ac1a7b6fe29be760c1db532f3d88a" },
+]
+
+[[model]]
+id = "flux1-redux-dev"
+title = "FLUX.1 Redux dev"
+used_by = "Style anchor for frames and sheets (ComfyUI)"
+feature = "comfy"
+need = "required"
+license = "FLUX.1 [dev] Non-Commercial License"
+repo = "black-forest-labs/FLUX.1-Redux-dev"
+revision = "c95859fbf7703ca4d6824b4da4407d7cd0434f81"
+gated = "auto"
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "flux1-redux-dev.safetensors", dest = "style_models/flux1-redux-dev.safetensors", size = 129063232, git_sha1 = "5a7d3d4257d0949bcd5ddbe504c0a15c08810b9f" },
+]
+
+[[model]]
+id = "sigclip-vision-384"
+title = "SigLIP so400m patch14-384 (vision)"
+used_by = "Redux image encoder (ComfyUI)"
+feature = "comfy"
+need = "required"
+license = "Apache-2.0"
+repo = "Comfy-Org/sigclip_vision_384"
+revision = "5421dab31229df19801c8e3af446b5a8bc71a3bc"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "sigclip_vision_patch14_384.safetensors", dest = "clip_vision/sigclip_vision_patch14_384.safetensors", size = 856505640, sha256 = "1fee501deabac72f0ed17610307d7131e3e9d1e838d0363aa3c2b97a6e03fb33" },
+]
+
+[[model]]
+id = "controlnet-union-pro-2"
+title = "ControlNet Union Pro 2.0 (Shakker-Labs)"
+used_by = "Depth control of concept frames (ComfyUI)"
+feature = "comfy"
+need = "required"
+license = "FLUX.1-dev non-commercial (derivative)"
+repo = "Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0"
+revision = "5d700aaad96c5ddcdf8a38ef9b22a82aac2c38e5"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "diffusion_pytorch_model.safetensors", dest = "controlnet/flux1-dev-controlnet-union-pro-2.0.safetensors", size = 4281779224, sha256 = "9d03f63f36206bab2f36aed5cfedc8693c2881397534e9d5f9ae9a0a41362517" },
+]
+
+[[model]]
+id = "sam3.1"
+title = "SAM 3.1"
+used_by = "Text-prompted masks (ComfyUI)"
+feature = "comfy"
+need = "required"
+license = "Meta SAM License"
+repo = "Comfy-Org/sam3.1"
+revision = "7bb8374780a725b4353ed31f3a9395c9742b5621"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "checkpoints/sam3.1_multiplex_fp16.safetensors", dest = "checkpoints/sam3.1_multiplex_fp16.safetensors", size = 1745546848, sha256 = "9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03" },
+]
+
+[[model]]
+id = "flux1-depth-dev-lora"
+title = "FLUX.1 Depth dev LoRA"
+used_by = "Depth-LoRA frames, an A/B against the Union ControlNet (experimental)"
+feature = "comfy"
+need = "experimental"
+license = "FLUX.1 [dev] Non-Commercial License"
+repo = "black-forest-labs/FLUX.1-Depth-dev-lora"
+revision = "dc70845a5f24455b6262f92d5e732bc072417539"
+gated = "auto"
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "flux1-depth-dev-lora.safetensors", dest = "loras/flux1-depth-dev-lora.safetensors", size = 1244440512, git_sha1 = "cb12f26d11626f39cacb14f3aa186ce98d7d1e6d" },
+]
+
+[[model]]
+id = "hunyuan3d-2mv-turbo"
+title = "Hunyuan3D-2mv turbo"
+used_by = "Untextured shapes from views (experimental)"
+feature = "comfy"
+need = "experimental"
+license = "Tencent Hunyuan Community License (not licensed in the EU, UK and South Korea)"
+repo = "tencent/Hunyuan3D-2mv"
+revision = "3a761b539b29fe4ff64714813aa9560fd66f5de0"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "hunyuan3d-dit-v2-mv-turbo/model.fp16.safetensors", dest = "checkpoints/hunyuan3d-dit-v2-mv-turbo.safetensors", size = 4930777530, sha256 = "172d7a989b99f66af760da0080d8c6f6350c72609536cf0c55b87a4afa574e45" },
+]
+
+[[model]]
+id = "wan2.2-i2v"
+title = "Wan 2.2 I2V 14B (fp8) and Lightx2v LoRAs"
+used_by = "Hero orbits (experimental)"
+feature = "comfy"
+need = "experimental"
+license = "Apache-2.0"
+repo = "Comfy-Org/Wan_2.2_ComfyUI_Repackaged"
+revision = "ee6f4a40737a995bf5818954cfce6d59443b0f04"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", dest = "diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", size = 14294742832, sha256 = "6122e79d55e0f235698d11d657f3b196c5273c830da00b2b013c5a048d5e6a42" },
+  { src = "split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", dest = "diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", size = 14294742832, sha256 = "5471a457b6ac404202a5fbe6c11595a3d5641fc766b00f38763f72303fffc21e" },
+  { src = "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", dest = "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", size = 1226977424, sha256 = "d176c808d6fc461999b68e321efcb7501b20b8c3797523ed0df14f7d1deff11e" },
+  { src = "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", dest = "loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", size = 1226977424, sha256 = "024f21de095bc8fad9809ded3e9e49a2e170dcf27075da8145ba7d60d8aab7f9" },
+]
+
+[[model]]
+id = "wan2.1-encoders"
+title = "Wan 2.1 text encoder (umt5 fp8) and VAE"
+used_by = "Hero orbits (experimental)"
+feature = "comfy"
+need = "experimental"
+license = "Apache-2.0"
+repo = "Comfy-Org/Wan_2.1_ComfyUI_repackaged"
+revision = "123acf1cc74bccbb9bfff8ac1ee72edc08c2341d"
+gated = false
+root = "comfyui"
+vram_gb = 0
+files = [
+  { src = "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors", dest = "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors", size = 6735906897, sha256 = "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68" },
+  { src = "split_files/vae/wan_2.1_vae.safetensors", dest = "vae/wan_2.1_vae.safetensors", size = 253815318, sha256 = "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b" },
+]
+
+[[model]]
+id = "vlm-32b"
+title = "Qwen3-VL-32B-Instruct Q5_K_M (GGUF)"
+used_by = "Vision model: scene plans, briefs, guidance ([local] model = \"32b\", llama.cpp)"
+feature = "vlm"
+need = "local.model"
+select = "32b"
+license = "Apache-2.0"
+repo = "unsloth/Qwen3-VL-32B-Instruct-GGUF"
+revision = "b9262a359f54dead8e2609f6146e2fc3398fd0d9"
+gated = false
+root = "models"
+vram_gb = 28
+files = [
+  { src = "Qwen3-VL-32B-Instruct-Q5_K_M.gguf", dest = "gguf/Qwen3-VL-32B-Instruct-GGUF/Qwen3-VL-32B-Instruct-Q5_K_M.gguf", size = 23214833440, sha256 = "e20982605cd95b5941fc76c14037623b44684db43c742724ccd8ceefc5b7f509" },
+  { src = "mmproj-F16.gguf", dest = "gguf/Qwen3-VL-32B-Instruct-GGUF/mmproj-F16.gguf", size = 1196795552, sha256 = "dde7e407cf72e601455976c2d0daa960d16ee34ba3f0c78718c881d8cd8c1052" },
+]
+
+[[model]]
+id = "vlm-8b"
+title = "Qwen3-VL-8B-Instruct (bf16)"
+used_by = "Vision model for smaller GPUs ([local] model = \"8b\", transformers)"
+feature = "vlm"
+need = "local.model"
+select = "8b"
+license = "Apache-2.0"
+repo = "Qwen/Qwen3-VL-8B-Instruct"
+revision = "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+gated = false
+root = "models"
+vram_gb = 19
+files = [
+  { src = ".gitattributes", dest = "Qwen3-VL-8B-Instruct/.gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = "README.md", dest = "Qwen3-VL-8B-Instruct/README.md", size = 7133, git_sha1 = "06fb2c8220b4fb51ccca87dd694ef9d240c36745" },
+  { src = "chat_template.json", dest = "Qwen3-VL-8B-Instruct/chat_template.json", size = 5499, git_sha1 = "1081bacf1af7c7c6de4a585ce02cd0fd34e382da" },
+  { src = "config.json", dest = "Qwen3-VL-8B-Instruct/config.json", size = 1474, git_sha1 = "0e2df614c5fe1ad2b6b540c8625bebf2d7ec43ca" },
+  { src = "generation_config.json", dest = "Qwen3-VL-8B-Instruct/generation_config.json", size = 269, git_sha1 = "e116347d7ef42621c7a5957f82c015c38d939c1f" },
+  { src = "merges.txt", dest = "Qwen3-VL-8B-Instruct/merges.txt", size = 1671839, git_sha1 = "20024bfe7c83998e9aeaf98a0cd6a2ce6306c2f0" },
+  { src = "model-00001-of-00004.safetensors", dest = "Qwen3-VL-8B-Instruct/model-00001-of-00004.safetensors", size = 4902275944, sha256 = "d5d0aef0eb170fc7453a296c43c0849a56f510555d3588e4fd662bb35490aefa" },
+  { src = "model-00002-of-00004.safetensors", dest = "Qwen3-VL-8B-Instruct/model-00002-of-00004.safetensors", size = 4915962496, sha256 = "8be88fb5501e4d5719a6d4cc212e6a13480330e74f3e8c77daa1a68f199106b5" },
+  { src = "model-00003-of-00004.safetensors", dest = "Qwen3-VL-8B-Instruct/model-00003-of-00004.safetensors", size = 4999831048, sha256 = "83de00eafe6e0d57ccd009dbcf71c9974d74df2f016c27afb7e95aafd16b2192" },
+  { src = "model-00004-of-00004.safetensors", dest = "Qwen3-VL-8B-Instruct/model-00004-of-00004.safetensors", size = 2716270024, sha256 = "0a88b98e9f96270973f567e6a2c103ede6ccdf915ca3075e21c755604d0377a5" },
+  { src = "model.safetensors.index.json", dest = "Qwen3-VL-8B-Instruct/model.safetensors.index.json", size = 67759, git_sha1 = "5857ec62530eb589b1876034dd5386f1d98131a6" },
+  { src = "preprocessor_config.json", dest = "Qwen3-VL-8B-Instruct/preprocessor_config.json", size = 390, git_sha1 = "2ea84a437d448ff71b08df68fdd949d5cc4ebb64" },
+  { src = "tokenizer.json", dest = "Qwen3-VL-8B-Instruct/tokenizer.json", size = 7032403, git_sha1 = "c6cc1014128b19d1fc46b1d30a23e3b1d35db421" },
+  { src = "tokenizer_config.json", dest = "Qwen3-VL-8B-Instruct/tokenizer_config.json", size = 10868, git_sha1 = "d3d3763207692c78780f4bf42d4dadf49a5c8012" },
+  { src = "video_preprocessor_config.json", dest = "Qwen3-VL-8B-Instruct/video_preprocessor_config.json", size = 385, git_sha1 = "3ba673a5ad7d4d13f54155ecd38b2a94a6dac8fe" },
+  { src = "vocab.json", dest = "Qwen3-VL-8B-Instruct/vocab.json", size = 2776833, git_sha1 = "4783fe10ac3adce15ac8f358ef5462739852c569" },
+]
+
+[[model]]
+id = "vlm-8b-gguf"
+title = "Qwen3-VL-8B-Instruct Q8_0 (GGUF)"
+used_by = "8B on llama.cpp: an A/B control for the transformers 8B"
+feature = "vlm"
+need = "experimental"
+license = "Apache-2.0"
+repo = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
+revision = "f982a07559d4a2f6c8744d840bf6fccab30eea96"
+gated = false
+root = "models"
+vram_gb = 12
+files = [
+  { src = "Qwen3VL-8B-Instruct-Q8_0.gguf", dest = "gguf/Qwen3-VL-8B-Instruct-GGUF/Qwen3VL-8B-Instruct-Q8_0.gguf", size = 8709519456, sha256 = "0d264b3941185d00a74f75c4245521dae088ff1efc90ab8d1754e83f5844adb0" },
+  { src = "mmproj-Qwen3VL-8B-Instruct-F16.gguf", dest = "gguf/Qwen3-VL-8B-Instruct-GGUF/mmproj-Qwen3VL-8B-Instruct-F16.gguf", size = 1159029824, sha256 = "ca524100ebf825c9a870db1c580d03879e0da0ab2541697e2458e64891cf9d38" },
+]
+
+[[model]]
+id = "vlm-30b-a3b"
+title = "Qwen3-VL-30B-A3B-Instruct Q6_K (GGUF)"
+used_by = "MoE vision model, an A/B against the 32B (experimental)"
+feature = "vlm"
+need = "experimental"
+license = "Apache-2.0"
+repo = "unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF"
+revision = "0af19e7479857aa7f3246466a4ad16c7e7299639"
+gated = false
+root = "models"
+vram_gb = 28
+files = [
+  { src = "Qwen3-VL-30B-A3B-Instruct-Q6_K.gguf", dest = "gguf/Qwen3-VL-30B-A3B-Instruct-GGUF/Qwen3-VL-30B-A3B-Instruct-Q6_K.gguf", size = 25092533984, sha256 = "b451503c305bf6af2dd891edde8d33acc02dc82ae664a783ecc2642c1bcbe11c" },
+  { src = "mmproj-F16.gguf", dest = "gguf/Qwen3-VL-30B-A3B-Instruct-GGUF/mmproj-F16.gguf", size = 1083500224, sha256 = "9f248089357599a08a23af40cb5ce0030de14a2e119b7ef57f66cb339bd20819" },
+]
+
+[[model]]
+id = "oneformer-ade20k"
+title = "OneFormer Swin-L ADE20K"
+used_by = "Frame classes (segmentation)"
+feature = "segdepth"
+need = "required"
+license = "MIT"
+repo = "shi-labs/oneformer_ade20k_swin_large"
+revision = "4a5bac8e64f82681a12db2e151a4c2f4ce6092b2"
+gated = false
+root = "models"
+vram_gb = 6
+files = [
+  { src = ".gitattributes", dest = "oneformer_ade20k_swin_large/.gitattributes", size = 1477, git_sha1 = "c7d9f3332a950355d5a77d85000f05e6f45435ea" },
+  { src = "250_16_swin_l_oneformer_ade20k_160k.pth", dest = "oneformer_ade20k_swin_large/250_16_swin_l_oneformer_ade20k_160k.pth", size = 949729587, sha256 = "f7ac095c28ddea4715e854a587eaee24327c624cbbdb17095bc9903c51930b16" },
+  { src = "README.md", dest = "oneformer_ade20k_swin_large/README.md", size = 3694, git_sha1 = "df343b202e807027c6987a939a5d89fb6ec7e39d" },
+  { src = "config.json", dest = "oneformer_ade20k_swin_large/config.json", size = 84289, git_sha1 = "1b2e19858cae8825799b97c3a308d8b699bacb42" },
+  { src = "merges.txt", dest = "oneformer_ade20k_swin_large/merges.txt", size = 524619, git_sha1 = "76e821f1b6f0a9709293c3b6b51ed90980b3166b" },
+  { src = "preprocessor_config.json", dest = "oneformer_ade20k_swin_large/preprocessor_config.json", size = 8709, git_sha1 = "a3963e0b8f08a5ee62f5e50ea9e9856a9a5ec7ab" },
+  { src = "pytorch_model.bin", dest = "oneformer_ade20k_swin_large/pytorch_model.bin", size = 879517517, sha256 = "c0b2fe11dfecee6f2f1f315f466946e96f4e94813f3f6d660ff3747b83c28cc9" },
+  { src = "special_tokens_map.json", dest = "oneformer_ade20k_swin_large/special_tokens_map.json", size = 472, git_sha1 = "2c2130b544c0c5a72d5d00da071ba130a9800fb2" },
+  { src = "tokenizer_config.json", dest = "oneformer_ade20k_swin_large/tokenizer_config.json", size = 808, git_sha1 = "5008b5665e05a4bd9949d5d2089845365ac8c238" },
+  { src = "vocab.json", dest = "oneformer_ade20k_swin_large/vocab.json", size = 1059962, git_sha1 = "469be27c5c010538f845f518c4f5e8574c78f7c8" },
+]
+
+[[model]]
+id = "depth-anything-v2-small"
+title = "Depth Anything V2 Small"
+used_by = "Frame depth"
+feature = "segdepth"
+need = "required"
+license = "Apache-2.0 (Base, Large, Giant are CC-BY-NC-4.0 and not used)"
+repo = "depth-anything/Depth-Anything-V2-Small-hf"
+revision = "5426e4f0f36572d16453bbda7a8389317b1bef99"
+gated = false
+root = "models"
+vram_gb = 2
+files = [
+  { src = ".gitattributes", dest = "Depth-Anything-V2-Small-hf/.gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = "README.md", dest = "Depth-Anything-V2-Small-hf/README.md", size = 4400, git_sha1 = "2beda67327d9ea6b655b1cbae711342038eab576" },
+  { src = "config.json", dest = "Depth-Anything-V2-Small-hf/config.json", size = 950, git_sha1 = "9207d3a304e86517dab21638c559d8b3195d41b6" },
+  { src = "model.safetensors", dest = "Depth-Anything-V2-Small-hf/model.safetensors", size = 99173660, sha256 = "3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70" },
+  { src = "preprocessor_config.json", dest = "Depth-Anything-V2-Small-hf/preprocessor_config.json", size = 775, git_sha1 = "a7822a90a0e91a14d50d1996953bac8f389a4377" },
+]
+
+[[model]]
+id = "mask2former-ade20k"
+title = "Mask2Former Swin-L ADE20K"
+used_by = "Frame classes, an A/B against OneFormer (experimental)"
+feature = "segdepth"
+need = "experimental"
+license = "other: see the model card before use"
+repo = "facebook/mask2former-swin-large-ade-semantic"
+revision = "aa25c92404a40599614215e76514c79b427c7527"
+gated = false
+root = "models"
+vram_gb = 6
+files = [
+  { src = ".gitattributes", dest = "mask2former-swin-large-ade-semantic/.gitattributes", size = 1477, git_sha1 = "c7d9f3332a950355d5a77d85000f05e6f45435ea" },
+  { src = "README.md", dest = "mask2former-swin-large-ade-semantic/README.md", size = 3163, git_sha1 = "e8149a252c425cbeab21072c5577f26c4a8e6087" },
+  { src = "config.json", dest = "mask2former-swin-large-ade-semantic/config.json", size = 82540, git_sha1 = "6cc89c35ce70d7227b8956eab0db1c6240ae18a7" },
+  { src = "model.safetensors", dest = "mask2former-swin-large-ade-semantic/model.safetensors", size = 866052064, sha256 = "b143c144341c15b4f20165cc6d2c9305fb1b66792f68a6e0e06d2b20dc063b14" },
+  { src = "preprocessor_config.json", dest = "mask2former-swin-large-ade-semantic/preprocessor_config.json", size = 538, git_sha1 = "0723e20e276898ab516725965619f83deadbdc34" },
+  { src = "pytorch_model.bin", dest = "mask2former-swin-large-ade-semantic/pytorch_model.bin", size = 866216517, sha256 = "dba4b80c7f85372fa985e5b192d1bf7d726e971fdbeebb67dc8c5a96d4f6f873" },
+]
+
+[[model]]
+id = "trellis2-4b"
+title = "TRELLIS.2-4B"
+used_by = "Make 3D for irregular assets (the TRELLIS route)"
+feature = "trellis"
+need = "optional"
+license = "MIT"
+repo = "microsoft/TRELLIS.2-4B"
+revision = "af44b45f2e35a493886929c6d786e563ec68364d"
+gated = false
+root = "models"
+vram_gb = 16
+files = [
+  { src = ".gitattributes", dest = "TRELLIS.2-4B/.gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = "README.md", dest = "TRELLIS.2-4B/README.md", size = 6417, git_sha1 = "b1b0675bfca0ae82856ab3f7770b135d35be902c" },
+  { src = "ckpts/shape_dec_next_dc_f16c32_fp16.json", dest = "TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16.json", size = 678, git_sha1 = "e46164e905de0e68328f5f4b1f128b8dac608d97" },
+  { src = "ckpts/shape_dec_next_dc_f16c32_fp16.safetensors", dest = "TRELLIS.2-4B/ckpts/shape_dec_next_dc_f16c32_fp16.safetensors", size = 948490494, sha256 = "e3b718d3e43e4f8780e9a24ac6fff231811a67e3b058e336e10fe654c911d581" },
+  { src = "ckpts/shape_enc_next_dc_f16c32_fp16.json", dest = "TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16.json", size = 653, git_sha1 = "4f2aed3c7057a7c7155058c9ccdcbd5fb2445e64" },
+  { src = "ckpts/shape_enc_next_dc_f16c32_fp16.safetensors", dest = "TRELLIS.2-4B/ckpts/shape_enc_next_dc_f16c32_fp16.safetensors", size = 708797208, sha256 = "f37c5ff5b983b68e9946060000f09bc131f3e84318a2c8b7430a81e4b4636c41" },
+  { src = "ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.json", dest = "TRELLIS.2-4B/ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.json", size = 458, git_sha1 = "cfd8d761e89aad595e97ec0cfe4b8469c9053583" },
+  { src = "ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors", dest = "TRELLIS.2-4B/ckpts/slat_flow_img2shape_dit_1_3B_1024_bf16.safetensors", size = 2584574424, sha256 = "07cd0596f634c5adc1890023d16023afc5eed02fb84b22bb23aff5bf0030fbbd" },
+  { src = "ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.json", dest = "TRELLIS.2-4B/ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.json", size = 458, git_sha1 = "6e39aacbf7bd43d16d3dad35c95d43c0b17d6a4f" },
+  { src = "ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors", dest = "TRELLIS.2-4B/ckpts/slat_flow_img2shape_dit_1_3B_512_bf16.safetensors", size = 2584574424, sha256 = "ec5e0917ef9b7e25ad51dffc7d19687a42019871f94239f2fa7f86264c55b70f" },
+  { src = "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.json", dest = "TRELLIS.2-4B/ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.json", size = 458, git_sha1 = "d949ce887c62645f6a927ee66bba2a0df56e383e" },
+  { src = "ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", dest = "TRELLIS.2-4B/ckpts/slat_flow_imgshape2tex_dit_1_3B_1024_bf16.safetensors", size = 2584672728, sha256 = "580401269059a339b8318ab9ced459a13ba63391721c83a6c383198c29e77686" },
+  { src = "ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.json", dest = "TRELLIS.2-4B/ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.json", size = 458, git_sha1 = "b260bbc6cce80ccd7b61e32a40474225522b2043" },
+  { src = "ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors", dest = "TRELLIS.2-4B/ckpts/slat_flow_imgshape2tex_dit_1_3B_512_bf16.safetensors", size = 2584672728, sha256 = "8371aa1c5d13be79dcd5ddfd2cf3835e902e204dc34427169a1c702828e1a94d" },
+  { src = "ckpts/ss_flow_img_dit_1_3B_64_bf16.json", dest = "TRELLIS.2-4B/ckpts/ss_flow_img_dit_1_3B_64_bf16.json", size = 467, git_sha1 = "f71c87cda44a9a940fa3a2d250a0944d606d2245" },
+  { src = "ckpts/ss_flow_img_dit_1_3B_64_bf16.safetensors", dest = "TRELLIS.2-4B/ckpts/ss_flow_img_dit_1_3B_64_bf16.safetensors", size = 2584426920, sha256 = "ca01377c485bec418076d38ee80166d32dc776d744f2553b835cba1e97a7abf6" },
+  { src = "ckpts/tex_dec_next_dc_f16c32_fp16.json", dest = "TRELLIS.2-4B/ckpts/tex_dec_next_dc_f16c32_fp16.json", size = 705, git_sha1 = "e17107bef522e2aded7b3bc22ef421b57e16e779" },
+  { src = "ckpts/tex_dec_next_dc_f16c32_fp16.safetensors", dest = "TRELLIS.2-4B/ckpts/tex_dec_next_dc_f16c32_fp16.safetensors", size = 948458812, sha256 = "97ea69addea2ecd9312910f5f548234665eef51c088386180b7cd5b258645e3c" },
+  { src = "ckpts/tex_enc_next_dc_f16c32_fp16.json", dest = "TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16.json", size = 676, git_sha1 = "8d25691b034a51fc4bbbf8add93acbee46fbff93" },
+  { src = "ckpts/tex_enc_next_dc_f16c32_fp16.safetensors", dest = "TRELLIS.2-4B/ckpts/tex_enc_next_dc_f16c32_fp16.safetensors", size = 708797208, sha256 = "dd109f75f84b90fa411554ed6b0e4a87f430841163156fc0ebda2ebdc4752493" },
+  { src = "pipeline.json", dest = "TRELLIS.2-4B/pipeline.json", size = 4186, git_sha1 = "f5ec14c7f71b3d7f2cb0221c5f568a6871dc5e90" },
+  { src = "texturing_pipeline.json", dest = "TRELLIS.2-4B/texturing_pipeline.json", size = 2965, git_sha1 = "f01be47debdfbb3183e8259e5c31e17d975abdd7" },
+]
+
+[[model]]
+id = "trellis-image-large"
+title = "TRELLIS image-large (sparse-structure decoder)"
+used_by = "TRELLIS.2 loads one decoder from it"
+feature = "trellis"
+need = "optional"
+license = "MIT"
+repo = "microsoft/TRELLIS-image-large"
+revision = "25e0d31ffbebe4b5a97464dd851910efc3002d96"
+gated = false
+root = "hf_cache"
+vram_gb = 0
+files = [
+  { src = "ckpts/ss_dec_conv3d_16l8_fp16.json", dest = "ckpts/ss_dec_conv3d_16l8_fp16.json", size = 245, git_sha1 = "9f3affaf13ab29fe48105229da9fab72ea8de716" },
+  { src = "ckpts/ss_dec_conv3d_16l8_fp16.safetensors", dest = "ckpts/ss_dec_conv3d_16l8_fp16.safetensors", size = 147591972, sha256 = "1c76d4a40519aa2d711cc263a8404105231ac26db31d946bed48b84fee79009a" },
+  { src = "pipeline.json", dest = "pipeline.json", size = 1987, git_sha1 = "4141e1025889c44ec0dc9239157c4226d8387da0" },
+]
+
+[[model]]
+id = "birefnet"
+title = "BiRefNet"
+used_by = "Background removal before TRELLIS.2"
+feature = "trellis"
+need = "optional"
+license = "MIT"
+repo = "ZhengPeng7/BiRefNet"
+revision = "e2bf8e4460fc8fa32bba5ea4d94b3233d367b0e4"
+gated = false
+root = "hf_cache"
+vram_gb = 0
+files = [
+  { src = ".gitattributes", dest = ".gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = ".gitignore", dest = ".gitignore", size = 1908, git_sha1 = "af0deeca4d249a5a06b42ca5fe79e3c84ce1339f" },
+  { src = "BiRefNet_config.py", dest = "BiRefNet_config.py", size = 298, git_sha1 = "37c8ac58bec2f52dac34204978a7b61b69e3da76" },
+  { src = "README.md", dest = "README.md", size = 9965, git_sha1 = "83cda9675fd4096e9b3a65bb4e1f8fa3d652929f" },
+  { src = "birefnet.py", dest = "birefnet.py", size = 91896, git_sha1 = "8dea801e2b56facb8486ba351e6f91c3e664eb6d" },
+  { src = "config.json", dest = "config.json", size = 405, git_sha1 = "06d8fa9d7f2f4c6f1cf0dc6e7bfd194153176a42" },
+  { src = "handler.py", dest = "handler.py", size = 4762, git_sha1 = "a7125cb498ca55e30b3632caa474056dff1f59a5" },
+  { src = "model.safetensors", dest = "model.safetensors", size = 444473596, sha256 = "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154" },
+  { src = "requirements.txt", dest = "requirements.txt", size = 149, git_sha1 = "ed8583eb7e7264c7a0c76523882b265a3297423f" },
+]
+
+[[model]]
+id = "dinov3-vitl16"
+title = "DINOv3 ViT-L/16"
+used_by = "Image features for TRELLIS.2"
+feature = "trellis"
+need = "optional"
+license = "Meta DINOv3 License"
+repo = "facebook/dinov3-vitl16-pretrain-lvd1689m"
+revision = "ea8dc2863c51be0a264bab82070e3e8836b02d51"
+gated = "manual"
+root = "hf_cache"
+vram_gb = 0
+repo_setting = "models.dinov3_repo"   # a mirror with the same files may replace the repo
+files = [
+  { src = ".gitattributes", dest = ".gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = "LICENSE.md", dest = "LICENSE.md", size = 7503, git_sha1 = "f531b1e6b5ab2318957bbf8ad1bda9f800a23e17" },
+  { src = "README.md", dest = "README.md", size = 14520, git_sha1 = "fc1b2f193fe95afb9f236810dbea3c3b436399e6" },
+  { src = "config.json", dest = "config.json", size = 745, git_sha1 = "ab2a8b183fd4fd5213e9898a7f499c7c857b1a86" },
+  { src = "model.safetensors", dest = "model.safetensors", size = 1212559808, sha256 = "dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179" },
+  { src = "preprocessor_config.json", dest = "preprocessor_config.json", size = 585, git_sha1 = "0126173c1ab7b75bbd9102e37de8a56ffe0a012b" },
+]
+
+[[model.mirror]]   # sha256-identical model.safetensors; no license gate
+repo = "PIA-SPACE-LAB/dinov3-vitl-pretrain-lvd1689m"
+revision = "de90c8877a44ba5c7aa5a6a7ffd747c367c3dd6a"
+files = [
+  { src = ".gitattributes", dest = ".gitattributes", size = 1519, git_sha1 = "a6344aac8c09253b3b630fb776ae94478aa0275b" },
+  { src = "LICENSE.md", dest = "LICENSE.md", size = 7503, git_sha1 = "f531b1e6b5ab2318957bbf8ad1bda9f800a23e17" },
+  { src = "README.md", dest = "README.md", size = 14520, git_sha1 = "fc1b2f193fe95afb9f236810dbea3c3b436399e6" },
+  { src = "config.json", dest = "config.json", size = 745, git_sha1 = "ab2a8b183fd4fd5213e9898a7f499c7c857b1a86" },
+  { src = "model.safetensors", dest = "model.safetensors", size = 1212559808, sha256 = "dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179" },
+  { src = "preprocessor_config.json", dest = "preprocessor_config.json", size = 585, git_sha1 = "0126173c1ab7b75bbd9102e37de8a56ffe0a012b" },
+]

@@ -18,6 +18,8 @@ blender = "blender"
 url = "http://127.0.0.1:8188"
 # Ports of other ComfyUI servers on this machine (never used, but their GPU counts as busy)
 other_ports = []
+# Your ComfyUI's models folder: where `ap models download` puts the ComfyUI models (AP_COMFY_MODELS)
+models_dir = ""
 timeout_s = 900
 # How the pipeline talks to ComfyUI (AP_COMFY_BACKEND overrides):
 #   sdk    the Comfy SDK (Comfy API v2) through comfy-api-proxy at sdk_url
@@ -119,3 +121,8 @@ editor_cmd = ""
 projects_dir = ""
 backup_dir = ""
 backup_keep = 10
+
+# Model choices the manifest (config/models.toml) allows: a mirror with the same files instead of a
+# gated repo (AP_DINOV3_REPO overrides).
+[models]
+dinov3_repo = ""

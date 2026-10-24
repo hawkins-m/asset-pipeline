@@ -48,6 +48,16 @@ class ComfyClient:
                 f"`ap comfy start` (or Start ComfyUI in the app's Status box)") from e
         return r.json()
 
+    def folder_paths(self) -> dict[str, list[str]]:
+        """ComfyUI's model folders ({"checkpoints": [paths...], ...}; /internal/folder_paths). Both
+        backends ask ComfyUI itself: the Comfy API v2 has no equivalent."""
+        try:
+            r = self.http.get("/internal/folder_paths")
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise ComfyUnavailable(f"ComfyUI didn't list its model folders at {self.url} ({e})") from e
+        return r.json()
+
     def upload_image(self, path: Path) -> str:
         """Upload into ComfyUI's input dir; returns the name to put in a LoadImage node."""
         with path.open("rb") as f:

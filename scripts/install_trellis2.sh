@@ -194,6 +194,10 @@ stage_nvdiffrec() {
   PATH="$ENV/bin:$PATH" $PIP install . --no-build-isolation --no-deps -v
 }
 
+stage_weights() {   # TRELLIS.2-4B, its decoder, BiRefNet, DINOv3 (config/models.toml; DINOv3 is gated: see README)
+  "$REPO/scripts/ap" models download --feature trellis --all
+}
+
 stage_verify() {
   $PIP list 2>/dev/null | grep -i -E '^(torch|triton|nvdiffrast|cumesh|flex.gemm|o.voxel|nvdiffrec)'
   cd "$TRELLIS"

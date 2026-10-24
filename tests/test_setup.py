@@ -22,6 +22,7 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.setattr(gpu, "list_gpus", lambda: GPUS)
     monkeypatch.setattr(setup, "_probe_comfy", lambda url, timeout=1.0: None)
     monkeypatch.setattr(setup, "_unreal_candidates", lambda: [])
+    monkeypatch.setattr(setup, "_comfy_models_dir", lambda url: "")
     for k in config.SECRET_KEYS:
         monkeypatch.delenv(k, raising=False)
     config.backends.cache_clear()
@@ -139,3 +140,20 @@ def test_ap_setup_yes_writes_the_found_values(machine, monkeypatch, capsys):
     assert "Wrote" in out and config.ap_root() == machine / "cli-store" and config.get("jobs.comfy_gpu") == 0
     with pytest.raises(SystemExit):
         cli.main(["setup", "--yes", "--set", "nope=1"])
+
+
+def test_models_item_names_the_exact_download_command(machine, monkeypatch):
+    from asset_pipeline import models
+    monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [models.get("flux1-redux-dev"), models.get("vlm-32b")])
+    r = setup.test("models")
+    assert not r["ok"] and "ap models download flux1-redux-dev vlm-32b" in r["message"] and "Gated: flux1-redux-dev" in r["message"]
+    monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [])
+    assert setup.test("models")["ok"]
+
+
+def test_comfy_models_folder_counts_what_is_there(machine, tmp_path):
+    d = tmp_path / "comfy-models"
+    (d / "checkpoints").mkdir(parents=True)
+    r = setup.test("comfy_models_dir", str(d))
+    assert r["ok"] and r["warn"] and "0 of 5" in r["message"] and "ap models download flux1-dev-fp8" in r["message"]
+    assert not setup.test("comfy_models_dir", str(tmp_path / "nope"))["ok"]

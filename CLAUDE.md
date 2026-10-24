@@ -29,6 +29,17 @@ step; verified machine facts and findings are in `docs/notes/` (index at the end
   image/3D services. Ask before each new use, even when a key is configured, and that
   includes tests. Local models are fine.
 
+## Registry: nothing machine- or model-specific in code
+- Any new model, external tool, API key or machine-specific setting is registered before code uses it:
+  models in the manifest `config/models.toml` (repo, pinned revision, files with size and checksum,
+  install root, required/optional/experimental, license, VRAM); settings in the user config
+  (a default in `config/backends.toml`, read with `config.get(...)`); env variables in
+  `config.ENV_OVERRIDES` / `ENV_VARS`; keys in `config.SECRET_KEYS`. Never hard-code a path, port,
+  GPU index, hub id or key. Setup, Doctor, `ap models` and the installer only see what is registered.
+- `tests/test_registry.py` fails on a workflow model, `models/…` path or hub repo missing from the
+  manifest, an unregistered `AP_*`/`HF_*`/key env read, a config key without a default, or a
+  machine path in code or config.
+
 ## Contest constraints (until 2026-10-30, 9am PT)
 The repo is entered in Comfy's "Open Source Higgsfield" challenge, Open Weights Only category.
 Until the deadline, all work follows these rules:
@@ -38,8 +49,8 @@ Until the deadline, all work follows these rules:
 - **Open weights, core nodes only** in the default config and the docs: nothing from
   `comfy_api_nodes`, no paid APIs (Gemini, Claude, hosted image/3D services). Experimental
   paths stay out of the defaults and are marked experimental.
-- **Every new model gets a row in the README's models and licenses table** (and in
-  `scripts/fetch_models.sh` if ComfyUI loads it).
+- **Every new model gets a row in the README's models and licenses table** and an entry in
+  `config/models.toml` (see Registry above).
 - **New hardware calls get both a ROCm and a CUDA branch** (`asset_pipeline/gpu.py`; shell:
   `scripts/build_env_common.sh`). Mark CUDA branches untested until they've run.
 - **No project content in the public repo** (see Repo rules; the pre-commit hook enforces it).

@@ -167,3 +167,23 @@ clone from GitHub, the README steps as written:
 - README: Requirements and Install name `ap setup` / `ap doctor`, `ap` outside the venv, Quick
   start rewritten (setup, doctor, ui, demo and what the starter demo needs), test counts.
 - Not run: frames (ComfyUI GPU job), shot passes, the Unreal steps, the model downloads.
+
+## Models: done (2026-10-23)
+
+- `config/models.toml`: 20 models (5 ComfyUI required, 4 experimental ComfyUI, 4 vision models of
+  which `[local] model` picks the required one, 2 seg/depth, 1 experimental, 4 TRELLIS optional).
+  Repo + pinned revision, each file's size and sha256 (LFS) or git blob sha1, install root
+  (`comfyui` = `[comfyui] models_dir`, `models` = `<storage>/models`, `hf_cache` = `<storage>/hf/hub`
+  in the HF cache layout), need, license, gated, VRAM. DINOv3 lists an ungated mirror
+  (`[models] dinov3_repo`; the official sha256 is hidden by its gate, the mirror's is used).
+- `asset_pipeline/models.py` + `ap models list|download|verify`: resume (.part / .incomplete),
+  disk check per filesystem first (+2 GB margin), checksum verify, gated-repo instructions,
+  `--json` progress events (plan, disk, file_start, progress, verify, file_done, model_done,
+  error{kind}, done). HF token: HF_TOKEN env / secrets.toml / `hf auth login`.
+- Doctor and Setup use the manifest (fix = the exact `ap models download …`); Setup has ComfyUI
+  models folder (from ComfyUI's /internal/folder_paths via `ComfyClient.folder_paths()`), HF token,
+  Models. fetch_models.sh and the install scripts download through `ap models`.
+- `tests/test_registry.py` (CLAUDE.md Registry rule), `tests/test_models.py` (fake hub on localhost).
+- This machine: `comfyui.models_dir` and `models.dinov3_repo` added to the user config; `ap models
+  list --all`: all 20 installed; two small models verified by checksum. Fresh HOME: all missing,
+  required 50.6 GB, the disk check refused on a 32 GB volume.

@@ -8,13 +8,9 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
 LLAMA_TAG="${LLAMA_TAG:-b11433}"
 LLAMA_DIR="$AP_ROOT/envs/llamacpp"
 GGUF="$AP_ROOT/models/gguf"
-HF="${HF_ENDPOINT:-https://huggingface.co}"
 
-fetch() {  # repo file -> $GGUF/<repo name>/<file>, resumable
-  local dst="$GGUF/${1#*/}/$2"
-  mkdir -p "$(dirname "$dst")"
-  curl -fL --retry 5 -C - -o "$dst" "$HF/$1/resolve/main/$2"
-}
+# the GGUFs come from the manifest (config/models.toml): resume, checksums, -> $GGUF/<repo name>/
+AP="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap"
 
 stage_llamacpp() {
   mkdir -p "$LLAMA_DIR"
@@ -26,16 +22,13 @@ stage_llamacpp() {
 
 # Sizes are for one 32 GB card with the desktop on it: weights + mmproj + KV for ~16k ctx.
 stage_8b() {       # control: same model as the transformers server, same engine as the big ones
-  fetch Qwen/Qwen3-VL-8B-Instruct-GGUF Qwen3VL-8B-Instruct-Q8_0.gguf
-  fetch Qwen/Qwen3-VL-8B-Instruct-GGUF mmproj-Qwen3VL-8B-Instruct-F16.gguf
+  "$AP" models download vlm-8b-gguf
 }
 stage_32b() {      # dense 32B: Q5_K_M 23.2 GB (Q8_0 34.8 GB and FP8 35.5 GB don't fit)
-  fetch unsloth/Qwen3-VL-32B-Instruct-GGUF Qwen3-VL-32B-Instruct-Q5_K_M.gguf
-  fetch unsloth/Qwen3-VL-32B-Instruct-GGUF mmproj-F16.gguf
+  "$AP" models download vlm-32b
 }
 stage_30b-a3b() {  # MoE, 3B active: Q6_K 25.1 GB
-  fetch unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF Qwen3-VL-30B-A3B-Instruct-Q6_K.gguf
-  fetch unsloth/Qwen3-VL-30B-A3B-Instruct-GGUF mmproj-F16.gguf
+  "$AP" models download vlm-30b-a3b
 }
 
 [ $# -gt 0 ] || set -- llamacpp 8b 32b 30b-a3b

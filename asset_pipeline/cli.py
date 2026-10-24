@@ -172,6 +172,51 @@ def cmd_setup(a) -> None:
         print(f"Still to fix: {', '.join(failed)}.")
 
 
+def cmd_models(a) -> None:
+    """ap models list | download | verify (the manifest: config/models.toml)."""
+    import json as _json
+    from . import models
+    if a.models_cmd == "list":
+        rows = []
+        for m in models.load():
+            st = models.status(m)
+            rows.append({"id": m.id, "title": m.title, "need": models.need_label(m), "feature": m.feature,
+                         "state": st["state"], "size": m.size, "missing_bytes": st["missing_bytes"], "gated": m.gated,
+                         "license": m.license, "used_by": m.used_by, "where": st["where"], "repo": m.source().repo,
+                         "vram_gb": m.vram_gb})
+        if a.json:
+            print(_json.dumps(rows, indent=1))
+            return
+        shown = [r for r in rows if a.all or r["need"] != "experimental"]
+        mark = {"installed": "installed", "missing": "missing", "partial": "partial", "no_root": "no folder"}
+        print(f"{'model':24} {'need':12} {'state':10} {'size':>9}  used by")
+        for r in shown:
+            extra = f" ({models.gb(r['size'] - r['missing_bytes'])} so far)" if r["state"] == "partial" else ""
+            gate = " [gated]" if r["gated"] else ""
+            print(f"{r['id']:24} {r['need']:12} {mark[r['state']]:10} {models.gb(r['size']):>9}  {r['used_by']}{gate}{extra}")
+        req = [r for r in rows if r["need"] == "required"]
+        miss = [r for r in req if r["state"] != "installed"]
+        print(f"\nRequired: {len(req) - len(miss)} of {len(req)} installed"
+              + (f"; {models.gb(sum(r['missing_bytes'] for r in miss))} to download: ap models download --required" if miss else "."))
+        if any(r["state"] == "no_root" for r in shown):
+            print("ComfyUI models folder not set: ap setup, or ap config set comfyui.models_dir <your ComfyUI>/models")
+        if not a.all:
+            print("Experimental models: ap models list --all")
+        return
+    picked = models.select(a.names, required_only=a.required, all_=a.all, feature=a.feature)
+    ev = models.Events(as_json=a.json)
+    if a.models_cmd == "verify":
+        bad = models.verify([m for m in picked])
+        if not a.json:
+            print("all checksums match" if not bad else f"mismatch: {', '.join(bad)}")
+        if bad:
+            raise SystemExit(1)
+        return
+    res = models.download(picked, ev, dry_run=a.dry_run)
+    if res["failed"]:
+        raise SystemExit(1)
+
+
 def cmd_doctor(a) -> None:
     """ap doctor: every check with what is missing and how to fix it; exit 1 when a required one fails."""
     import json as _json
@@ -1359,6 +1404,23 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--ue-projects", help="the old [unreal] projects_dir")
     p.add_argument("--ue-backups", help="the old [unreal] backup_dir")
     cf.set_defaults(fn=cmd_config)
+
+    mo = sub.add_parser("models", help="the models the pipeline needs: list, download (resume, checksums, --json progress), verify")
+    msub = mo.add_subparsers(dest="models_cmd", required=True)
+    p = msub.add_parser("list", help="every model with installed or missing, size and what uses it")
+    p.add_argument("--all", action="store_true", help="include experimental models")
+    p.add_argument("--json", action="store_true")
+    for name, hlp in (("download", "download missing models (resumes partial files, verifies checksums)"),
+                      ("verify", "hash installed files against the manifest")):
+        p = msub.add_parser(name, help=hlp)
+        p.add_argument("names", nargs="*", help="model ids from `ap models list`")
+        p.add_argument("--required", action="store_true", help="every required model")
+        p.add_argument("--all", action="store_true", help="every model but the experimental ones")
+        p.add_argument("--feature", choices=["comfy", "vlm", "segdepth", "trellis"], help="only this feature's models")
+        p.add_argument("--json", action="store_true", help="progress as JSON lines (event, model, file, done, total, ...)")
+        if name == "download":
+            p.add_argument("--dry-run", action="store_true", help="show the plan and the disk check; download nothing")
+    mo.set_defaults(fn=cmd_models)
 
     p = sub.add_parser("doctor", help="check everything (storage, ComfyUI, models, GPUs, Blender, Unreal) and say how to fix what's missing")
     p.add_argument("--json", action="store_true", help="the report as JSON (what the app's Status box shows)")

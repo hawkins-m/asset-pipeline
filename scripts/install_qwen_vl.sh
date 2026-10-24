@@ -19,7 +19,7 @@ stage_venv() {
 
 stage_model() {
   # HF_HOME stays at its default here so a token in ~/.cache/huggingface still works.
-  "$ENV/bin/hf" download Qwen/Qwen3-VL-8B-Instruct --local-dir "$MODEL_DIR"
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap" models download vlm-8b      # -> $MODEL_DIR (config/models.toml)
 }
 
 [ $# -gt 0 ] || set -- venv model

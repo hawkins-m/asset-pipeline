@@ -24,6 +24,7 @@ async function setupDialog() {
     const id = `su-${it.id}`;
     if (it.kind === "choice") return `<select id="${id}" data-id="${it.id}">${it.choices.map(c => `<option${c === v ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
     if (it.kind === "gpu" && st.gpus.length) return `<select id="${id}" data-id="${it.id}">${gpuOpts}</select>`;
+    if (it.kind === "info") return `<input id="${id}" data-id="${it.id}" type="hidden" value=""><span class="hint su-info">Test shows what is installed.</span>`;
     if (it.kind === "secret") return `<input id="${id}" data-id="${it.id}" type="password" autocomplete="off" placeholder="${it.has_value ? "set (leave empty to keep)" : "not set"}">`;
     return `<input id="${id}" data-id="${it.id}" type="text" spellcheck="false" value="${esc(v)}">`;
   };

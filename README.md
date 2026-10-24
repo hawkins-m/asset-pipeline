@@ -131,15 +131,17 @@ ap config set paths.ap_root /path/to/storage/terraformer   # after step 1; or ex
    unless `AP_ALLOW_PAID_APIS=1` is set for a run.
 
 2. **ComfyUI and its models.** Install ComfyUI yourself (its own venv; this repo only talks to
-   it over HTTP and never modifies it), then fetch the five model files the demo workflows
-   load:
+   it over HTTP and never modifies it), tell the pipeline where its models folder is, then fetch
+   the five model files the workflows load (24.3 GB):
    ```bash
-   pip install -U huggingface_hub
-   hf auth login                      # FLUX.1 Redux dev is a gated repo: accept its terms first
-   COMFYUI_MODELS=~/ComfyUI/models scripts/fetch_models.sh --dry-run   # see what it would do
-   COMFYUI_MODELS=~/ComfyUI/models scripts/fetch_models.sh
+   ap config set comfyui.models_dir ~/ComfyUI/models    # or let `ap setup` find it from a running ComfyUI
+   ap models download --feature comfy --required --dry-run   # the plan and the disk check
+   ap models download --feature comfy --required
    ```
-   It skips files that are already there and touches nothing else.
+   FLUX.1 Redux dev is gated: the download stops and says what to do (accept its license on the
+   model page, then a Hugging Face read token via `hf auth login` or `ap setup`). Files already
+   there are skipped, a partial file resumes, and each file's checksum is verified.
+   (`scripts/fetch_models.sh` does the same.)
 
    So the app can start ComfyUI for you, `ap setup` (step 7) asks for its launch command and
    folder (the default runs `python main.py` in `~/ComfyUI`; give your venv's python or your run
@@ -167,7 +169,8 @@ ap config set paths.ap_root /path/to/storage/terraformer   # after step 1; or ex
    scripts/install_llamacpp_vlm.sh llamacpp 8b    # the smaller one
    ```
    or the 8B in bf16 with transformers: `scripts/install_qwen_vl.sh`. The server starts on
-   demand and unloads when idle (`ap vlm`).
+   demand and unloads when idle (`ap vlm`). The scripts set up the runtime and fetch the weights
+   with `ap models download vlm-32b` (24.4 GB) or `vlm-8b` (17.5 GB).
 
 5. **Segmentation and depth** (OneFormer, Depth Anything V2 Small):
    ```bash
@@ -177,10 +180,12 @@ ap config set paths.ap_root /path/to/storage/terraformer   # after step 1; or ex
 6. **TRELLIS.2** (optional, for irregular assets; not on the demo path). On ROCm/gfx1201:
    ```bash
    scripts/setup_rocm_toolchain.sh      # one time, no sudo
-   scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify
+   scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec weights verify
    ```
-   It downloads the TRELLIS.2-4B weights, and DINOv3 ViT-L/16 on first use (a gated Meta repo:
-   accept its terms; override the repo with `AP_DINOV3_REPO`).
+   The `weights` stage is `ap models download --feature trellis --all` (18.0 GB): TRELLIS.2-4B,
+   one TRELLIS decoder, BiRefNet and DINOv3 ViT-L/16. DINOv3 is a gated Meta repo whose owner
+   reviews requests; the download explains, and names an ungated mirror with the same weights
+   (`ap config set models.dinov3_repo ...`).
 
 7. **Setup.** `ap setup` asks for the storage folder, the ComfyUI backend (sdk or httpx) and
    address, API keys the enabled backends need (none for the open-weights defaults), Blender,
@@ -243,10 +248,17 @@ needed here; the entry runs fully local.
 
 ```bash
 ap setup                           # first run: check and save your settings (the app asks too)
+ap models list                     # every model, installed or missing, and its size
+ap models download --required      # 50.6 GB: ComfyUI 24.3, vision model 24.4 (32B), segmentation/depth 1.9
 ap doctor                          # what is installed, what is missing, how to fix it
 ap ui                              # the app, at http://127.0.0.1:8700 (or the desktop launcher)
 scripts/demo.sh starter            # neutral starter layout, no Unreal needed
 ```
+
+The required download is 50.6 GB with the default 32B vision model, 43.7 GB with the 8B
+(`ap config set local.model 8b` first, for GPUs under ~28 GB). The TRELLIS route adds 18.0 GB
+(`ap models download --feature trellis --all`); experimental models are in `ap models list --all`.
+Gated models stop with what to do; `--json` prints progress events for scripts.
 
 `demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the
 greybox, the shot passes, sets a style text and generates two concept frames for the `street`
@@ -290,7 +302,8 @@ this has been run. TRELLIS.2 on CUDA additionally needs the CUDA toolkit for its
 
 ## Models and licenses
 
-All open weights, all run locally. **Commercial use requires a commercial license from each model's owner wherever that model's license calls for one; check every row below before using any output commercially.** Several are non-commercial, so the pipeline as configured
+All open weights, all run locally. The full list with sources, pinned revisions, sizes and
+checksums is [config/models.toml](config/models.toml) (`ap models list --all`). **Commercial use requires a commercial license from each model's owner wherever that model's license calls for one; check every row below before using any output commercially.** Several are non-commercial, so the pipeline as configured
 is for non-commercial use unless you swap those models.
 
 | Model | Used for | License |

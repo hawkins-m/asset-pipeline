@@ -97,6 +97,7 @@ def check_comfy() -> list[Check]:
             out.append(_c("comfy", f"ComfyUI ({name})", True, f"not running at {c['url']}",
                           "Start ComfyUI in the Status box (or `ap comfy start`); jobs that need it offer to start it.",
                           warn=True))
+            out.append(check_comfy_models_offline())
         else:
             out.append(_c("comfy", f"ComfyUI ({name})", False, f"not running at {c['url']}, and Start ComfyUI can't "
                           f"launch it: {launch['message']}",
@@ -125,6 +126,28 @@ def check_comfy() -> list[Check]:
     return out
 
 
+def _comfy_fix(files: list[str]) -> str:
+    from . import models
+    ids = [m.id for m in models.load() if m.root == "comfyui" and any(f.dest.split("/")[-1] in files for f in m.files)]
+    cmd = models.download_command(ids) if ids else "add the model to config/models.toml"
+    if not config.get("comfyui.models_dir"):
+        cmd = "ap config set comfyui.models_dir <your ComfyUI>/models; " + cmd
+    return cmd + "   (then restart ComfyUI so it lists them)"
+
+
+def check_comfy_models_offline() -> Check:
+    """ComfyUI isn't answering: the manifest's view of its models folder."""
+    from . import models
+    if not config.get("comfyui.models_dir"):
+        return _c("comfy_models", "ComfyUI models", True, "not checked: ComfyUI isn't running and its models folder isn't set",
+                  "ap setup (ComfyUI models folder)", warn=True)
+    miss = models.missing("comfy")
+    if miss:
+        return _c("comfy_models", "ComfyUI models", False, f"missing {', '.join(m.id for m in miss)}",
+                  models.download_command([m.id for m in miss]), ["comfy"])
+    return _c("comfy_models", "ComfyUI models", True, f"all required files in {config.get('comfyui.models_dir')}")
+
+
 def check_comfy_models(url: str) -> Check:
     missing, found = [], 0
     try:
@@ -143,7 +166,7 @@ def check_comfy_models(url: str) -> Check:
         return _c("comfy_models", "ComfyUI models", False, f"couldn't list them: {e}", "", ["comfy"])
     if missing:
         return _c("comfy_models", "ComfyUI models", False, f"{found} found, missing: {', '.join(missing)}",
-                  "COMFYUI_MODELS=<your ComfyUI>/models scripts/fetch_models.sh   (then restart ComfyUI)", ["comfy"])
+                  _comfy_fix(missing), ["comfy"])
     return _c("comfy_models", "ComfyUI models", True, f"all {found} model files the workflows load")
 
 
@@ -172,17 +195,36 @@ def check_unreal() -> Check:
               "Fix the path in `ap setup` (…/Engine/Binaries/Linux/UnrealEditor-Cmd).", ["unreal"], optional=True)
 
 
+def _model_check(id_, name, feature, required_only, env_paths, env_fix, optional=False) -> Check:
+    """A feature's models (the manifest) and the venv that runs them."""
+    from . import models
+    miss = models.missing(feature, required_only=required_only)
+    root = config.ap_root()
+    no_env = [p for p in env_paths if not (root / p).exists()]
+    if miss:
+        size = sum(models.status(m)["missing_bytes"] for m in miss)
+        return _c(id_, name, False, f"missing {', '.join(m.id for m in miss)} ({models.gb(size)})"
+                  + (f"; and its environment ({', '.join(no_env)})" if no_env else ""),
+                  models.download_command([m.id for m in miss]) + (f"   then: {env_fix}" if no_env else ""), [feature],
+                  optional=optional)
+    if no_env:
+        return _c(id_, name, False, f"models installed; its environment is missing ({', '.join(no_env)})", env_fix,
+                  [feature], optional=optional)
+    ids = [m.id for m in models.load() if m.feature == feature and (models.required(m) if required_only else m.need != "experimental")]
+    return _c(id_, name, True, ", ".join(ids) + " installed", optional=optional)
+
+
 def check_local() -> list[Check]:
-    pf = {c.name.split(" (")[0]: c for c in preflight.local_checks()}
-    vlm, sd, tr = pf["Vision LLM"], pf["Segmentation/depth"], pf["TRELLIS.2"]
+    local = config.backends().get("local", {})
+    backend = (local.get("models", {}).get(str(local.get("model", "32b"))) or {}).get("backend")
+    vlm_env = ["envs/llamacpp/llama-server"] if backend == "llamacpp" else ["envs/qwen-vl/bin/python"]
+    vlm_fix = "scripts/install_llamacpp_vlm.sh llamacpp" if backend == "llamacpp" else "scripts/install_qwen_vl.sh venv"
     return [
-        _c("vlm", "Vision LLM (Qwen3-VL)", vlm.ok, vlm.detail,
-           "scripts/install_llamacpp_vlm.sh llamacpp 8b   (or 32b on a GPU with ~28 GB free)", ["vlm"]),
-        _c("segdepth", "Segmentation and depth", sd.ok, sd.detail if not sd.ok else "OneFormer, Depth Anything V2 Small",
-           "scripts/install_segdepth.sh", ["segdepth"]),
-        _c("trellis", "TRELLIS.2 (optional)", tr.ok, tr.detail if not tr.ok else "env and weights in place",
-           "scripts/install_trellis2.sh … (README step 6); procedural builds work without it", ["trellis"],
-           optional=True),
+        _model_check("vlm", f"Vision LLM (Qwen3-VL {local.get('model', '32b')})", "vlm", True, vlm_env, vlm_fix),
+        _model_check("segdepth", "Segmentation and depth", "segdepth", True, ["envs/segdepth/bin/python"],
+                     "scripts/install_segdepth.sh venv"),
+        _model_check("trellis", "TRELLIS.2 (optional)", "trellis", False, ["envs/trellis2/bin/python", "src/TRELLIS.2"],
+                     "scripts/install_trellis2.sh (README step 6)", optional=True),
     ]
 
 
