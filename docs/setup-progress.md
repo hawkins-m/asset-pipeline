@@ -7,7 +7,7 @@ Phases, one commit each; this file says where a stopped session picks up.
 |---|---|---|
 | 1 | Audit of machine-specific values (below) | done |
 | 2 | One user config (`~/.config/terraformer/config.toml` + `secrets.toml`), env overrides, migrate the current machine | done |
-| 3 | `ap setup` (CLI) and the first-run Setup screen, with a Test per item | todo |
+| 3 | `ap setup` (CLI) and the first-run Setup screen, with a Test per item | done |
 | 4 | `ap doctor`, the same results in the Status box, features disabled with a reason | todo |
 | 5 | Clean-install test with a fresh HOME, README Quick start fixed | todo |
 
@@ -103,3 +103,22 @@ machine, kept), `docs/notes/*` (machine notes, kept by design), `docs/ue-build-p
   config compared old code vs new: identical apart from the two new keys.
 - `tests/conftest.py` gives every test an empty user config folder.
 - Pre-commit hook refuses staged `secrets.toml`, `.env`, `local.env`, `backends.local.toml`.
+
+## Phase 3: done
+
+- `asset_pipeline/setup.py`: `ITEMS` (storage, backend, ComfyUI address, proxy address, launch
+  command and folder, Comfy Cloud key, Gemini/Anthropic keys only when a default backend is paid,
+  Blender, Unreal + its projects folder, the two GPU roles), `detect()` (ComfyUI on 8188/8000,
+  Blender on PATH/snap/opt/home, Unreal under common install folders, GPUs via `gpu.list_gpus()`),
+  `test(id, value, values)` (one plain sentence; never a GPU job or a paid call; Blender runs
+  `--version` only; Unreal reads Build.version, never starts), `save()`, `first_run()`.
+- A value still at its repo default yields to a different detected one (e.g. `blender` -> the
+  snap's full path). Launch settings that fail only warn while ComfyUI already answers.
+- The sdk Test is end to end: proxy installed, `/api/v2/health`, then `SdkComfyClient.health()`
+  (ComfyUI through the proxy). Verified against a real proxy on a spare port (8195) in front
+  of the running ComfyUI.
+- `ap setup [--check] [--yes] [--set ITEM=VALUE]`; UI: `ui/setup_api.py`, `static/setup.js`
+  (Tools › Setup…, opens by itself when there is no user config). Keys are sent to the server
+  only to test or save, never sent back.
+- `tests/test_setup.py`; `tests/test_ui_layout.py` writes a user config for its server (else the
+  first-run window covers the page) and finds the browser env through the config.

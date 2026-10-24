@@ -12,13 +12,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from asset_pipeline.jobs import JobQueue
+from asset_pipeline import config
 from asset_pipeline.project import ProjectStore, write_json
 from asset_pipeline.stages import sw_library, sw_site
 from asset_pipeline.ui import app as ui_app
 
 REPO = Path(__file__).resolve().parents[1]
 STATIC = REPO / "asset_pipeline" / "ui" / "static"
-BROWSER_PY = Path(os.environ.get("AP_ROOT_REAL", "/mnt/storage/asset-pipeline")) / "envs" / "browser-test" / "bin" / "python"
+# the browser-test env of this machine's real storage folder (read at import, before the tests'
+# own empty user config applies); these tests skip without it
+BROWSER_PY = Path(os.environ.get("AP_ROOT_REAL") or config.ap_root()) / "envs" / "browser-test" / "bin" / "python"
 
 
 def _entry(eid, district):
@@ -117,6 +120,7 @@ def _browse(tmp_path, monkeypatch, script: str) -> dict:
     monkeypatch.setenv("AP_ROOT", str(root))
     _project(ProjectStore.create("p"))
     env = dict(os.environ, AP_ROOT=str(root))
+    config.save_user({"paths": {"ap_root": str(root)}})        # set up already: no first-run Setup window
     port = _free_port()
     srv = subprocess.Popen([sys.executable, "-m", "asset_pipeline.cli", "ui", "--port", str(port)], env=env, cwd=REPO,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

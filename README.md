@@ -176,7 +176,13 @@ ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=.
    It downloads the TRELLIS.2-4B weights, and DINOv3 ViT-L/16 on first use (a gated Meta repo:
    accept its terms; override the repo with `AP_DINOV3_REPO`).
 
-7. **Machine config** in `~/.config/terraformer/config.toml`, merged over the repo's defaults in
+7. **Setup.** `ap setup` asks for the storage folder, the ComfyUI backend (sdk or httpx) and
+   address, API keys the enabled backends need (none for the open-weights defaults), Blender,
+   Unreal (optional) and the GPU for each role; what it finds is pre-filled and each answer is
+   tested. `ap setup --check` only tests, `ap setup --yes` takes what it found. The app opens the
+   same Setup screen by itself on first run (later: Tools › Setup…).
+
+   Under the hood it writes the **machine config** in `~/.config/terraformer/config.toml`, merged over the repo's defaults in
    `config/backends.toml` (`ap config set SECTION.KEY VALUE` writes it, `ap config show` prints
    what is in effect):
    ```toml

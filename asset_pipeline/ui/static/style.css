@@ -641,3 +641,13 @@ details summary { cursor: default; }
 .guide-steps .gcheck { font-size: 13px; line-height: 1.1; }
 .guide-steps .st-chip { font-size: 11px; }
 @media (max-width: 1100px) { .body.with-guide { grid-template-columns: 250px minmax(0, 1fr); } .body.with-guide .guide { display: none; } }
+
+/* Setup (setup.js): one block per item, input + Test on one line, the answer under it */
+.setup-window { width: min(780px, 96vw); }
+.setup-grid { display: grid; gap: 10px; max-height: 62vh; overflow: auto; padding-right: 4px; }
+.setup-item { display: grid; gap: 2px; }
+.setup-row { display: flex; gap: 4px; align-items: center; flex-wrap: nowrap; }
+.setup-row input, .setup-row select { flex: 1; min-width: 0; }
+.su-result:empty { display: none; }
+.su-warn { color: var(--star); }
+.su-result.ok { color: var(--ready); }

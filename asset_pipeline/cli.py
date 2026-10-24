@@ -111,6 +111,67 @@ def cmd_config(a) -> None:
         print(f"wrote {path}" if path else f"ap: {config.user_toml()} exists already: nothing written")
 
 
+def cmd_setup(a) -> None:
+    """ap setup: ask for each setting with the current or detected value pre-filled, test it,
+    write the user config. --yes takes the pre-filled values, --check only tests."""
+    import getpass
+    from . import setup
+    st = setup.state()
+    vals = {i["id"]: i["value"] or i["detected"] for i in st["items"]}
+    for kv in a.set or []:
+        k, _, v = kv.partition("=")
+        if k not in setup.BY_ID:
+            raise SystemExit(f"ap: no setup item {k!r}: one of {', '.join(setup.BY_ID)}")
+        vals[k] = v
+    print(f"Terraformer setup. Config: {st['config']}" + ("  (first run)" if st["first_run"] else ""))
+    if st["gpus"]:
+        print("GPUs: " + "; ".join(f"{g['index']} = {g['name']} ({g['vram_gb']:.0f} GB)" for g in st["gpus"]))
+    interactive = not (a.yes or a.check) and sys.stdin.isatty()
+    secrets, failed = {}, []
+    for it in st["items"]:
+        item = setup.BY_ID[it["id"]]
+        if not setup._shown(item, vals):
+            continue
+        print(f"\n{item.label}{' (optional)' if item.optional else ''}: {item.help}")
+        if item.kind == "secret":
+            if interactive:
+                got = getpass.getpass(f"  {item.key.removeprefix('secret:')} ({'set; Enter keeps it' if it['has_value'] else 'Enter skips'}): ")
+                if got.strip():
+                    secrets[item.key.removeprefix("secret:")] = got.strip()
+            r = setup.test(item.id, secrets.get(item.key.removeprefix("secret:"), ""), vals)
+        else:
+            while True:
+                if interactive:
+                    hint = f" [{', '.join(item.choices)}]" if item.choices else ""
+                    got = input(f"  {item.label}{hint} [{vals.get(item.id, '')}]: ").strip()
+                    if got == "-" and item.optional:
+                        got = ""
+                        vals[item.id] = ""
+                    elif got:
+                        vals[item.id] = got
+                r = setup.test(item.id, vals.get(item.id, ""), vals)
+                if r["ok"] or not interactive:
+                    break
+                print(f"  ✗ {r['message']}")
+                if input("  Keep it anyway? [y/N] ").strip().lower() == "y":
+                    break
+        mark = "✓" if r["ok"] and not r["warn"] else ("!" if r["ok"] else "✗")
+        print(f"  {mark} {r['message']}")
+        if not r["ok"] and not item.optional:
+            failed.append(item.label)
+    if a.check:
+        print("\nNothing written (--check).")
+    else:
+        if interactive and input("\nSave these settings? [Y/n] ").strip().lower() == "n":
+            print("Nothing written.")
+            return
+        out = setup.save({k: v for k, v in vals.items() if setup._shown(setup.BY_ID[k], vals)}, secrets)
+        print(f"\nWrote {out['config']}" + (f" and {len(secrets)} key(s) to {setup.config.secrets_toml()}" if secrets else ""))
+        print(f"Storage: {out['storage']}. Next: ap doctor, then ap ui.")
+    if failed:
+        print(f"Still to fix: {', '.join(failed)}.")
+
+
 def cmd_preflight(a) -> None:
     from . import preflight
     checks = preflight.run(ue=a.ue)
@@ -1276,6 +1337,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--ue-projects", help="the old [unreal] projects_dir")
     p.add_argument("--ue-backups", help="the old [unreal] backup_dir")
     cf.set_defaults(fn=cmd_config)
+
+    p = sub.add_parser("setup", help="first-run setup: storage, ComfyUI, API keys, Blender, Unreal, GPUs (tests each)")
+    p.add_argument("--yes", action="store_true", help="take the current or detected values without asking")
+    p.add_argument("--check", action="store_true", help="only test the current settings; write nothing")
+    p.add_argument("--set", action="append", metavar="ITEM=VALUE",
+                   help="set one item, e.g. --set blender=/usr/bin/blender (repeatable; items: storage, comfy_backend, "
+                        "comfy_url, sdk_url, comfy_launch, comfy_cwd, blender, unreal, unreal_projects, gpu_vision, gpu_comfy)")
+    p.set_defaults(fn=cmd_setup)
 
     p = sub.add_parser("new", help="create a project under $AP_ROOT/projects/")
     p.add_argument("slug")

@@ -53,6 +53,32 @@ def vram_total_gb() -> dict[int, float]:
     return {int(k[4:]): int(v["VRAM Total Memory (B)"]) / 1e9 for k, v in d.items() if k.startswith("card")}
 
 
+def names() -> dict[int, str]:
+    """Each GPU's product name. Empty when no GPU tool answers."""
+    try:
+        if vendor() == "nvidia":   # untested
+            r = subprocess.run(["nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader"],
+                               capture_output=True, text=True, timeout=30)
+            return {int(i): n.strip() for i, _, n in (ln.partition(",") for ln in r.stdout.splitlines()) if i.strip().isdigit()}
+        if not _rocm_smi():
+            return {}
+        r = subprocess.run([_rocm_smi(), "--showproductname", "--json"], capture_output=True, text=True, timeout=30)
+        d = json.loads(r.stdout)
+        return {int(k[4:]): v.get("Card Series") or v.get("Card Model") or "GPU" for k, v in d.items() if k.startswith("card")}
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {}
+
+
+def list_gpus() -> list[dict]:
+    """[{index, name, vram_gb}] for the GPUs this machine has (ROCm or CUDA); [] without any."""
+    found = names()
+    try:
+        total = vram_total_gb() if found else {}
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        total = {}
+    return [{"index": i, "name": found[i], "vram_gb": round(total.get(i, 0.0), 1)} for i in sorted(found)]
+
+
 def vram_by_process() -> dict[int, dict[int, float]]:
     """{gpu: {pid: GB}}: VRAM each process holds per GPU. AMD: rocm-smi --showpids (VRAM per
     process) and --showpidgpus (its devices); a process on several GPUs is split evenly between
