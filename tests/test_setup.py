@@ -100,6 +100,14 @@ def test_sdk_test_says_what_is_missing(machine):
     assert not r["ok"] and "comfy_api_proxy.sh install" in r["message"]
 
 
+def test_launch_command_needs_its_script(machine, tmp_path):
+    (tmp_path / "comfy").mkdir()
+    r = setup._check_launch("python3 main.py --port {port}", {"comfy_cwd": str(tmp_path / "comfy")})
+    assert not r["ok"] and "main.py isn't in" in r["message"]
+    (tmp_path / "comfy" / "main.py").write_text("")
+    assert setup._check_launch("python3 main.py --port {port}", {"comfy_cwd": str(tmp_path / "comfy")})["ok"]
+
+
 def test_save_removes_an_emptied_optional_item(machine):
     setup.save({"unreal": "/ue/UnrealEditor-Cmd"})
     assert config.get("unreal.editor_cmd") == "/ue/UnrealEditor-Cmd"

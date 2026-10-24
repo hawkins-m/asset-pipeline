@@ -117,6 +117,7 @@ def check_comfy() -> list[Check]:
         if name == "sdk" and setup.proxy_installed():    # like ComfyUI not running: Start ComfyUI brings it up
             out.append(_c("comfy", f"ComfyUI ({name})", True, f"ComfyUI answers; {msg[0].lower() + msg[1:]}",
                           "Start ComfyUI in the Status box (or `ap comfy start`) starts the proxy too.", warn=True))
+            out.append(check_comfy_models(c["url"]))      # read from ComfyUI itself: no proxy needed
         else:
             out.append(_c("comfy", f"ComfyUI ({name})", False, msg, "Check the address in `ap setup`.", ["comfy"]))
         return out

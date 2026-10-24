@@ -94,7 +94,7 @@ def local_checks() -> list[Check]:
     usable = [k for k, miss in vlm if not miss]
     out = [Check("Vision LLM (Qwen3-VL)", bool(usable),
                  f"usable: {', '.join(usable)}" if usable else
-                 "none installed (scripts/install_llamacpp_vlm.sh 8b, or scripts/install_qwen_vl.sh)")]
+                 "none installed (scripts/install_llamacpp_vlm.sh llamacpp 8b, or scripts/install_qwen_vl.sh)")]
     out.append(_exists("Segmentation/depth (OneFormer, Depth Anything V2 Small)",
                        [root / "envs/segdepth/bin/python", root / "models/oneformer_ade20k_swin_large",
                         root / "models/Depth-Anything-V2-Small-hf"], "scripts/install_segdepth.sh"))

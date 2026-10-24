@@ -262,8 +262,8 @@ def _test_sdk(v: str, all_: dict) -> dict:
         r = httpx.get(f"{v.rstrip('/')}/api/v2/health", timeout=3)
         r.raise_for_status()
     except httpx.HTTPError:
-        return _res(False, f"The proxy is installed but not running at {v}. `ap comfy start` (or Start ComfyUI) "
-                           "starts it once ComfyUI answers.")
+        return _res(True, f"The proxy is installed but not running at {v}: `ap comfy start` (or Start ComfyUI in "
+                          "the Status box) starts it; test again then.", warn=True)
     try:
         from .comfy.sdk_client import SdkComfyClient
         c = SdkComfyClient(comfy_url, v, timeout_s=5)
@@ -302,6 +302,10 @@ def _check_launch(v: str, all_: dict) -> dict:
     found = shutil.which(exe) or (Path(exe).is_file() and exe) or (cwd / exe).is_file()
     if not found:
         return _res(False, f"{exe} wasn't found. Use the full path to your ComfyUI's python or launch script.")
+    script = next((a for a in argv[1:] if a.endswith(".py")), None)       # python main.py: main.py must be there
+    if script and not (Path(script).is_file() or (cwd / script).is_file()):
+        return _res(False, f"{script} isn't in {cwd}. Set the ComfyUI folder to your ComfyUI checkout, or give the "
+                           "script's full path.")
     if "{port}" not in v:
         return _res(True, f"{exe} found, but the command has no {{port}}: ComfyUI picks its own port.", warn=True)
     return _res(True, f"Looks right: {exe} found. Start ComfyUI runs it (nothing started by this test).")

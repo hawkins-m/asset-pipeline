@@ -36,12 +36,12 @@ DOCS = "RUNBOOK.md"
 # Preflight check name (prefix) -> how to fix it: the install command and the doc to read.
 INSTALL_HINTS = [
     ("ComfyUI models", "scripts/fetch_models.sh", "README.md (models and licenses)"),
-    ("Vision LLM", "scripts/install_llamacpp_vlm.sh 8b    # or: scripts/install_qwen_vl.sh", "docs/notes/vlm.md"),
+    ("Vision LLM", "scripts/install_llamacpp_vlm.sh llamacpp 8b    # or: scripts/install_qwen_vl.sh", "docs/notes/vlm.md"),
     ("Segmentation/depth", "scripts/install_segdepth.sh", "RUNBOOK.md"),
     ("TRELLIS.2", "scripts/install_trellis2.sh venv deps trellis nvdiffrast cumesh flexgemm ovoxel nvdiffrec verify",
      "USAGE.md (TRELLIS)"),
-    ("Blender", "snap install blender --classic    # or set [tools] blender / AP_BLENDER", "USAGE.md"),
-    ("Unreal Engine", "set [unreal] editor_cmd in config/backends.toml (UE 5.8, full editor)", "RUNBOOK.md (Unreal)"),
+    ("Blender", "snap install blender --classic    # then ap setup (or AP_BLENDER)", "USAGE.md"),
+    ("Unreal Engine", "ap setup    # Unreal: UnrealEditor-Cmd of a UE 5.8 install (full editor)", "RUNBOOK.md (Unreal)"),
 ]
 
 

@@ -50,4 +50,4 @@ for row in "${FILES[@]}"; do
     echo "failed: $repo:$src (gated repo? run 'hf auth login' and accept its terms)" >&2; exit 1
   fi
 done
-echo "done. Check with: ap preflight"
+echo "done. Check with: ap doctor"

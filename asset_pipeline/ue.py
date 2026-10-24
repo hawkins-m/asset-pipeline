@@ -9,7 +9,7 @@ Python scripts in unreal/ run headless through UnrealEditor-Cmd's pythonscript c
 with -nullrhi: no GPU, so imports never compete with ComfyUI or TRELLIS. Each script takes
 a single JSON args file (no quoting trouble in -script=) and writes a JSON report.
 
-Engine: [unreal] editor_cmd in config/backends.toml, or AP_UE_EDITOR_CMD.
+Engine: [unreal] editor_cmd in the user config (ap setup), or AP_UE_EDITOR_CMD.
 """
 import json
 import os
