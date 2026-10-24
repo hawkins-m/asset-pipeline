@@ -66,7 +66,10 @@ terminal: [RUNBOOK.md](RUNBOOK.md) describes the clicks.
 Verified on one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx1201), ROCm
 7.2.4, ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
-- Full test suite: 311 tests (309 offline; 2 more need a live ComfyUI), all passing.
+- Full test suite: 635 tests (633 offline; 2 more need a live ComfyUI), all passing.
+- Clean install (2026-10-23): the Install steps above as written, from a fresh clone with an empty
+  `HOME` and no config: `ap setup`, the app's first-run Setup screen, `ap doctor`, a new project
+  and its greybox. The multi-GB model downloads (steps 4-6) and GPU jobs were left out.
 - The two ComfyUI backends (below) give identical SAM 3.1 results (`pytest -m comfy`), and
   the SDK backend's cancel and error handling were checked against a live ComfyUI.
 - Starter path (`scripts/demo.sh starter`) through the SDK backend, on a fresh `AP_ROOT`:
@@ -85,30 +88,32 @@ Expect to debug it.
 - Linux (verified on Ubuntu 26.04). Windows and macOS are not supported.
 - Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
 - ComfyUI, 0.24 or newer (the tested version), with the model files below. The workflows use
-  only core nodes (SAM 3.1 included); `ap preflight` shows which model files are missing.
-- Blender 5.x on `PATH`, or set `AP_BLENDER` (verified with 5.2.2; the snap works).
+  only core nodes (SAM 3.1 included); `ap doctor` shows which model files are missing.
+- Blender 4.2 or newer (verified with 5.2.2; the snap works). `ap setup` finds it on `PATH`, the
+  snap, `/opt` or your home folder, or asks for its path.
 - Unreal Engine 5.8 (free with an Epic account) for the last steps only: import and look
   scenes. The demo's starter path does not need it.
 - GPU memory:
   - Concept frames (Flux fp8, ControlNet, Redux): about 24 GB. The author uses one 32 GB card.
   - Vision LLM: the default Qwen3-VL-32B Q5_K_M takes about 27 GB on its own GPU. With 24 GB or
-    less, use the 8B (Q8_0 GGUF, or bf16 at about 18 GB): set `[local] model = "8b"` (below).
+    less, use the 8B (Q8_0 GGUF, or bf16 at about 18 GB): `ap config set local.model 8b`.
   - Two GPUs are recommended: ComfyUI on one, the VLM, TRELLIS and Unreal renders on the other.
     One 32 GB GPU works if the jobs run one after another (the VLM unloads after 600 s idle).
     The VLM and TRELLIS never share a GPU; this is handled automatically. Unreal renders check
     VRAM first.
 - Disk: several hundred GB is comfortable (Flux, VLM weights, TRELLIS, Unreal projects). All
-  of it goes under one directory, `AP_ROOT`.
+  of it goes under one storage folder (default `~/.local/share/terraformer`; `ap setup` asks).
 
 ## Install
 
-Your settings live in one user config outside the repo, `~/.config/terraformer/config.toml`
-(API keys in `secrets.toml` beside it, mode 0600); environment variables win over it. Everything
-big (venvs, weights, projects, outputs) goes under one storage folder, by default
-`~/.local/share/terraformer`. To put it elsewhere (a big drive), once the pipeline is installed:
+Nothing in the repo names a machine. Your settings live in one user config outside it,
+`~/.config/terraformer/config.toml` (API keys in `secrets.toml` beside it, mode 0600), written by
+`ap setup` (step 7); environment variables win over it. Everything big (venvs, weights, projects,
+outputs) goes under one storage folder, by default `~/.local/share/terraformer`. To put it on a
+big drive, set it before the downloads below (they go into it):
 
 ```bash
-ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=... for one shell
+ap config set paths.ap_root /path/to/storage/terraformer   # after step 1; or export AP_ROOT=... for one shell
 ```
 
 1. **The pipeline.**
@@ -116,6 +121,7 @@ ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=.
    git clone https://github.com/hawkins-m/terraformer-3d.git && cd terraformer-3d
    python3.12 -m venv .venv && source .venv/bin/activate
    pip install -e '.[dev]'
+   mkdir -p ~/.local/bin && ln -sf "$PWD/scripts/ap" ~/.local/bin/ap   # `ap` in any shell, venv or not
    ```
    The repo is called `terraformer-3d`, but the command is still `ap` and the Python package is
    still `asset_pipeline` (pip lists it as `asset-pipeline`): scripts, imports and config keep
@@ -135,17 +141,16 @@ ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=.
    ```
    It skips files that are already there and touches nothing else.
 
-   Tell the pipeline how to launch your ComfyUI, in the user config (the repo default runs
-   `python main.py` in `~/ComfyUI`):
-   ```toml
-   [comfyui.service]
-   launch = "~/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"   # or your run script
-   cwd = "~/ComfyUI"
-   gpu = "1"          # GPU to pin it to; "" = leave the environment alone
+   So the app can start ComfyUI for you, `ap setup` (step 7) asks for its launch command and
+   folder (the default runs `python main.py` in `~/ComfyUI`; give your venv's python or your run
+   script, `{port}` is filled in) and pins it to the ComfyUI GPU. By hand:
+   ```bash
+   ap config set comfyui.service.launch "~/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"
+   ap config set comfyui.service.cwd ~/ComfyUI
    ```
    Then `ap comfy start` (also `stop`, `restart`, `status`), or **Start ComfyUI** in the app's
    Status box. The port comes from `[comfyui] url` (default `http://127.0.0.1:8188`); the log
-   goes to `$AP_ROOT/logs/comfyui.log`. It only launches and stops ComfyUI; it never changes
+   goes to `<storage>/logs/comfyui.log`. It only launches and stops ComfyUI; it never changes
    its install. A job that needs ComfyUI while it's down offers **Start ComfyUI and run** and
    waits until ComfyUI answers.
 
@@ -153,7 +158,8 @@ ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=.
    ```bash
    scripts/comfy_api_proxy.sh install
    ```
-   `ap comfy start` starts it (port 8190) once ComfyUI answers, and `ap comfy stop` stops it.
+   `ap comfy start` starts it (port 8190) once ComfyUI answers, also when ComfyUI is already
+   running, and `ap comfy stop` stops it (with ComfyUI).
 
 4. **Vision LLM** (reads reference sheets, plans assets). Either:
    ```bash
@@ -236,19 +242,23 @@ needed here; the entry runs fully local.
 ## Quick start
 
 ```bash
-ap preflight                       # what is installed, what is missing
+ap setup                           # first run: check and save your settings (the app asks too)
+ap doctor                          # what is installed, what is missing, how to fix it
+ap ui                              # the app, at http://127.0.0.1:8700 (or the desktop launcher)
 scripts/demo.sh starter            # neutral starter layout, no Unreal needed
 ```
 
 `demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the
 greybox, the shot passes, sets a style text and generates two concept frames for the `street`
-shot through ComfyUI. Frames land under `$AP_ROOT/projects/my-project/`; `ap ui` shows them in
-the browser. In the app the same demo is Help › Run demo….
+shot through ComfyUI. It needs ComfyUI with the five model files (step 2), the proxy for the
+`sdk` backend (step 3, then `ap comfy start`) and Blender; not the vision model, TRELLIS or
+Unreal. Frames land under `<storage>/projects/my-project/`; `ap ui` shows them in the browser.
+In the app the same demo is Help › Run demo….
 
 The full path on one area of a project, brief to Unreal render:
 
 ```bash
-ap preflight --ue
+ap doctor                          # Unreal must show as found
 scripts/demo.sh area my-project SHOT ENTRY [ENTRY ...]
 ```
 

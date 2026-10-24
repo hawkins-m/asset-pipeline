@@ -9,7 +9,7 @@ Phases, one commit each; this file says where a stopped session picks up.
 | 2 | One user config (`~/.config/terraformer/config.toml` + `secrets.toml`), env overrides, migrate the current machine | done |
 | 3 | `ap setup` (CLI) and the first-run Setup screen, with a Test per item | done |
 | 4 | `ap doctor`, the same results in the Status box, features disabled with a reason | done |
-| 5 | Clean-install test with a fresh HOME, README Quick start fixed | todo |
+| 5 | Clean-install test with a fresh HOME, README Quick start fixed | done |
 
 Rules while doing this: test on a second `ap ui` (not port 8700) and a scratch AP_ROOT; no GPU jobs;
 never touch a real project folder.
@@ -141,3 +141,29 @@ machine, kept), `docs/notes/*` (machine notes, kept by design), `docs/ue-build-p
 - Status bar "GPU n" follows `[jobs] comfy_gpu`.
 - Verified on a second instance (8702) with a fresh config and empty storage: the Unreal tab note,
   buttons off with reasons through polling redraws, Doctor dialog; sdk through a real proxy (8195).
+
+## Phase 5: done
+
+Run with `env -i HOME=<empty dir>` (no AP_ROOT, no config), PATH = system dirs + /snap/bin, a fresh
+clone from GitHub, the README steps as written:
+- Step 1 (clone, python3.12 venv, `pip install -e '.[dev]'`): works; `ap` on PATH in the venv.
+  Added the `ln -s scripts/ap ~/.local/bin/ap` line: the wrapper finds the checkout's `.venv`.
+- Step 2: ComfyUI install is the user's (the running one used over HTTP only);
+  `fetch_models.sh --dry-run` lists the five files (real download skipped: tens of GB). Its
+  closing hint said `ap preflight` -> `ap doctor`. Hand-written TOML for the launch command
+  replaced by `ap setup` / `ap config set`.
+- Step 3 `scripts/comfy_api_proxy.sh install`: works into the default storage folder.
+- Steps 4-6 (vision model, seg/depth, TRELLIS): skipped (downloads); the doctor reports them
+  missing with the install command, features off (vlm, segdepth, trellis).
+- Step 7 `ap setup --check` / `--yes`: found ComfyUI, Blender (snap), Unreal, both GPUs.
+  Fixed: the launch test now checks `main.py` is in the ComfyUI folder; "proxy installed but
+  not running" is a note (ap comfy start starts it), not a failure.
+- Step 8 `ap doctor`: right verdict, exit 1 with two required pieces missing; fixed the model
+  check being skipped while the proxy is down.
+- App (`ap ui --port 8703`, config set aside): the Setup screen opens by itself; fixed Test all /
+  Save doing nothing when clicked before the machine check finished. Save -> Status box
+  "Setup: 2 missing", Doctor dialog rows right, New project -> created, `ap site init` + `site
+  build` (Blender greybox) ran.
+- README: Requirements and Install name `ap setup` / `ap doctor`, `ap` outside the venv, Quick
+  start rewritten (setup, doctor, ui, demo and what the starter demo needs), test counts.
+- Not run: frames (ComfyUI GPU job), shot passes, the Unreal steps, the model downloads.
