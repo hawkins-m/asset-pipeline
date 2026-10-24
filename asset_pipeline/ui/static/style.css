@@ -477,8 +477,10 @@ details summary { cursor: default; }
 .version-strip .ver-list { display: grid; gap: 4px; max-height: 340px; overflow: auto; }
 /* buttons on their own line under the meta: nothing can overlap at any width */
 .version-strip .ver { display: grid; grid-template-columns: auto 72px minmax(0, 1fr); gap: 2px 6px; align-items: center; padding: 2px; border: 1px solid transparent; }
-.version-strip .ver-meta { min-width: 0; overflow-wrap: anywhere; }
-.version-strip .ver-marks { display: flex; flex-wrap: wrap; gap: 3px; margin: 1px 0; }
+.version-strip .ver-meta { min-width: 0; }
+/* fixed compact card: every line is one line; the full "what changed" is the line's tooltip */
+.version-strip .ver-meta > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.version-strip .ver-marks { display: flex; gap: 3px; margin: 1px 0; min-height: 1.3em; }
 .version-strip .ver-marks .mark { margin-left: 0; }
 .version-strip .ver.cur { border-color: var(--select); background: color-mix(in srgb, var(--select) 10%, transparent); }
 .ver-used { color: var(--select-text, #fff); background: var(--select); padding: 0 4px; }
@@ -487,7 +489,7 @@ details summary { cursor: default; }
 .cur-version { display: inline-flex; align-items: center; gap: 4px; }
 .cur-version img { width: 36px; height: 27px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
 .version-strip .ver img, .version-strip .ver-nothumb { width: 72px; height: 54px; object-fit: contain; background: #fff; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
-.version-strip .ver-btns { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 3px; }
+.version-strip .ver-btns { grid-column: 2 / -1; display: flex; gap: 3px; overflow: hidden; }
 .asset-review .no-views { grid-column: 1 / -1; white-space: nowrap; }
 .asset-review .reroll-form { margin: 4px 0; gap: 6px; flex-wrap: wrap; }
 .asset-review .reroll-form .reroll-guidance { flex: 1; min-width: 12em; max-width: 40em; }

@@ -195,27 +195,101 @@ REROLL_FILES = ("procedural.glb", "procedural.zones.json", "procedural.json")
 def _short(v) -> str:
     if v is None:
         return "auto"                                   # unset: the sheet reading or the default decides
+    if isinstance(v, bool):
+        return "on" if v else "off"
+    if isinstance(v, float):
+        return f"{v:g}"
+    if isinstance(v, list) and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+        return "×".join(_short(float(x)) for x in v)
+    if isinstance(v, list) and all(isinstance(x, str) for x in v):
+        return ", ".join(v) or "none"
     return json.dumps(v) if isinstance(v, (list, dict)) else str(v)
 
 
+# plain words for brief keys on a version card ("features.arcade.gallery.w" -> "gallery width")
+KEY_WORDS = {"w": "width", "h": "height", "d": "depth", "t": "thickness", "proj": "projection", "dims": "size",
+             "storey_h": "storey", "bay_m": "bay", "n": "count", "kind": "type"}
+SUFFIX_WORDS = {"_h": " height", "_w": " width", "_d": " depth", "_t": " thickness", "_m": ""}
+BRIEF_ROOTS = ("dims", "params", "material_types", "material_scale", "surface", "shading", "features")
+
+
+def _word(key: str) -> str:
+    if key in KEY_WORDS:
+        return KEY_WORDS[key]
+    for suf, w in SUFFIX_WORDS.items():
+        if key.endswith(suf) and len(key) > len(suf):
+            return key[:-len(suf)].replace("_", " ") + w
+    return key.replace("_", " ")
+
+
+def label(path: str) -> str:
+    """A brief path in plain words: its part and its field ("features.attic.storey_h" -> "attic storey")."""
+    segs = path.split(".")
+    if segs[0] in ("material_types", "material_scale") and len(segs) == 2:
+        return f"{segs[1]} material" + (" scale" if segs[0] == "material_scale" else "")
+    segs = ([x for x in segs if x not in ("features", "params")] or segs)[-2:]
+    return " ".join([x.replace("_", " ") for x in segs[:-1]] + [_word(segs[-1])])
+
+
 def brief_changes(old: dict, new: dict) -> list[str]:
-    """What a reroll changed in the brief, one "path before -> after" per field (a building's
-    editable fields; a kit piece's params and dims)."""
+    """What changed in the brief, one "field before → after" in plain words per setting that was
+    set explicitly (guidance, a reroll, the brief form) in either brief. Values the builder fills
+    in from defaults and templates are not changes; they only stand in as the "before" of a field
+    set for the first time (a part switched on shows its template value). A part switched on or
+    off is one item."""
     from . import brief_guide, versions
-    a, b = brief_guide.values(old), brief_guide.values(new)
-    if not a and not b:
-        keys = ("dims", "params", "features", "shading")
-        a, b = (versions._flat({k: x[k] for k in keys if k in x}) for x in (old, new))
-        a, b = a | {k: None for k in b if k not in a}, b | {k: None for k in a if k not in b}
-    return [f"{k} {_short(a.get(k))} → {_short(b.get(k))}" for k in b if a.get(k) != b.get(k)]
+    raw = [versions._flat({k: x[k] for k in BRIEF_ROOTS if k in x}) for x in (old, new)]
+    off_a, off_b = set(), set()
+    res = [brief_guide.values(old, off_a), brief_guide.values(new, off_b)]
+    out = [f"{label(p)} on" for p in sorted(off_a - off_b)] + [f"{label(p)} off" for p in sorted(off_b - off_a)]
+    for k in list(raw[0]) + [k for k in raw[1] if k not in raw[0]]:
+        if raw[0].get(k) == raw[1].get(k) or any(k.startswith(p + ".") for p in off_b):
+            continue
+        a, b = (r.get(k, x.get(k)) for r, x in zip(res, raw))
+        if a != b:
+            out.append(f"{label(k)} {_short(a)} → {_short(b)}")
+    return out
+
+
+def _fit(items: list[str], budget: int) -> str:
+    """As many items as fit in about `budget` characters (at least one), then "+N more"."""
+    shown = items[:1]
+    for x in items[1:]:
+        if len(", ".join(shown + [x])) > budget:
+            break
+        shown.append(x)
+    rest = len(items) - len(shown)
+    return ", ".join(shown) + (f" +{rest} more" if rest else "")
 
 
 def change_line(changes: list[str], unsupported: list[str]) -> str:
-    """The one line a rerolled version shows: what changed in the brief, and what the guidance
-    asked for that the builder has no setting for."""
-    line = ("Brief: " + "; ".join(changes) + ".") if changes else "Brief unchanged."
+    """The full "what changed" of a version: every brief change, and what the guidance asked for
+    that the builder has no setting for (the card's tooltip)."""
+    line = ("Changed: " + "; ".join(changes)) if changes else "Brief unchanged"
     if unsupported:
-        line += " No setting for: " + ", ".join(unsupported) + "."
+        line += " · no setting for: " + ", ".join(unsupported)
+    return line
+
+
+def stored_lines(line: str) -> tuple[str, str]:
+    """A stored line in the old form ("Brief: features.vault_t 0.5 → 1.0; ... No setting for: x.")
+    as (full, short) in plain words; other lines come back as they are."""
+    if not line.startswith(("Brief: ", "Brief unchanged.")):
+        return line, line
+    body, _, rest = line.partition(" No setting for: ")
+    body = body.removeprefix("Brief: ").removesuffix(".")
+    changes = [] if body == "Brief unchanged" else [
+        f"{label(k)} " + " ".join({"True": "on", "False": "off"}.get(w, w) for w in v.split(" "))
+        for k, _, v in (x.partition(" ") for x in body.split("; "))]
+    unsupported = [x for x in rest.removesuffix(".").split(", ") if x]
+    return change_line(changes, unsupported), change_short(changes, unsupported)
+
+
+def change_short(changes: list[str], unsupported: list[str], budget: int = 60) -> str:
+    """The one short line a version card shows: "Changed: a 1 → 2, b 3 → 4 +5 more"."""
+    line = ("Changed: " + _fit(changes, budget)) if changes else "Brief unchanged"
+    if unsupported:
+        line += " · no setting for: " + _fit(unsupported, 30)
     return line
 
 
@@ -279,7 +353,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         to_cpu()
         at(2, "Blender build…")
         changes = brief_changes(brief, read_json(sp, default={}) or {})
-        line = change_line(changes, unsupported)
+        line, short = change_line(changes, unsupported), change_short(changes, unsupported)
         res = kit_proc.build_any(store, asset, log=log, make_current=False)
         vn = res["version"]
         same = builds.get(res.get("build_sha")) or hashes.get(filestore.digest(out / "procedural.glb"))
@@ -308,7 +382,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             if r["n"] == vn:
                 r["files"] = sorted(set(r["files"]) | keep)
                 r["bytes"] = versions._dir_size(d)
-                r["changes"] = line
+                r["changes"], r["changes_short"] = line, short
         versions._save(store, asset, rows)
     finally:                                               # put back what the version in use is made of
         write_json(sp, brief)

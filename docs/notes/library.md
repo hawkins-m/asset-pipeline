@@ -235,6 +235,13 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   Now each rerolled version says what changed in the brief and what had "No setting for", and a
   build byte-identical to an existing version (file store hash) adds no version. A reroll without
   guidance re-measures the sheet and can move dims (a hall's height went 19.5 -> 13.71 m).
+- **"What changed" listed dozens of "auto -> value" settings** (2026-10-23): not written by the Unreal
+  build (the briefs held only explicit values); the comparison ran on `brief_guide.values()`, which
+  expands a part switched on (attic) to its whole template. `brief_changes` now compares explicit
+  paths only (resolved values are just the "before"), a part on/off is one item, labels are plain
+  words. The card shows `changes_short` (one line, "+N more"); the full list is the tooltip; every
+  card line is single-line so cards keep one height. Old stored "Brief: path a -> b" lines are
+  converted on read (`stored_lines`).
 - **Curved procedural surfaces shaded as facets whatever the smoothing angle**: parts that touch face
   to face (the 18 prisms of a barrel vault) left their shared faces inside the mesh, and every seam
   met one at 90 deg, so smooth-by-angle kept all 932 vault vertices split. `blender_kit.py` now

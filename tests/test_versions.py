@@ -528,8 +528,9 @@ def test_a_reroll_version_says_what_changed_in_the_brief(store, monkeypatch):
     _fake_reroll_deps(store, monkeypatch)
     _build(store)
     res = lr.reroll(store, "gate", "wider")
-    assert versions.get(store, "gate", 2)["changes"] == res["changes"] == "Brief: params.w 10.0 → 14.0."
-    assert res["message"].startswith("v2: Brief: params.w")
+    assert versions.get(store, "gate", 2)["changes"] == res["changes"] == "Changed: width 10 → 14"
+    assert versions.get(store, "gate", 2)["changes_short"] == "Changed: width 10 → 14"
+    assert res["message"].startswith("v2: Changed: width")
 
 
 def test_guidance_no_setting_carries_adds_no_version_and_lists_the_settings(store, monkeypatch):
@@ -565,20 +566,47 @@ def test_a_reroll_built_from_the_same_input_adds_no_version_even_when_the_glb_by
     res = lr.reroll(store, "gate", "wider")
     assert res["version"] is None and res["unchanged"] and res["same_as"] == 1
     assert res["message"] == ("Nothing changed: the build is identical to v1 "
-                              "(the brief edits (params.w 10.0 → 14.0) build the same model).")
+                              "(the brief edits (width 10 → 14) build the same model).")
     assert [r["n"] for r in versions.load(store, "gate")] == [1] and not versions.vdir(store, "gate", 2).exists()
 
 
 def test_every_procedural_version_card_has_a_what_changed_line(store, monkeypatch):
     _build(store)
     _build(store, params={"w": 12.0})
-    lines = {v["n"]: v["changes"] for v in versions.listing(store, "gate")["versions"]}
-    assert lines == {1: "First build with a kept brief.", 2: "Brief: params.w 10.0 → 12.0."}
+    vs = versions.listing(store, "gate")["versions"]
+    assert {v["n"]: v["changes"] for v in vs} == {1: "First build with a kept brief.", 2: "Changed: width 10 → 12"}
+    assert {v["n"]: v["changes_short"] for v in vs} == {1: "First build with a kept brief.", 2: "Changed: width 10 → 12"}
 
 
 def test_change_line_names_what_has_no_setting():
-    assert lr.change_line([], ["smooth shading"]) == "Brief unchanged. No setting for: smooth shading."
-    assert lr.change_line(["shading auto → smooth"], []) == "Brief: shading auto → smooth."
+    assert lr.change_line([], ["smooth shading"]) == "Brief unchanged · no setting for: smooth shading"
+    assert lr.change_line(["shading auto → smooth"], []) == "Changed: shading auto → smooth"
+
+
+def test_defaults_a_part_brings_with_it_are_not_changes():
+    # switching a part on lists the part and its explicit fields, not every template default it fills in
+    old = {"kind": "building", "form": "arcade", "dims": [20, 15, 12], "features": {"arcade": {"h": 5.7}}}
+    new = old | {"features": {"arcade": {"h": 5.7, "gallery": {"w": 0.4}}, "attic": {"storey_h": 2.0}},
+                 "guidance": "an attic"}
+    ch = lr.brief_changes(old, new)
+    assert ch[0] == "attic on" and "attic storey 3.2 → 2" in ch and "gallery width 0.6 → 0.4" in ch
+    assert len(ch) == 3 and not any("auto" in c for c in ch)
+    assert lr.brief_changes(new, old)[0] == "attic off" and len(lr.brief_changes(new, old)) == 2
+    assert lr.brief_changes(old, old | {"guidance": "x"}) == []
+
+
+def test_the_card_line_is_short_with_a_count_of_the_rest():
+    ch = [f"setting {i} 1.0 → 2.0" for i in range(30)]
+    short = lr.change_short(ch, ["gold dome"])
+    assert short.startswith("Changed: setting 0 1.0 → 2.0, ") and " more · no setting for: gold dome" in short
+    assert len(short) < 110 and lr.change_line(ch, []).count(";") == 29
+
+
+def test_old_stored_lines_come_out_in_plain_words():
+    full, short = lr.stored_lines("Brief: features.vault_t 0.5 → 1.0; material_types.base auto → concrete. "
+                                  "No setting for: gold dome.")
+    assert full == "Changed: vault thickness 0.5 → 1.0; base material auto → concrete · no setting for: gold dome"
+    assert short == "Changed: vault thickness 0.5 → 1.0, base material auto → concrete · no setting for: gold dome"
 
 
 def test_a_failed_reroll_adds_nothing_and_changes_nothing(store, monkeypatch):

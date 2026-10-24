@@ -320,9 +320,10 @@ def _view(store, r, cur) -> dict:
     return o
 
 
-def change_lines(store: ProjectStore, asset: str, rows: list[dict], plan: str = PLAN) -> dict[int, str]:
-    """Every procedural version's "what changed" line: the one a reroll stored, else its brief
-    against the version before it (library_review.change_line)."""
+def change_lines(store: ProjectStore, asset: str, rows: list[dict], plan: str = PLAN) -> dict[int, dict]:
+    """Every procedural version's "what changed": {"changes": the full line, "changes_short": the
+    card's one short line}. The one a reroll stored, else its brief against the version before it
+    (library_review.brief_changes: explicit settings only)."""
     from . import library_review as lr
     out, prev = {}, None
     for r in sorted(rows, key=lambda r: r["n"]):
@@ -330,20 +331,23 @@ def change_lines(store: ProjectStore, asset: str, rows: list[dict], plan: str = 
             continue
         b = read_json(vdir(store, asset, r["n"], plan) / "brief.json", default=None)
         if r.get("changes"):
-            out[r["n"]] = r["changes"]
+            full, short = lr.stored_lines(r["changes"])
+            line = {"changes": full, "changes_short": r.get("changes_short") or short}
         elif b is None:
-            out[r["n"]] = "No brief kept for this version."
+            line = "No brief kept for this version."
         elif prev is None:
-            out[r["n"]] = "First build with a kept brief."
+            line = "First build with a kept brief."
         else:
-            out[r["n"]] = lr.change_line(lr.brief_changes(prev, b), [])
+            ch = lr.brief_changes(prev, b)
+            line = {"changes": lr.change_line(ch, []), "changes_short": lr.change_short(ch, [])}
+        out[r["n"]] = line if isinstance(line, dict) else {"changes": line, "changes_short": line}
         prev = b if b is not None else prev
     return out
 
 
 def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     """The strip: versions newest first, sizes, what retention would remove, and each procedural
-    version's "what changed" line."""
+    version's "what changed" (full and short)."""
     if not has_bank(store, asset, plan):
         migrate_asset(store, asset, plan)
     rows = load(store, asset, plan)
@@ -351,7 +355,7 @@ def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     pr = prune(store, asset, dry_run=True, plan=plan)
     lines = change_lines(store, asset, rows, plan)
     return {"asset": asset, "keep": keep_limit(store), "current": cur,
-            "versions": [_view(store, r, cur) | ({"changes": lines[r["n"]]} if r["n"] in lines else {})
+            "versions": [_view(store, r, cur) | lines.get(r["n"], {})
                          for r in sorted(rows, key=lambda r: -r["n"])],
             "bytes": sum(r["bytes"] for r in rows), "prunable": pr["remove"], "prunable_bytes": pr["bytes"]}
 
