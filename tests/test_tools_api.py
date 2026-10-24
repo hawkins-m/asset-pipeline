@@ -255,7 +255,7 @@ def test_vlm_up_and_down_are_jobs(client, monkeypatch):
     r = client.post("/api/vlm/up", json={"model": "8b"}).json()
     assert r["lane"] == "gpu0" and _wait(client, r)["result"]["model"] == "8b"
     assert _wait(client, client.post("/api/vlm/down", json={"force": True}).json())["result"] == {"result": "stopped"}
-    assert seen == [("up", "8b", 0), ("down", True)]
+    assert seen == [("up", "8b", None), ("down", True)]        # None: vlm.up takes the configured GPU
 
 
 def test_demo_runs_the_script_as_a_job(client, store, monkeypatch):  # noqa: F811

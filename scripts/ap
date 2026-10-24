@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ap ...  -- asset pipeline CLI (stages 0-4). See USAGE.md. Runs from any directory.
-# AP_ROOT is where projects/outputs live; the venv location is independent of it.
+# AP_ROOT is where projects/outputs live; the venv is AP_VENV > [paths] venv in the user config
+# > the checkout's .venv (the README install) > $AP_ROOT/envs/orchestrator.
 set -euo pipefail
-source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
-exec "${AP_VENV:-/mnt/storage/asset-pipeline/envs/orchestrator}/bin/ap" "$@"
+here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+source "$here/ap_root.sh"
+venv="${AP_VENV:-$(python3 "$here/ap_config.py" paths.venv 2>/dev/null || echo "$AP_ROOT/envs/orchestrator")}"
+[ -x "$venv/bin/ap" ] || { echo "ap: no Terraformer install in $venv: see the README's Install, or set AP_VENV" >&2; exit 1; }
+exec "$venv/bin/ap" "$@"

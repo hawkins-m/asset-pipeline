@@ -6,7 +6,7 @@ Phases, one commit each; this file says where a stopped session picks up.
 | Phase | What | State |
 |---|---|---|
 | 1 | Audit of machine-specific values (below) | done |
-| 2 | One user config (`~/.config/terraformer/config.toml` + `secrets.toml`), env overrides, migrate the current machine | todo |
+| 2 | One user config (`~/.config/terraformer/config.toml` + `secrets.toml`), env overrides, migrate the current machine | done |
 | 3 | `ap setup` (CLI) and the first-run Setup screen, with a Test per item | todo |
 | 4 | `ap doctor`, the same results in the Status box, features disabled with a reason | todo |
 | 5 | Clean-install test with a fresh HOME, README Quick start fixed | todo |
@@ -74,7 +74,7 @@ hard-coded path. Secrets are only env vars; nothing reads a secrets file.
 (ports 8188/8189), `AGENTS.md:20` and `CLAUDE.md:51` (`~/Projects/AI/ComfyUI*`: agent rules for this
 machine, kept), `docs/notes/*` (machine notes, kept by design), `docs/ue-build-progress.md:46`.
 
-### Plan for phase 2
+### Phase 2 plan (done; notes below)
 
 - New `~/.config/terraformer/config.toml` (XDG_CONFIG_HOME respected; `AP_CONFIG` overrides the
   path) holding `[paths] ap_root`, `[tools] blender`, `[comfyui]`, `[unreal]`, `[jobs]` GPUs; and
@@ -84,3 +84,22 @@ machine, kept), `docs/notes/*` (machine notes, kept by design), `docs/ue-build-p
   `editor_cmd` empty (Unreal optional); UE backups under `$AP_ROOT/backups/unreal`.
 - Migration: on first load with no user config, write this machine's effective values into it.
 - Shell scripts get AP_ROOT from `ap config get paths.ap_root` (python3 fallback reads the user config).
+
+## Phase 2: done
+
+- `asset_pipeline/config.py`: `config_dir()` (`AP_CONFIG_DIR` > `$XDG_CONFIG_HOME/terraformer`),
+  `user()`, `save_user()`, `get("section.key")`, `secrets()` / `save_secret()` / `load_secrets()`
+  (0600 file, 0700 folder; a group/world-readable file is refused), `migrate(old_root, old_repo_values)`,
+  `ENV_OVERRIDES` (merged last in `backends()`). AP_ROOT: env > user > repo (old checkouts) >
+  `~/.local/share/terraformer`. `cli.main` loads the secrets first, so `ap ui` has them too.
+- `ap config path|show|get|set|unset|migrate`. `scripts/ap_config.py KEY` gives shell scripts the same
+  values (system python3); `scripts/ap`, `ap_root.sh`, `trellis`, `comfy_api_proxy.sh` use it.
+- Repo `config/backends.toml`: no machine values. New keys: `[paths] venv`, `[comfyui] other_ports`.
+  UE defaults: projects `~/Documents/Unreal Projects`, backups `$AP_ROOT/backups/unreal`.
+- GPU numbers come from `[jobs] gpu0_gpu` / `comfy_gpu` in `vlm.up`, `ap vlm`, `scripts/trellis`,
+  `ue_build.render_gpu`; `look.comfy_ports()` replaces the hard 8188/8189.
+- This machine: `~/.config/terraformer/config.toml` written by `ap config migrate` with the old repo
+  values + `$AP_ROOT/backends.local.toml` + `paths.venv`, `other_ports = [8189]`, GPUs 0/1. Effective
+  config compared old code vs new: identical apart from the two new keys.
+- `tests/conftest.py` gives every test an empty user config folder.
+- Pre-commit hook refuses staged `secrets.toml`, `.env`, `local.env`, `backends.local.toml`.

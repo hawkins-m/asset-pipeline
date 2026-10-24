@@ -3,7 +3,7 @@
 #
 # IMAGE is a path, or a bare filename looked up in $AP_ROOT/inputs/.
 # Options pass through to scripts/trellis2_image_to_glb.py (--seed, --texture-size, ...).
-# GPU: TRELLIS_GPU (default 0; both ComfyUI instances run on GPU 1).
+# GPU: TRELLIS_GPU (default: the vision/TRELLIS GPU in the config, [jobs] gpu0_gpu).
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 source "$REPO/scripts/build_env_common.sh"
@@ -24,19 +24,22 @@ if [ ! -f "$img" ] && [ -f "$AP_ROOT/inputs/$img" ]; then
 fi
 [ -f "$img" ] || { echo "trellis: no such image: $img (also looked in $AP_ROOT/inputs/)" >&2; exit 1; }
 
-gpu="${TRELLIS_GPU:-0}"
+gpu="${TRELLIS_GPU:-$(python3 "$REPO/scripts/ap_config.py" jobs.gpu0_gpu 2>/dev/null || echo 0)}"
+gpu="${gpu:-0}"
 
 # Never share a GPU with the local vision LLM: hold a lock (the VLM won't start on this
 # GPU while it exists), then stop the VLM if it's here; `ap vlm down` waits for a request
 # in flight. See asset_pipeline/vlm.py.
 lock="$AP_ROOT/logs/trellis-gpu$gpu-$$.lock"
 mkdir -p "$AP_ROOT/logs"; : > "$lock"; trap 'rm -f "$lock"' EXIT
-ap_bin="$AP_ROOT/envs/orchestrator/bin/ap"
+ap_bin="$(python3 "$REPO/scripts/ap_config.py" paths.venv 2>/dev/null || echo "$AP_ROOT/envs/orchestrator")/bin/ap"
 if [ -x "$ap_bin" ]; then
   "$ap_bin" vlm down --gpu "$gpu" | sed 's/^/trellis: vlm: /' >&2
 fi
-if [ "$gpu" = 1 ] && ss -ltn 2>/dev/null | grep -q -E ':(8188|8189) '; then
-  echo "trellis: note: ComfyUI is running on GPU 1 too." >&2
+comfy_gpu="$(python3 "$REPO/scripts/ap_config.py" jobs.comfy_gpu 2>/dev/null || echo 1)"
+ports="$(python3 "$REPO/scripts/ap_config.py" comfyui.ports 2>/dev/null || echo 8188)"
+if [ "$gpu" = "$comfy_gpu" ] && ss -ltn 2>/dev/null | grep -q -E ":(${ports// /|}) "; then
+  echo "trellis: note: ComfyUI is running on GPU $gpu too." >&2
 fi
 
 # Pin the GPU: CUDA_VISIBLE_DEVICES on NVIDIA (untested), HIP_VISIBLE_DEVICES otherwise.

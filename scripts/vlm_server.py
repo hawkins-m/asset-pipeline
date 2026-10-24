@@ -29,7 +29,15 @@ from PIL import Image  # noqa: E402
 
 gfx1201_guard.install()  # tall GEMMs silently corrupt on gfx1201 (docs/notes/machine-and-gpu.md)
 
-AP_ROOT = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline"))
+def _ap_root() -> Path:
+    if os.environ.get("AP_ROOT"):
+        return Path(os.environ["AP_ROOT"])
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from asset_pipeline import config               # stdlib only: fine in any venv
+    return config.ap_root()
+
+
+AP_ROOT = _ap_root()
 JSON_INSTRUCTION = ("Answer with only a single JSON object, no prose and no code fences. "
                     "It must validate against this JSON Schema:\n{schema}")
 

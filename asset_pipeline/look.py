@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import frame_plan
+from . import config, frame_plan
 from .project import ProjectStore, read_json, write_json
 
 DEFAULTS = {
@@ -474,9 +474,16 @@ def new_preset(store: ProjectStore, shot_id: str, name: str | None = None) -> st
     return name
 
 
+def comfy_ports() -> list[int]:
+    """The ComfyUI ports on this machine: [comfyui] url's port plus [comfyui] other_ports."""
+    from urllib.parse import urlparse
+    c = config.backends().get("comfyui", {})
+    return [urlparse(c.get("url") or "http://127.0.0.1:8188").port or 80, *map(int, c.get("other_ports") or [])]
+
+
 def comfy_running() -> bool:
     import socket
-    for port in (8188, 8189):
+    for port in comfy_ports():
         with socket.socket() as s:
             s.settimeout(0.3)
             if s.connect_ex(("127.0.0.1", port)) == 0:

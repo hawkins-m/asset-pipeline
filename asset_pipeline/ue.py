@@ -2,8 +2,8 @@
 backups.
 
 The UE project lives outside the repo, at <[unreal] projects_dir>/<slug>/<Name>.uproject
-(default ~/Projects/Unreal, on a different drive from $AP_ROOT); `backup()` snapshots it to
-<[unreal] backup_dir>/<slug>/<timestamp>/. Pipeline-imported content is disposable (re-import
+(default ~/Documents/Unreal Projects; keep it on a different drive from backups); `backup()` snapshots it to
+<[unreal] backup_dir (default $AP_ROOT/backups/unreal)>/<slug>/<timestamp>/. Pipeline-imported content is disposable (re-import
 recreates it); backups are for the work done in UE itself (lighting, Sequencer...). Editor
 Python scripts in unreal/ run headless through UnrealEditor-Cmd's pythonscript commandlet
 with -nullrhi: no GPU, so imports never compete with ComfyUI or TRELLIS. Each script takes
@@ -49,8 +49,8 @@ POSITION_TOLERANCE_CM = 1.0
 def editor_cmd() -> Path:
     path = os.environ.get("AP_UE_EDITOR_CMD") or config.backends().get("unreal", {}).get("editor_cmd")
     if not path or not Path(path).is_file():
-        raise FileNotFoundError(f"UnrealEditor-Cmd not found ({path!r}): set [unreal] editor_cmd in "
-                                f"config/backends.toml or AP_UE_EDITOR_CMD")
+        raise FileNotFoundError(f"Unreal Engine not found ({path!r}): set it in Setup (ap setup), "
+                                f"[unreal] editor_cmd in the user config, or AP_UE_EDITOR_CMD")
     return Path(path)
 
 
@@ -59,11 +59,11 @@ def _setting(env: str, key: str, default):
 
 
 def projects_dir() -> Path:
-    return Path(_setting("AP_UE_PROJECTS", "projects_dir", "~/Projects/Unreal")).expanduser()
+    return Path(_setting("AP_UE_PROJECTS", "projects_dir", "") or "~/Documents/Unreal Projects").expanduser()
 
 
 def backups_dir() -> Path:
-    return Path(_setting("AP_UE_BACKUPS", "backup_dir", "/mnt/storage/backups/unreal")).expanduser()
+    return Path(_setting("AP_UE_BACKUPS", "backup_dir", "") or config.ap_root() / "backups" / "unreal").expanduser()
 
 
 def project_dir(store: ProjectStore) -> Path:

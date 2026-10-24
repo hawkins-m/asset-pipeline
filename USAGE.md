@@ -86,7 +86,7 @@ ap comfy restart
 ap comfy stop         # SIGTERM to the process group it started (or the ComfyUI on the port), then SIGKILL
 ```
 
-Settings, in `$AP_ROOT/backends.local.toml` (the repo default suits a plain `~/ComfyUI`):
+Settings, in `~/.config/terraformer/config.toml` (the repo default suits a plain `~/ComfyUI`):
 
 ```toml
 [comfyui.service]

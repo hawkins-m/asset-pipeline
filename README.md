@@ -102,12 +102,13 @@ Expect to debug it.
 
 ## Install
 
-Set the storage root once. Everything big (venvs, weights, projects, outputs) lives there, not
-in the repo.
+Your settings live in one user config outside the repo, `~/.config/terraformer/config.toml`
+(API keys in `secrets.toml` beside it, mode 0600); environment variables win over it. Everything
+big (venvs, weights, projects, outputs) goes under one storage folder, by default
+`~/.local/share/terraformer`. To put it elsewhere (a big drive), once the pipeline is installed:
 
 ```bash
-export AP_ROOT=/path/to/storage/asset-pipeline   # or set [paths] ap_root in config/backends.toml
-mkdir -p "$AP_ROOT"
+ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=... for one shell
 ```
 
 1. **The pipeline.**
@@ -134,8 +135,8 @@ mkdir -p "$AP_ROOT"
    ```
    It skips files that are already there and touches nothing else.
 
-   Tell the pipeline how to launch your ComfyUI, in `$AP_ROOT/backends.local.toml` (the repo
-   default runs `python main.py` in `~/ComfyUI`):
+   Tell the pipeline how to launch your ComfyUI, in the user config (the repo default runs
+   `python main.py` in `~/ComfyUI`):
    ```toml
    [comfyui.service]
    launch = "~/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"   # or your run script
@@ -175,7 +176,9 @@ mkdir -p "$AP_ROOT"
    It downloads the TRELLIS.2-4B weights, and DINOv3 ViT-L/16 on first use (a gated Meta repo:
    accept its terms; override the repo with `AP_DINOV3_REPO`).
 
-7. **Machine config** in `$AP_ROOT/backends.local.toml`, merged over `config/backends.toml`:
+7. **Machine config** in `~/.config/terraformer/config.toml`, merged over the repo's defaults in
+   `config/backends.toml` (`ap config set SECTION.KEY VALUE` writes it, `ap config show` prints
+   what is in effect):
    ```toml
    [tools]
    blender = "/usr/bin/blender"              # or leave to PATH / AP_BLENDER
@@ -190,7 +193,13 @@ mkdir -p "$AP_ROOT"
    [unreal]
    editor_cmd = "/path/to/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor-Cmd"
    ```
-   Environment overrides: `AP_ROOT`, `AP_BLENDER`, `AP_UE_EDITOR_CMD`, `AP_COMFY_BACKEND`.
+   GPU assignment, under `[jobs]`: `gpu0_gpu` (TRELLIS and the vision model, default 0) and
+   `comfy_gpu` (ComfyUI, default 1); with one GPU set both to 0.
+   Environment overrides: `AP_ROOT`, `AP_VENV`, `AP_BLENDER`, `AP_COMFY_URL`, `AP_COMFY_BACKEND`,
+   `AP_COMFY_SDK_URL`, `AP_UE_EDITOR_CMD`, `AP_UE_PROJECTS`, `AP_UE_BACKUPS`, `AP_GPU_VISION`,
+   `AP_GPU_COMFY`; `AP_CONFIG_DIR` moves the config folder. An older install with
+   `$AP_ROOT/backends.local.toml` keeps working (it is still read); `ap config migrate OLD_ROOT`
+   copies it into the user config.
 
 8. `ap preflight` (add `--ue` if you will use Unreal) checks all of the above, including that
    ComfyUI can see each model file the workflows load (also Tools › Preflight… in the app).

@@ -111,7 +111,7 @@ def test_run_script_trusts_the_report_over_the_exit_code(tmp_path, monkeypatch):
 
 def test_missing_editor_is_a_clear_error(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_UE_EDITOR_CMD", str(tmp_path / "nope"))
-    with pytest.raises(FileNotFoundError, match="UnrealEditor-Cmd not found"):
+    with pytest.raises(FileNotFoundError, match="Unreal Engine not found"):
         ue.editor_cmd()
 
 

@@ -33,6 +33,14 @@ if [ -n "$bad_files" ]; then
   fail=1
 fi
 
+# API keys never go in the repo: the secrets file, .env files, and anything that looks like a key
+secret_files=$(printf '%s\n' "$files" | grep -E '(^|/)(secrets\.toml|\.env|local\.env|backends\.local\.toml)$' || true)
+if [ -n "$secret_files" ]; then
+  echo "pre-commit: secrets or machine config staged (they live in ~/.config/terraformer or \$AP_ROOT):" >&2
+  printf '  %s\n' $secret_files >&2
+  fail=1
+fi
+
 terms=()
 if [ -d "$AP_ROOT/projects" ]; then
   for d in "$AP_ROOT"/projects/*/; do

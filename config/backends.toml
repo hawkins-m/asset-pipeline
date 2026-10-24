@@ -1,25 +1,28 @@
-# Backend configuration. No secrets here: API keys come from the environment
-# (GEMINI_API_KEY, ANTHROPIC_API_KEY).
+# Defaults that fit any machine. Your own settings (storage folder, Blender, ComfyUI, Unreal,
+# GPUs) go in the user config, ~/.config/terraformer/config.toml, written by `ap setup` or the
+# app's Setup screen; environment variables win over both. No secrets here or there: API keys
+# live in ~/.config/terraformer/secrets.toml (mode 0600) or the environment.
 
 [paths]
-# Storage root (venvs, models, projects, outputs). The env var AP_ROOT wins over this.
-# Set your own here; it cannot go in backends.local.toml, which lives inside it.
-ap_root = "/mnt/storage/asset-pipeline"
+# Storage root (venvs, models, projects, outputs): AP_ROOT > the user config's ap_root >
+# ~/.local/share/terraformer. The orchestrator venv: AP_VENV > venv > the checkout's .venv >
+# $AP_ROOT/envs/orchestrator.
+venv = ""
 
 [tools]
-# Blender executable: env AP_BLENDER > this > "blender" on PATH. A machine-local path
-# (e.g. the snap's /snap/bin/blender) belongs in $AP_ROOT/backends.local.toml.
+# Blender executable: env AP_BLENDER > the user config > "blender" on PATH.
 blender = "blender"
 
 [comfyui]
-# Main ComfyUI instance (run_comfy.sh). Both ComfyUI instances run on GPU 1.
+# The ComfyUI the pipeline uses (AP_COMFY_URL overrides).
 url = "http://127.0.0.1:8188"
+# Ports of other ComfyUI servers on this machine (never used, but their GPU counts as busy)
+other_ports = []
 timeout_s = 900
 # How the pipeline talks to ComfyUI (AP_COMFY_BACKEND overrides):
 #   sdk    the Comfy SDK (Comfy API v2) through comfy-api-proxy at sdk_url
 #          (scripts/comfy_api_proxy.sh; AP_COMFY_SDK_URL overrides sdk_url)
 #   httpx  ComfyUI's own HTTP API at url, no proxy
-# Machine-specific settings go in $AP_ROOT/backends.local.toml, merged over this file.
 backend = "sdk"
 sdk_url = "http://127.0.0.1:8190"
 
@@ -28,7 +31,7 @@ sdk_url = "http://127.0.0.1:8190"
 # only launches and stops ComfyUI; its install and environment are never changed. The port is
 # the one in url above ({port} and {url} are filled into launch; ~ is expanded). The default
 # fits a plain ComfyUI checkout in ~/ComfyUI run with the Python on PATH; point launch at your
-# own launcher (a venv's python, a run script) in $AP_ROOT/backends.local.toml.
+# own launcher (a venv's python, a run script) in the user config (ap setup).
 launch = "python main.py --listen 127.0.0.1 --port {port}"
 cwd = "~/ComfyUI"
 # GPU index to pin it to (HIP_VISIBLE_DEVICES on AMD, CUDA_VISIBLE_DEVICES on NVIDIA); "" = all
@@ -58,7 +61,7 @@ vision_model = "claude-opus-5-5"
 effort = "high"
 
 [local]
-# Local vision LLM on GPU 0, managed by asset_pipeline/vlm.py (`ap vlm`, or started on
+# Local vision LLM on the vision GPU ([jobs] gpu0_gpu), managed by asset_pipeline/vlm.py (`ap vlm`, or started on
 # demand by stage 1). Never runs alongside TRELLIS: `trellis` stops it first. Free.
 # Default 32B (A/B 2026-10-05: much better plans and boxes); 8B if the 32B can't start.
 model = "32b"
@@ -83,6 +86,8 @@ vram_gb = 19
 # to cpu_slots at once (jobs writing the same files still wait for each other).
 [jobs]
 cpu_slots = 2
+# GPU assignment (AP_GPU_VISION, AP_GPU_COMFY override). With one GPU set both to 0: the lanes
+# then wait for each other through the VRAM check.
 gpu0_gpu = 0                 # the "GPU 0" lane: TRELLIS and the local vision model
 comfy_gpu = 1                # ComfyUI's GPU when [comfyui.service] gpu is ""
 vram_poll_s = 3
@@ -103,11 +108,14 @@ frames = "comfyui"
 llm = "local"      # local | gemini | claude
 
 # Unreal Engine (world mode delivery). Editor Python runs headless through this binary's
-# pythonscript commandlet (-nullrhi: no GPU). Override with AP_UE_EDITOR_CMD.
+# pythonscript commandlet (-nullrhi: no GPU). Optional: without it the Unreal tab explains
+# and the rest works. Set it in Setup, or AP_UE_EDITOR_CMD
+# (<UnrealEngine>/Engine/Binaries/Linux/UnrealEditor-Cmd).
 [unreal]
-editor_cmd = "/mnt/storage/UnrealEngine/5.8.3/Engine/Binaries/Linux/UnrealEditor-Cmd"
+editor_cmd = ""
 # Active UE projects (<projects_dir>/<slug>/), and where `ap ue backup` snapshots them. Keep
 # them on different physical drives. Overrides: AP_UE_PROJECTS, AP_UE_BACKUPS.
-projects_dir = "~/Projects/Unreal"
-backup_dir = "/mnt/storage/backups/unreal"
+# "" = the defaults: ~/Documents/Unreal Projects and $AP_ROOT/backups/unreal.
+projects_dir = ""
+backup_dir = ""
 backup_keep = 10

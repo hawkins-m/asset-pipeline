@@ -18,7 +18,15 @@ from . import layout_history, ue
 from .project import ProjectStore
 from .stages import s7_export, sw_site
 
-RENDER_GPU = 1
+def _vision_gpu() -> int:
+    from . import config
+    return int(config.backends().get("jobs", {}).get("gpu0_gpu", 0))
+
+
+def render_gpu_index() -> int:
+    """The city renders on ComfyUI's GPU ([jobs] comfy_gpu), only while ComfyUI is down."""
+    from . import config
+    return int(config.backends().get("jobs", {}).get("comfy_gpu", 1))
 
 
 def _level_actors(store: ProjectStore, map_: str) -> tuple[dict[str, dict], set[str]]:
@@ -41,10 +49,11 @@ def expected_prune(ue_slots, ue_shots, man: dict) -> int:
 
 
 def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]:
-    """(gpu, why): GPU 1 when ComfyUI is down and its VRAM is free; None with the reason otherwise."""
+    """(gpu, why): ComfyUI's GPU when ComfyUI is down and its VRAM is free; None with the reason otherwise."""
+    RENDER_GPU = render_gpu_index()
     if comfy_up:
         return None, (f"render skipped: ComfyUI is running on GPU {RENDER_GPU}, the only GPU safe for the city "
-                      "(heavy Nanite scenes lose the device on GPU 0). Run `ap ue build --render` again once ComfyUI is down.")
+                      f"(heavy Nanite scenes lose the device on GPU {_vision_gpu()}). Run `ap ue build --render` again once ComfyUI is down.")
     used = vram.get(RENDER_GPU, 99.0)
     if used > ue.VRAM_LIMIT_GB:
         return None, f"render skipped: GPU {RENDER_GPU} has {used:.1f} GB of other work in use"

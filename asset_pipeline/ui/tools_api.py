@@ -148,7 +148,7 @@ class DemoReq(BaseModel):
 
 class VlmUpReq(BaseModel):
     model: str | None = None
-    gpu: int = 0
+    gpu: int | None = None                          # None: the vision GPU from the config
 
 
 class VlmDownReq(BaseModel):

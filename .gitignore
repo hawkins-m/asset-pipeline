@@ -84,3 +84,7 @@ moodboard/
 *.usdc
 *.uasset
 *.umap
+
+# User config and API keys live in ~/.config/terraformer, never here
+secrets.toml
+backends.local.toml

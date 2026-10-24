@@ -48,17 +48,25 @@ def test_blender_run_uses_resolved_binary(cfg, monkeypatch, tmp_path):
 
 def test_ap_root_precedence(tmp_path, monkeypatch):
     monkeypatch.delenv("AP_ROOT", raising=False)
-    assert config.ap_root() == Path(config.DEFAULT_AP_ROOT)       # the repo config's value
-    other = tmp_path / "b.toml"
-    other.write_text('[paths]\nap_root = "/from/config"\n')
-    monkeypatch.setattr(config, "BACKENDS_TOML", other)
-    assert config.ap_root() == Path("/from/config")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    assert config.ap_root() == tmp_path / "data" / "terraformer"      # nothing set: the per-user default
+    config.save_user({"paths": {"ap_root": "/from/user"}})
+    assert config.ap_root() == Path("/from/user")
     monkeypatch.setenv("AP_ROOT", "/from/env")
     assert config.ap_root() == Path("/from/env")
     monkeypatch.setenv("AP_ROOT", "")      # empty counts as unset
-    assert config.ap_root() == Path("/from/config")
-    other.write_text("[comfyui]\n")
-    assert config.ap_root() == Path(config.DEFAULT_AP_ROOT)
+    assert config.ap_root() == Path("/from/user")
+    config.save_user({}, remove=["paths.ap_root"])
+    other = tmp_path / "b.toml"                                        # an older checkout's repo file
+    other.write_text('[paths]\nap_root = "/from/repo"\n')
+    monkeypatch.setattr(config, "BACKENDS_TOML", other)
+    assert config.ap_root() == Path("/from/repo")
+
+
+def test_repo_defaults_name_no_machine():
+    text = config.BACKENDS_TOML.read_text()
+    for bad in ("/mnt/", "/home/", "~/Projects", "UnrealEngine/5"):
+        assert bad not in text, bad
 
 
 def _which(found):
@@ -125,9 +133,23 @@ def _sh(snippet, env=None):
 
 def test_ap_root_sh(tmp_path):
     src = f'source {REPO}/scripts/ap_root.sh; echo "$AP_ROOT"'
-    assert _sh(src, {"AP_ROOT": str(tmp_path)}).stdout.strip() == str(tmp_path)
-    assert _sh(src).stdout.strip() == config.DEFAULT_AP_ROOT
-    assert _sh(src, {"AP_ROOT": ""}).stdout.strip() == config.DEFAULT_AP_ROOT
+    home = {"HOME": str(tmp_path)}
+    assert _sh(src, home | {"AP_ROOT": "/x/env"}).stdout.strip() == "/x/env"
+    assert _sh(src, home).stdout.strip() == f"{tmp_path}/.local/share/terraformer"
+    (tmp_path / ".config" / "terraformer").mkdir(parents=True)
+    (tmp_path / ".config" / "terraformer" / "config.toml").write_text('[paths]\nap_root = "/x/user"\n')
+    assert _sh(src, home).stdout.strip() == _sh(src, home | {"AP_ROOT": ""}).stdout.strip() == "/x/user"
+
+
+def test_ap_config_sh_values(tmp_path):
+    home = {"HOME": str(tmp_path)}
+    (tmp_path / ".config" / "terraformer").mkdir(parents=True)
+    (tmp_path / ".config" / "terraformer" / "config.toml").write_text(
+        '[paths]\nap_root = "/x/user"\n[comfyui]\nurl = "http://127.0.0.1:9000"\nother_ports = [9001]\n[jobs]\ngpu0_gpu = 1\n')
+    r = _sh(f"python3 {REPO}/scripts/ap_config.py comfyui.ports jobs.gpu0_gpu comfyui.url", home)
+    assert r.stdout.split("\n")[:3] == ["9000 9001", "1", "http://127.0.0.1:9000"], r.stderr
+    r = _sh(f"python3 {REPO}/scripts/ap_config.py jobs.gpu0_gpu", home | {"AP_GPU_VISION": "2"})
+    assert r.stdout.strip() == "2"
 
 
 def test_torch_index_sh():

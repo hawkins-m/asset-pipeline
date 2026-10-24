@@ -1,6 +1,7 @@
 """`ap`: asset pipeline command line. Stage commands are added as stages are built."""
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -59,6 +60,55 @@ def cmd_comfy(a) -> None:
             print(f"ComfyUI {st['state']} at {st['url']}" + (f" (pid {st['pid']})" if st.get("pid") else ""))
     except RuntimeError as e:
         raise SystemExit(str(e))
+
+
+def _parse_value(raw: str):
+    import tomllib
+    try:
+        return tomllib.loads(f"v = {raw}")["v"]                # numbers, true/false, [lists], "quoted"
+    except tomllib.TOMLDecodeError:
+        return raw
+
+
+def cmd_config(a) -> None:
+    """ap config path | show | get KEY | set KEY VALUE | unset KEY | migrate ROOT"""
+    from . import config
+    if a.config_cmd == "path":
+        print(f"config:  {config.user_toml()}{'' if config.user_toml().exists() else '  (not written yet)'}")
+        print(f"secrets: {config.secrets_toml()}{'' if config.secrets_toml().exists() else '  (none)'}")
+        print(f"storage: {config.ap_root()}")
+    elif a.config_cmd == "show":
+        eff = dict(config.backends())
+        eff["paths"] = dict(eff.get("paths") or {}, ap_root=str(config.ap_root()))
+        print(config.dumps(eff))
+        keys = sorted(set(config.secrets()) | {k for k in config.SECRET_KEYS if os.environ.get(k)})
+        print(f"# API keys set: {', '.join(keys) or 'none'} (values not shown)")
+    elif a.config_cmd == "get":
+        v = config.get(a.key)
+        if v is None:
+            raise SystemExit(f"ap: no setting {a.key}")
+        print(v)
+    elif a.config_cmd in ("set", "unset"):
+        sec, _, key = a.key.rpartition(".")
+        if not sec:
+            raise SystemExit("ap: KEY is section.key, e.g. tools.blender")
+        if a.config_cmd == "unset":
+            print(f"wrote {config.save_user({}, remove=[a.key])}")
+            return
+        upd: dict = {}
+        node = upd
+        for part in sec.split("."):
+            node = node.setdefault(part, {})
+        node[key] = _parse_value(a.value)
+        print(f"wrote {config.save_user(upd)}")
+    elif a.config_cmd == "migrate":
+        root = Path(a.root).expanduser()
+        if not root.is_dir():
+            raise SystemExit(f"ap: no such folder {root}")
+        old = {"unreal": {k: v for k, v in (("editor_cmd", a.ue_editor_cmd), ("projects_dir", a.ue_projects),
+                                            ("backup_dir", a.ue_backups)) if v}}
+        path = config.migrate(root, old)
+        print(f"wrote {path}" if path else f"ap: {config.user_toml()} exists already: nothing written")
 
 
 def cmd_preflight(a) -> None:
@@ -1204,8 +1254,28 @@ def cmd_set(a) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import config
+    config.load_secrets()
     ap = argparse.ArgumentParser(prog="ap", description="Terraformer (see USAGE.md)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    cf = sub.add_parser("config", help="the user config (~/.config/terraformer/config.toml): path, show, get, set, unset, migrate")
+    csub = cf.add_subparsers(dest="config_cmd", required=True)
+    csub.add_parser("path", help="where the config, the secrets file and storage are")
+    csub.add_parser("show", help="the effective settings (API key values are never shown)")
+    p = csub.add_parser("get", help="one effective value, e.g. comfyui.url")
+    p.add_argument("key")
+    p = csub.add_parser("set", help="write one value into the user config, e.g. tools.blender /usr/bin/blender")
+    p.add_argument("key")
+    p.add_argument("value")
+    p = csub.add_parser("unset", help="remove one value from the user config (the default applies again)")
+    p.add_argument("key")
+    p = csub.add_parser("migrate", help="write the user config for an older install from its AP_ROOT (and its backends.local.toml)")
+    p.add_argument("root", help="the old AP_ROOT")
+    p.add_argument("--ue-editor-cmd", help="the UnrealEditor-Cmd the old install used")
+    p.add_argument("--ue-projects", help="the old [unreal] projects_dir")
+    p.add_argument("--ue-backups", help="the old [unreal] backup_dir")
+    cf.set_defaults(fn=cmd_config)
 
     p = sub.add_parser("new", help="create a project under $AP_ROOT/projects/")
     p.add_argument("slug")
@@ -1728,7 +1798,7 @@ def main(argv: list[str] | None = None) -> None:
 
     a = ap.parse_args(argv)
     if a.cmd == "vlm":
-        a.gpu_given, a.gpu = a.gpu is not None, 0 if a.gpu is None else a.gpu
+        a.gpu_given, a.gpu = a.gpu is not None, int(config.get("jobs.gpu0_gpu", 0)) if a.gpu is None else a.gpu
     try:
         a.fn(a)
     except (ComfyError, LLMError, PaidAPIBlocked, FileNotFoundError, FileExistsError,

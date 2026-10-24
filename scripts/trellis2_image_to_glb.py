@@ -6,6 +6,7 @@ Run with the trellis2 venv from the TRELLIS.2 source tree on PYTHONPATH:
     HIP_VISIBLE_DEVICES=1 PYTHONPATH=$AP_ROOT/src/TRELLIS.2 \
         $AP_ROOT/envs/trellis2/bin/python scripts/trellis2_image_to_glb.py IMAGE [--type 512]
 """
+import sys
 import argparse
 import json
 import os
@@ -29,7 +30,15 @@ import gfx1201_guard  # noqa: E402
 # Chunk tall GEMMs: rocBLAS/hipBLASLt silently corrupt them on gfx1201 (see the module).
 gfx1201_guard.install()
 
-AP_ROOT = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline"))
+def _ap_root() -> Path:
+    if os.environ.get("AP_ROOT"):
+        return Path(os.environ["AP_ROOT"])
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from asset_pipeline import config               # stdlib only: fine in any venv
+    return config.ap_root()
+
+
+AP_ROOT = _ap_root()
 MODEL_DIR = AP_ROOT / "models" / "TRELLIS.2-4B"
 
 # DINOv3: Meta's official repo (gated: accept the DINOv3 License on Hugging Face first).

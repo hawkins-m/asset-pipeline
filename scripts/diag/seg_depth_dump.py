@@ -26,7 +26,15 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import gfx1201_guard  # noqa: E402
 
-MODELS = Path(os.environ.get("AP_ROOT", "/mnt/storage/asset-pipeline")) / "models"
+def _ap_root() -> Path:
+    if os.environ.get("AP_ROOT"):
+        return Path(os.environ["AP_ROOT"])
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from asset_pipeline import config               # stdlib only: fine in any venv
+    return config.ap_root()
+
+
+MODELS = _ap_root() / "models"
 
 
 def slug(s: str) -> str:

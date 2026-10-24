@@ -161,10 +161,12 @@ def _start(model: str, gpu: int, idle: float) -> dict:
     return st
 
 
-def up(model: str | None = None, gpu: int = 0, idle_unload: float | None = None,
+def up(model: str | None = None, gpu: int | None = None, idle_unload: float | None = None,
        log=print) -> dict:
-    """Start `model` (default: the configured one, then the fallback). A server already
+    """Start `model` (default: the configured one, then the fallback) on `gpu` (default: the
+    vision GPU, [jobs] gpu0_gpu). A server already
     running with the same model and GPU is reused; a different one is stopped first."""
+    gpu = int(config.backends().get("jobs", {}).get("gpu0_gpu", 0)) if gpu is None else gpu
     if (pids := trellis_jobs(gpu)):
         raise VLMError(f"a TRELLIS job (pid {', '.join(map(str, pids))}) is using GPU {gpu}; "
                        f"try again when it finishes")
