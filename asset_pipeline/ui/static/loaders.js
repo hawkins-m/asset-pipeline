@@ -90,6 +90,14 @@ const LOADERS = {
   "library.reroll": ["Rerolling the asset…", "greybox", "steps"],
 };
 const LANE_NAMES = {gpu0: "GPU 0", comfy: "GPU 1", cpu: "the CPU", service: "the ComfyUI service"};
+// A GPU lane's name from the configured GPUs (data.lanes.gpus): "GPU 0" / "GPU 1" with two GPUs; with
+// one GPU both lanes are the same card, so the name says which work it is.
+function laneLabel(lane) {
+  const g = (typeof data !== "undefined" && data && data.lanes && data.lanes.gpus) || {};
+  if (lane !== "gpu0" && lane !== "comfy") return LANE_NAMES[lane] || lane;
+  const idx = g[lane] ?? (lane === "gpu0" ? 0 : 1);
+  return g.gpu0 != null && g.gpu0 === g.comfy ? `GPU ${idx} (${lane === "comfy" ? "ComfyUI" : "TRELLIS and vision"})` : `GPU ${idx}`;
+}
 const base = k => String(k || "").split("/").pop();
 
 function detailLine(j, p) {
@@ -140,11 +148,11 @@ function updateJobDialog() {
   let line2, bar, buttons;
   if (j.status === "queued") {
     const w = j.waiting;
-    line2 = w && w.reason === "vram" ? (j.note || `Waiting for free VRAM on ${LANE_NAMES[w.lane] || w.lane}.`)
-      : w ? `Queued: #${w.position} in line for ${LANE_NAMES[w.lane] || w.lane}.` : `Waiting for ${LANE_NAMES[j.lane] || j.lane}: another job is running there.`;
+    line2 = w && w.reason === "vram" ? (j.note || `Waiting for free VRAM on ${laneLabel(w.lane)}.`)
+      : w ? `Queued: #${w.position} in line for ${laneLabel(w.lane)}.` : `Waiting for ${laneLabel(j.lane)}: another job is running there.`;
     bar = {frac: null};
   } else if (j.status === "running" && j.waiting) {      // moving to another lane (Brief & build: GPU 0, then the CPU)
-    line2 = j.waiting.reason === "vram" ? (j.note || "Waiting for free VRAM…") : `Waiting for ${LANE_NAMES[j.waiting.lane] || j.waiting.lane}: #${j.waiting.position} in line.`;
+    line2 = j.waiting.reason === "vram" ? (j.note || "Waiting for free VRAM…") : `Waiting for ${laneLabel(j.waiting.lane)}: #${j.waiting.position} in line.`;
     bar = p;
   } else if (j.status === "running") {
     const counted = p.total != null && p.done != null && !p.stages;

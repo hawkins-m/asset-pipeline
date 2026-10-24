@@ -126,3 +126,10 @@ backup_keep = 10
 # gated repo (AP_DINOV3_REPO overrides).
 [models]
 dinov3_repo = ""
+
+# Hardware profile (asset_pipeline/profiles.py; `ap setup` detects and asks): rocm-2gpu, rocm-1gpu or
+# nvidia (UNTESTED). "" = detect. It sets the PyTorch build for model venvs (torch; "" = the profile's)
+# and Setup's lane defaults; one GPU for both lanes ([jobs] above) means one shared GPU slot.
+[hardware]
+profile = ""
+torch = ""

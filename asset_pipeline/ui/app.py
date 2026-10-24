@@ -563,7 +563,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         from .. import gpu_policy
         comfy_gate = comfy_gate or comfy_service.Gate()
         jobs = JobQueue(gates={"comfy": comfy_gate}, slots={"cpu": gpu_policy.settings()["cpu_slots"]},
-                        policy=gpu_policy.GpuPolicy(), recorder=estimates.record)
+                        policy=gpu_policy.GpuPolicy(), recorder=estimates.record,
+                        shared=gpu_policy.settings()["shared"])        # one GPU: ComfyUI, TRELLIS, VLM take turns
     if jobs.estimator is None:
         def _job_estimate(job):
             try:

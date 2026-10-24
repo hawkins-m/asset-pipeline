@@ -126,6 +126,12 @@ while [ $# -gt 0 ]; do case "$1" in --type) mode=$2; shift;; --seed) seed=$2; sh
 lock="$AP_ROOT/logs/trellis-gpu${TRELLIS_GPU:-0}-$$.lock"; mkdir -p "$AP_ROOT/logs"; : > "$lock"; trap 'rm -f "$lock"' EXIT
 stem="$(basename "${img%.*}" | cut -c1-24)_${mode}_s${seed}"
 if [ -n "$FAKE_TRELLIS_HANG" ]; then sleep 60 & wait; fi
+if [ -n "$FAKE_TRELLIS_OOM" ] && [ "$(cat "$FAKE_TRELLIS_OOM")" -gt 0 ]; then   # out of memory N times
+  echo $(( $(cat "$FAKE_TRELLIS_OOM") - 1 )) > "$FAKE_TRELLIS_OOM"
+  printf 'Traceback (most recent call last):\n  File "x.py", line 1, in <module>\ntorch.OutOfMemoryError: HIP out of memory. Tried to allocate 2.00 GiB. GPU 0 has a total capacity of 31.86 GiB of which 4.88 GiB is free.\n'
+  exit 1
+fi
+if [ -n "$FAKE_TRELLIS_FAIL" ]; then printf 'Traceback (most recent call last):\n  File "y.py", line 2\nValueError: mesh has no faces\n'; exit 3; fi
 echo glb > "$out/$stem.glb"; echo png > "$out/${stem}_input.png"
 echo '{"glb_faces": 1000, "glb_vertices": 500, "raw_faces": 2000, "raw_vertices": 1000, "peak_vram_gb": 4.7}' > "$out/$stem.json"
 """
@@ -204,3 +210,68 @@ def test_review_api(env, fake_trellis, monkeypatch):
         time.sleep(0.05)
     a = client.get("/api/projects/demo/review").json()["assets"][0]
     assert a["asset"]["usage"] == "hero" and a["chosen"] == view and len(a["results"]) == 1
+
+
+# --- out of GPU memory: free, retry once, then say it in plain words ----------------------------
+
+@pytest.fixture
+def low_memory(monkeypatch):
+    """A simulated GPU 0 with 4.9 GB free and an unknown process holding 11 GB."""
+    from asset_pipeline import gpu, gpu_policy
+    monkeypatch.setenv("AP_SIM_FREE_GB", "4.9")
+    monkeypatch.setattr(gpu, "vram_by_process", lambda: {0: {4242: 11.0}})
+    monkeypatch.setattr(gpu_policy, "_name", lambda pid: "someapp")
+    real = gpu_policy.free_for_retry
+    monkeypatch.setattr(gpu_policy, "free_for_retry", lambda lane, purpose, job=None, wait_s=60.0: real(lane, purpose, job, 0.2))
+
+
+def test_trellis_out_of_memory_retries_once(env, fake_trellis, monkeypatch, low_memory, tmp_path):
+    store = env
+    _chosen_view(store, monkeypatch)
+    count = tmp_path / "oom"
+    count.write_text("1")
+    monkeypatch.setenv("FAKE_TRELLIS_OOM", str(count))
+    rec = s5_3d.run(store, NAME, "shrub", mode="512")                 # OOM, then the retry works
+    assert rec["glb"].endswith("_512_s42.glb") and count.read_text().strip() == "0"
+    assert (store.root / f"3d/{NAME}/shrub/trellis.log").read_text().count("(retry)") == 1
+
+
+def test_trellis_out_of_memory_twice_says_why_in_plain_words(env, fake_trellis, monkeypatch, low_memory, tmp_path):
+    from asset_pipeline import gpu_policy
+    store = env
+    _chosen_view(store, monkeypatch)
+    count = tmp_path / "oom"
+    count.write_text("2")
+    monkeypatch.setenv("FAKE_TRELLIS_OOM", str(count))
+    q = JobQueue()
+    job = q.submit("3d.trellis", "demo", lambda: s5_3d.run(store, NAME, "shrub"), lane="gpu0")
+    end = time.time() + 20
+    while q.get(job.id).status in ("queued", "running") and time.time() < end:
+        time.sleep(0.05)
+    err = q.get(job.id).error
+    assert q.get(job.id).status == "error"
+    assert err == ("Not enough GPU memory (needs ~16 GB, 4.9 GB free). Held by someapp (PID 4242) 11.0 GB. "
+                   "Try again, or pick a lighter 3D mode (512).")
+    assert "Traceback" not in err and "OutOfMemoryError" in (store.root / f"3d/{NAME}/shrub/trellis.log").read_text()
+    assert s5_3d.results(store, NAME, "shrub") == [] and not list((store.root.parents[1] / "logs").glob("trellis-gpu*.lock"))
+    with pytest.raises(gpu_policy.GpuMemoryError):                      # the CLI gets the same message
+        count.write_text("2")
+        s5_3d.run(store, NAME, "shrub")
+
+
+def test_other_trellis_failures_name_the_error_not_the_traceback(env, fake_trellis, monkeypatch):
+    store = env
+    _chosen_view(store, monkeypatch)
+    monkeypatch.setenv("FAKE_TRELLIS_FAIL", "1")
+    with pytest.raises(RuntimeError) as e:
+        s5_3d.run(store, NAME, "shrub")
+    msg = str(e.value)
+    assert msg.startswith("TRELLIS failed (exit code 3): ValueError: mesh has no faces.") and "Traceback" not in msg
+    assert msg.endswith(f"3d/{NAME}/shrub/trellis.log.")
+
+
+def test_reap_never_signals_our_own_process_group():
+    from types import SimpleNamespace
+    for pid in (0, 1, os.getpgrp()):                       # killpg(0) would kill the app (and this test)
+        s5_3d._reap(SimpleNamespace(pid=pid), 0)
+    assert True

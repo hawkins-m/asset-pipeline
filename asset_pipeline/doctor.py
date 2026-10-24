@@ -78,6 +78,38 @@ def check_gpus() -> Check:
     return _c("gpus", "GPUs", True, f"{names}; TRELLIS/vision on {roles['TRELLIS and vision']}, ComfyUI on {roles['ComfyUI']}")
 
 
+def check_profile() -> Check:
+    from . import profiles
+    sm = profiles.summary()
+    p = sm["profile"]
+    if not p:
+        return _c("profile", "Hardware profile", False, "none: no GPU found and none set",
+                  "Install the GPU driver tools, then `ap setup` (Hardware profile).")
+    how = "set" if sm["configured"] else "detected"
+    lanes = "one GPU shared by ComfyUI, TRELLIS and the vision model (one job at a time)" if sm["shared"] else \
+        "TRELLIS and the vision model on one GPU, ComfyUI on the other"
+    detail = f"{p['title']} ({how}); PyTorch {sm['torch']}; {lanes}"
+    if sm["configured"] and sm["detected"] and sm["detected"] != sm["configured"]:
+        return _c("profile", "Hardware profile", True, detail + f"; this machine looks like {profiles.PROFILES[sm['detected']].title}",
+                  "Check the profile in `ap setup`.", warn=True)
+    return _c("profile", "Hardware profile", True, detail, "" if p["tested"] else p["note"], warn=not p["tested"])
+
+
+def check_fit() -> list[Check]:
+    """Each GPU feature against its lane GPU's VRAM (floors from the model manifest)."""
+    from . import profiles
+    names = {"comfy": "ComfyUI image models", "vlm": "Vision model", "trellis": "TRELLIS.2", "segdepth": "Segmentation and depth"}
+    out = []
+    for feat, f in profiles.fit().items():
+        if f["ok"]:
+            continue
+        fix = ("ap config set local.model 8b" if feat == "vlm" and "local.model" in f["why"] else
+               "a GPU with more memory, or the 1-GPU profile on the bigger card (`ap setup`)")
+        out.append(_c(f"fit_{feat}", f"VRAM for {names.get(feat, feat)}", False, f["why"], fix, [feat],
+                      optional=feat == "trellis"))
+    return out
+
+
 def check_comfy() -> list[Check]:
     """ComfyUI through the configured backend (the proxy too for sdk), then its model files."""
     from .comfy.client import ComfyError, backend_name, connect
@@ -239,7 +271,8 @@ def check_paid_keys() -> list[Check]:
 
 
 def run() -> list[Check]:
-    checks = [check_config(), check_storage(), check_gpus(), *check_comfy(), check_blender(), check_unreal(),
+    checks = [check_config(), check_storage(), check_gpus(), check_profile(), *check_fit(), *check_comfy(),
+              check_blender(), check_unreal(),
               *check_local(), *check_paid_keys()]
     return checks
 

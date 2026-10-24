@@ -20,6 +20,11 @@ A GPU slot is taken only when the GPU has the VRAM the job needs: the queue's `p
 (gpu_policy.GpuPolicy in the app) checks free VRAM before the job starts and keeps it queued
 until there is enough, and unloads the VLM after a VLM job unless another one is waiting.
 
+With one GPU (hardware profile rocm-1gpu: both GPU lanes on the same GPU) the "comfy" and "gpu0"
+lanes share one slot (`shared`): ComfyUI, TRELLIS and the vision model run one at a time, in
+submit order, and the policy frees the other's memory before a job starts. Jobs keep their lane
+names; a job holding either lane holds the GPU.
+
 A lane can have a gate (comfy.service.Gate for "comfy"): submit() asks it first (it raises
 when the lane's server is down and nothing is starting it), and the job waits on it before
 running. Jobs with project "" (the service jobs) show in every project's list.
@@ -164,6 +169,10 @@ def using(lane: str, purpose: str = "gpu"):
         yield
         return
     q = job._queue
+    if any(h in q.group(lane) for h in job.holds):     # one shared GPU: the job holds it already
+        q._check_vram(job, lane, purpose)
+        yield
+        return
     q._acquire(job, lane, purpose)
     try:
         yield
@@ -174,8 +183,10 @@ def using(lane: str, purpose: str = "gpu"):
 class JobQueue:
     LANES = ("comfy", "gpu0", "cpu", "service")
 
+    GPU_LANES = ("comfy", "gpu0")
+
     def __init__(self, lanes: tuple[str, ...] = LANES, gates: dict | None = None, error_text=None,
-                 slots: dict | None = None, policy=None, estimator=None, recorder=None):
+                 slots: dict | None = None, policy=None, estimator=None, recorder=None, shared: bool = False):
         self.gates = dict(gates or {})    # lane -> object with check_submit() and wait(job)
         self.error_text = error_text      # job error -> the text the UI shows (ui.messages.app_text)
         self.policy = policy              # before(job, lane, purpose) / after(job, lane): VRAM, VLM unload
@@ -187,6 +198,19 @@ class JobQueue:
         self._cv = threading.Condition()
         self._holders: dict[str, list[Job]] = {lane: [] for lane in lanes}
         self._waiting: dict[str, list[Job]] = {lane: [] for lane in lanes}
+        # one GPU: the GPU lanes share one slot (ComfyUI, TRELLIS and the vision model take turns)
+        self.shared = bool(shared) and all(lane in self.slots for lane in self.GPU_LANES)
+
+    def group(self, lane: str) -> tuple[str, ...]:
+        """The lanes sharing `lane`'s slots: both GPU lanes on one GPU, else the lane alone."""
+        return self.GPU_LANES if self.shared and lane in self.GPU_LANES else (lane,)
+
+    def _line(self, lane: str) -> list[Job]:
+        """Everyone waiting for `lane`'s slots, in submit order across a shared group."""
+        g = self.group(lane)
+        if len(g) == 1:
+            return self._waiting[lane]
+        return sorted((o for ln in g for o in self._waiting[ln]), key=lambda o: o.id)
 
     def submit(self, kind: str, project: str, fn: Callable[[], Any], lane: str = "comfy",
                tag: dict | None = None, gated: bool = True) -> Job:
@@ -252,7 +276,7 @@ class JobQueue:
         return "none"
 
     def _position(self, job: Job, lane: str, reason: str) -> None:
-        q = self._waiting[lane]
+        q = self._line(lane)
         job.waiting = {"lane": lane, "position": q.index(job) + 1 if job in q else 1, "reason": reason}
 
     def _blocked(self, job: Job) -> bool:
@@ -262,10 +286,10 @@ class JobQueue:
             o is not job and o.key == job.key and (o.holds or o.status == "running") for o in self._jobs.values())
 
     def _may_take(self, job: Job, lane: str) -> bool:
-        free = self.slots[lane] - len(self._holders[lane])
+        free = self.slots[lane] - sum(len(self._holders[ln]) for ln in self.group(lane))
         if free <= 0:
             return False
-        ahead = [o for o in self._waiting[lane] if not self._blocked(o)]
+        ahead = [o for o in self._line(lane) if not self._blocked(o)]
         return job in ahead[:free]
 
     def _acquire(self, job: Job, lane: str, purpose: str | None = None) -> None:
@@ -279,13 +303,13 @@ class JobQueue:
                         raise Canceled(f"job {job.id} canceled")
                     if self._may_take(job, lane):
                         break
-                    for o in self._waiting[lane]:
-                        self._position(o, lane, "slot")
+                    for o in self._line(lane):
+                        self._position(o, o.waiting["lane"] if o.waiting else lane, "slot")
                     self._cv.wait(0.5)
             finally:
                 self._waiting[lane].remove(job)
-                for o in self._waiting[lane]:
-                    self._position(o, lane, "slot")
+                for o in self._line(lane):
+                    self._position(o, o.waiting["lane"] if o.waiting else lane, "slot")
             self._holders[lane].append(job)
             job.holds.append(lane)
             job.waiting = {"lane": lane, "position": 1, "reason": "vram"} if self.policy else None
@@ -296,6 +320,12 @@ class JobQueue:
                 self._release(job, lane, after=False)
                 raise
         job.waiting = None
+
+    def _check_vram(self, job: Job, lane: str, purpose: str | None = None) -> None:
+        """The VRAM check (and freeing the other model) without taking a slot: a job on one
+        shared GPU borrowing the other lane's work (a ComfyUI job calling the vision model)."""
+        if self.policy is not None:
+            self.policy.before(job, lane, purpose or self.purpose(job, lane))
 
     def _release(self, job: Job, lane: str, after: bool = True) -> None:
         if after and self.policy is not None:
@@ -346,7 +376,8 @@ class JobQueue:
                 status = "canceled"  # e.g. ComfyUI reporting the interrupt
             else:
                 status = "error"
-                job.error = f"{type(e).__name__}: {e}"
+                # errors written for people (plain = True) show as they are; the traceback goes to the log
+                job.error = str(e) if getattr(e, "plain", False) else f"{type(e).__name__}: {e}"
                 if isinstance(e, OSError) and getattr(e, "filename", None):     # which file, and why
                     from .filestore import write_error_text
                     from .config import ap_root
@@ -378,7 +409,7 @@ class JobQueue:
 
     def _take_idle(self, job: Job, lane: str) -> bool:
         with self._cv:
-            if self._holders[lane] or self._waiting[lane]:
+            if any([o for o in self._holders[ln] if o is not job] or self._waiting[ln] for ln in self.group(lane)):
                 return False
             self._holders[lane].append(job)
             job.holds.append(lane)

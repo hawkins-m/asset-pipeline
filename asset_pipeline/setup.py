@@ -12,7 +12,7 @@ import json
 import os
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field  # noqa: F401
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -29,9 +29,20 @@ class Item:
     choices: list[str] = field(default_factory=list)
     optional: bool = False
     when: str = ""                 # shown only when this holds: "backend=sdk", "backend=httpx", "paid"
+    labels: dict = field(default_factory=dict)    # choice -> what the screen shows
+
+
+def _profile_item() -> "Item":
+    from . import profiles
+    return Item("hardware_profile", "Hardware profile", "hardware.profile",
+                "Detected from rocm-smi / nvidia-smi; pick another to override. It sets the PyTorch build for the "
+                "model environments and the GPU for each job lane (below). NVIDIA is untested: the CUDA paths "
+                "have never run.", "choice", list(profiles.PROFILES),
+                labels={k: p.title for k, p in profiles.PROFILES.items()})
 
 
 ITEMS = [
+    _profile_item(),
     Item("storage", "Storage folder", "paths.ap_root",
          "Where projects, models, model environments and outputs go. Needs room: tens of GB for models.", "path"),
     Item("comfy_backend", "ComfyUI backend", "comfyui.backend",
@@ -72,6 +83,10 @@ ITEMS = [
          "Without it the Unreal tab explains what is missing and everything else works.", "path", optional=True),
     Item("unreal_projects", "Unreal projects folder", "unreal.projects_dir",
          "Where the pipeline keeps its UE projects (one per project).", "path", optional=True),
+    Item("vlm_model", "Vision model", "local.model",
+         "32b reads plans best and needs ~28 GB on the vision GPU; 8b needs ~19 GB (Setup offers it when the "
+         "32B doesn't fit).", "choice", ["32b", "8b"],
+         labels={"32b": "Qwen3-VL 32B (~28 GB VRAM, 24.4 GB download)", "8b": "Qwen3-VL 8B (~19 GB VRAM, 17.5 GB download)"}),
     Item("gpu_vision", "GPU for TRELLIS and the vision model", "jobs.gpu0_gpu",
          "GPU index for TRELLIS.2 and the local vision LLM.", "gpu"),
     Item("gpu_comfy", "GPU for ComfyUI", "jobs.comfy_gpu",
@@ -158,7 +173,9 @@ def _unreal_candidates() -> list[str]:
 
 def detect() -> dict[str, str]:
     """Best guesses for each item (the current value when it already works)."""
-    d: dict[str, str] = {"storage": str(config.ap_root())}
+    from . import profiles
+    hw = profiles.detect()
+    d: dict[str, str] = {"storage": str(config.ap_root()), "hardware_profile": hw["profile"] or ""}
     cur_url = config.get("comfyui.url") or "http://127.0.0.1:8188"
     for url in dict.fromkeys([cur_url, "http://127.0.0.1:8188", "http://127.0.0.1:8000"]):
         if _probe_comfy(url):
@@ -177,12 +194,16 @@ def detect() -> dict[str, str]:
     if (u := _unreal_candidates()):
         d["unreal"] = u[0]
     d["unreal_projects"] = str(_ue_projects_default())
-    gpus = gpu.list_gpus()
+    gpus = hw["gpus"]
     d["gpu_vision"] = str(config.get("jobs.gpu0_gpu", 0))
     comfy = str(config.get("jobs.comfy_gpu", 1))
     if gpus and int(comfy) >= len(gpus):
         comfy = str(len(gpus) - 1)                     # one GPU: both on it
     d["gpu_comfy"] = comfy
+    vis = next((g for g in gpus if str(g["index"]) == d["gpu_vision"]), None)
+    d["vlm_model"] = str(config.get("local.model") or "32b")
+    if vis and (alt := profiles.smaller_vlm(vis["vram_gb"])) and d["vlm_model"] == "32b" and alt["select"] != "32b":
+        d["vlm_model"] = alt["select"]                 # the 32B doesn't fit this GPU: offer the one that does
     return d
 
 
@@ -232,8 +253,12 @@ def state() -> dict:
         items.append(asdict(i) | {"value": values[i.id], "detected": det.get(i.id, ""),
                                    "has_value": _has_secret(i) if i.kind == "secret" else bool(values[i.id]),
                                    "shown": _shown(i, values | {k: v for k, v in det.items() if not values.get(k)})})
+    from . import profiles
+    n = len(gpu.list_gpus())
     return {"first_run": first_run(), "config": str(config.user_toml()), "secrets": str(config.secrets_toml()),
-            "gpus": gpu.list_gpus(), "items": items}
+            "gpus": gpu.list_gpus(), "items": items,
+            "profiles": {k: {"title": p.title, "tested": p.tested, "note": p.note, "lanes": profiles.lanes(k, n)}
+                         for k, p in profiles.PROFILES.items()}}
 
 
 # --- tests: one plain sentence each ------------------------------------------------------------
@@ -483,6 +508,38 @@ def _test_models(_v: str, _all: dict) -> dict:
                 + (f". Gated: {', '.join(gated)} (accept the license on its page and set the Hugging Face token)." if gated else "."))
 
 
+def _test_profile(v: str, all_: dict) -> dict:
+    from . import profiles
+    if v not in profiles.PROFILES:
+        return _res(False, f"Choose one of: {', '.join(p.title for p in profiles.PROFILES.values())}.")
+    p, hw = profiles.PROFILES[v], profiles.detect()
+    seen = f"{hw['count']} {hw['vendor'] or 'unknown'} GPU(s) found"
+    if hw["vendor"] and hw["vendor"] != p.vendor:
+        return _res(False, f"{p.title} doesn't match this machine ({seen}).")
+    msg = f"{p.title}: {seen}. PyTorch {p.torch}. {p.note}"
+    if p.gpus and hw["count"] and p.gpus != hw["count"] and not (p.gpus == 1 and hw["count"] >= 1):
+        return _res(True, msg + f" It plans for {p.gpus} GPU(s).", warn=True)
+    return _res(True, msg, warn=not p.tested)
+
+
+def _test_vlm_model(v: str, all_: dict) -> dict:
+    from . import profiles
+    opts = {o["select"]: o for o in profiles.vlm_options()}
+    if v not in opts:
+        return _res(False, f"Choose {' or '.join(opts)}.")
+    gpus = {str(g["index"]): g for g in gpu.list_gpus()}
+    g = gpus.get(str(all_.get("gpu_vision", config.get("jobs.gpu0_gpu", 0))))
+    o = opts[v]
+    if not g:
+        return _res(True, f"Needs ~{o['vram_gb']:.0f} GB of VRAM; the GPU's size is unknown.", warn=True)
+    if g["vram_gb"] < o["vram_gb"]:
+        alt = profiles.smaller_vlm(g["vram_gb"])
+        return _res(False, f"GPU {g['index']} has {g['vram_gb']:.0f} GB; the {v.upper()} needs ~{o['vram_gb']:.0f} GB."
+                    + (f" Choose {alt['select']} (needs ~{alt['vram_gb']:.0f} GB)." if alt else " No vision model fits; "
+                       "scene analysis and Brief & build stay off."))
+    return _res(True, f"Fits: GPU {g['index']} has {g['vram_gb']:.0f} GB, the {v.upper()} needs ~{o['vram_gb']:.0f} GB.")
+
+
 def _test_choice(v: str, _all: dict) -> dict:
     if v not in ("sdk", "httpx"):
         return _res(False, "Choose sdk or httpx.")
@@ -491,6 +548,7 @@ def _test_choice(v: str, _all: dict) -> dict:
 
 
 TESTS = {
+    "hardware_profile": _test_profile, "vlm_model": _test_vlm_model,
     "storage": _test_storage, "comfy_backend": _test_choice, "comfy_url": _test_comfy_url, "sdk_url": _test_sdk,
     "comfy_launch": _test_launch, "comfy_cwd": _test_cwd, "comfy_models_dir": _test_comfy_models_dir,
     "hf_token": _test_secret("HF_TOKEN", False, optional=True,

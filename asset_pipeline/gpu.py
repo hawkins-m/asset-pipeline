@@ -3,6 +3,7 @@
 AMD (ROCm) is the tested path. The NVIDIA branches are untested (no NVIDIA hardware here).
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -130,7 +131,19 @@ def parse_pidgpus(text: str) -> dict[int, list[int]]:
 
 def vram_free_gb(gpu: int, besides: set[int] | None = None) -> float | None:
     """Free VRAM on a GPU (GB), counting memory held by the `besides` PIDs as free (e.g. the
-    ComfyUI that will run the job, or the VLM a VLM job reuses). None if it can't be read."""
+    ComfyUI that will run the job, or the VLM a VLM job reuses). None if it can't be read.
+    AP_SIM_FREE_GB ("4.9" or "0:4.9,1:30", or "@file" holding that) reports fixed numbers instead: a
+    low-memory simulation."""
+    sim = os.environ.get("AP_SIM_FREE_GB", "").strip()
+    if sim.startswith("@"):
+        try:
+            sim = open(sim[1:]).read().strip()
+        except OSError:
+            sim = ""
+    if sim:
+        vals = dict(x.split(":", 1) if ":" in x else ("*", x) for x in sim.split(","))
+        v = vals.get(str(gpu), vals.get("*"))
+        return float(v) if v is not None else None
     try:
         total, used = vram_total_gb().get(gpu), vram_used_gb().get(gpu)
         own = sum(v for p, v in vram_by_process().get(gpu, {}).items() if p in (besides or set())) if besides else 0.0

@@ -104,6 +104,42 @@ Expect to debug it.
 - Disk: several hundred GB is comfortable (Flux, VLM weights, TRELLIS, Unreal projects). All
   of it goes under one storage folder (default `~/.local/share/terraformer`; `ap setup` asks).
 
+## Hardware profiles
+
+`ap setup` detects the GPU vendor, count and VRAM (`rocm-smi` / `nvidia-smi`) and preselects a
+profile; you can override it (`ap config set hardware.profile ...`). The profile sets the PyTorch
+build the model environments install, which GPU each job lane uses, and the scheduling.
+
+| Profile | PyTorch | GPU lanes | Status |
+|---|---|---|---|
+| Ubuntu + ROCm, 2 GPUs (`rocm-2gpu`) | ROCm 7.2 | TRELLIS and the vision model on GPU 0, ComfyUI on GPU 1 | the tested setup |
+| Ubuntu + ROCm, 1 GPU (`rocm-1gpu`) | ROCm 7.2 | everything on GPU 0, one job at a time | scheduling tested by simulation only |
+| Ubuntu + NVIDIA (`nvidia`) | CUDA 12.8 | as above, by GPU count | **untested**: the CUDA paths have never run |
+
+- With one GPU, ComfyUI, TRELLIS and the vision model share one slot and run in submit order;
+  before TRELLIS or the vision model starts, ComfyUI is asked to unload its models, and before a
+  ComfyUI job the vision model is unloaded. Jobs wait (queued, with the reason shown) until the
+  GPU has the memory the model manifest says they need.
+- Each feature has a VRAM floor from the manifest (ComfyUI image models ~24 GB, the 32B vision
+  model ~28 GB, the 8B ~19 GB, TRELLIS.2 ~16 GB). A feature the card can't run is switched off
+  in the app with the reason; below ~28 GB Setup offers the 8B vision model.
+- Memory held by programs the app didn't start is never touched: the app names them with their
+  PID. TRELLIS retries once after an out-of-memory error, having freed what it can, then says
+  in plain words what it needed and what holds the GPU.
+- PyTorch's `expandable_segments` allocator is set for GPU jobs only on the NVIDIA profile; on
+  ROCm (gfx1201) it gave silent NaNs, so the ROCm profiles keep the default allocator.
+
+Install steps that differ per profile (the rest of Install is the same):
+
+- **ROCm, 2 GPUs**: as written below.
+- **ROCm, 1 GPU**: in step 7 pick `Ubuntu + ROCm, 1 GPU` (both GPU roles on GPU 0). With less
+  than ~28 GB on the card, take the 8B vision model before downloading:
+  `ap config set local.model 8b`, then `ap models download --required` (43.7 GB).
+- **NVIDIA (untested)**: pick `Ubuntu + NVIDIA (untested)` in `ap setup` first, so the model
+  environments install CUDA wheels (or `export AP_TORCH=cu128` for the install scripts); skip
+  `scripts/setup_rocm_toolchain.sh`; TRELLIS.2 needs the CUDA toolkit for its extensions. Expect
+  to debug: see CUDA (untested) below.
+
 ## Install
 
 Nothing in the repo names a machine. Your settings live in one user config outside it,
@@ -295,8 +331,8 @@ Short version; details are in [CLAUDE.md](CLAUDE.md) and [docs/notes/](docs/note
 
 ## CUDA (untested)
 
-The install scripts accept `AP_TORCH=cu128` (or `cu126`, and similar) to pick the CUDA PyTorch
-wheels, and the GPU selection code has `nvidia-smi` / `CUDA_VISIBLE_DEVICES` branches. The
+The NVIDIA hardware profile picks the CUDA PyTorch wheels (`cu128`; `AP_TORCH=cu126` and similar
+override it), and the GPU selection code has `nvidia-smi` / `CUDA_VISIBLE_DEVICES` branches. The
 llama.cpp build used for the VLM is the Vulkan one, which should run on NVIDIA as well. None of
 this has been run. TRELLIS.2 on CUDA additionally needs the CUDA toolkit for its extensions.
 

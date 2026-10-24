@@ -48,6 +48,15 @@ class ComfyClient:
                 f"`ap comfy start` (or Start ComfyUI in the app's Status box)") from e
         return r.json()
 
+    def free_memory(self) -> None:
+        """Ask ComfyUI to unload its models and free cached VRAM (POST /free). ComfyUI keeps running
+        and loads them again on its next job; used when one GPU is shared with TRELLIS and the VLM."""
+        try:
+            r = self.http.post("/free", json={"unload_models": True, "free_memory": True})
+            r.raise_for_status()
+        except httpx.HTTPError as e:
+            raise ComfyUnavailable(f"ComfyUI didn't free its memory at {self.url} ({e})") from e
+
     def folder_paths(self) -> dict[str, list[str]]:
         """ComfyUI's model folders ({"checkpoints": [paths...], ...}; /internal/folder_paths). Both
         backends ask ComfyUI itself: the Comfy API v2 has no equivalent."""

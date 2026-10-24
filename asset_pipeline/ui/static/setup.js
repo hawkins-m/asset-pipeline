@@ -22,7 +22,7 @@ async function setupDialog() {
   const input = it => {
     const v = it.value || it.detected || "";
     const id = `su-${it.id}`;
-    if (it.kind === "choice") return `<select id="${id}" data-id="${it.id}">${it.choices.map(c => `<option${c === v ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>`;
+    if (it.kind === "choice") return `<select id="${id}" data-id="${it.id}">${it.choices.map(c => `<option value="${esc(c)}"${c === v ? " selected" : ""}>${esc((it.labels || {})[c] || c)}</option>`).join("")}</select>`;
     if (it.kind === "gpu" && st.gpus.length) return `<select id="${id}" data-id="${it.id}">${gpuOpts}</select>`;
     if (it.kind === "info") return `<input id="${id}" data-id="${it.id}" type="hidden" value=""><span class="hint su-info">Test shows what is installed.</span>`;
     if (it.kind === "secret") return `<input id="${id}" data-id="${it.id}" type="password" autocomplete="off" placeholder="${it.has_value ? "set (leave empty to keep)" : "not set"}">`;
@@ -54,6 +54,17 @@ async function setupDialog() {
     }
   };
   $("#su-comfy_backend", body).addEventListener("change", shown);
+  // a profile sets its lane defaults (one GPU: both roles on it); the GPU items stay editable
+  $("#su-hardware_profile", body).addEventListener("change", e => {
+    const p = st.profiles[e.target.value];
+    if (!p) return;
+    for (const [id, lane] of [["gpu_vision", "gpu0"], ["gpu_comfy", "comfy"]]) {
+      const el = $(`#su-${id}`, body);
+      if (el && [...(el.options || [])].some(o => o.value === String(p.lanes[lane]))) el.value = String(p.lanes[lane]);
+      else if (el) el.value = String(p.lanes[lane]);
+    }
+    ["hardware_profile", "gpu_vision", "gpu_comfy", "vlm_model"].forEach(test);
+  });
   shown();
   const test = async id => {
     const row = $(`.setup-item[data-id="${id}"]`, body), out = $(".su-result", row), el = $(`#su-${id}`, body);

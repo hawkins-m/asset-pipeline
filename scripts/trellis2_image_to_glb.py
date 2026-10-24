@@ -19,8 +19,10 @@ os.environ.setdefault("SPARSE_ATTN_BACKEND", "sdpa")
 os.environ.setdefault("SPARSE_CONV_BACKEND", "flex_gemm")
 os.environ.setdefault("TORCH_BLAS_PREFER_HIPBLASLT", "0")
 # expandable_segments produces silent NaNs on this stack (see CLAUDE.md, docs/notes/machine-and-gpu.md).
-if "expandable_segments" in os.environ.get("PYTORCH_CUDA_ALLOC_CONF", ""):
-    raise SystemExit("Unset PYTORCH_CUDA_ALLOC_CONF=expandable_segments: silent NaNs on gfx1201")
+# ROCm only: the NVIDIA profile (untested) sets it on purpose against fragmentation.
+_rocm = os.path.exists("/opt/rocm") or bool(os.environ.get("HIP_VISIBLE_DEVICES"))
+if _rocm and any("expandable_segments" in os.environ.get(v, "") for v in ("PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF")):
+    raise SystemExit("Unset PYTORCH_CUDA_ALLOC_CONF / PYTORCH_HIP_ALLOC_CONF=expandable_segments: silent NaNs on gfx1201")
 
 import torch  # noqa: E402
 from PIL import Image  # noqa: E402

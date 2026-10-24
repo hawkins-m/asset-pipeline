@@ -18,7 +18,8 @@ def box(tmp_path, monkeypatch):
     """Everything present except what a test takes away."""
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
     config.save_user({"paths": {"ap_root": str(tmp_path)}, "unreal": {"editor_cmd": ""}})
-    monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 24}, {"index": 1, "name": "B", "vram_gb": 24}])
+    monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 32}, {"index": 1, "name": "B", "vram_gb": 32}])
+    monkeypatch.setattr(gpu, "vendor", lambda: "amd")
     monkeypatch.setattr(setup, "_probe_comfy", lambda url, timeout=1.0: STATS)
     monkeypatch.setattr(setup, "proxy_installed", lambda: tmp_path / "proxy")
     monkeypatch.setattr(doctor, "check_comfy_models", lambda url: doctor._c("comfy_models", "ComfyUI models", True, "all 5"))
@@ -82,7 +83,8 @@ def test_missing_gpu_and_vision_model(box, monkeypatch):
     gone = {"vlm": ["vlm-32b"], "trellis": ["trellis2-4b", "birefnet"]}
     monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [models.get(i) for i in gone.get(feature, [])])
     rep = doctor.report()
-    assert "doesn't exist" in _by(rep)["gpus"]["detail"] and rep["missing"] == 2
+    assert "doesn't exist" in _by(rep)["gpus"]["detail"] and rep["missing"] == 3          # GPU role, VLM files, VLM VRAM
+    assert _by(rep)["fit_vlm"]["level"] == "fail"
     assert _by(rep)["vlm"]["fix"] == "ap models download vlm-32b"                # the exact command, from the manifest
     assert _by(rep)["trellis"]["fix"] == "ap models download trellis2-4b birefnet" and _by(rep)["trellis"]["optional"]
     assert not rep["features"]["vlm"]["ok"] and not rep["features"]["trellis"]["ok"] and rep["features"]["blender"]["ok"]
@@ -121,3 +123,12 @@ def test_api_doctor_is_lazy_and_refreshes_after_a_save(box, monkeypatch):
     r = c.get("/api/doctor?refresh=1").json()
     assert runs == [1, 1] and r["missing"] == 0
     setup_api._doc.update(report=None, running=False)
+
+
+def test_a_card_too_small_for_the_32b_switches_the_vision_model_off_and_offers_the_8b(box, monkeypatch):
+    monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 24}, {"index": 1, "name": "B", "vram_gb": 24}])
+    rep = doctor.report()
+    c = _by(rep)["fit_vlm"]
+    assert c["level"] == "fail" and "needs about 28 GB" in c["detail"] and c["fix"] == "ap config set local.model 8b"
+    assert not rep["features"]["vlm"]["ok"] and rep["features"]["comfy"]["ok"] and rep["features"]["trellis"]["ok"]
+    assert "rocm-2gpu" not in _by(rep)["profile"]["detail"] and "ROCm, 2 GPUs" in _by(rep)["profile"]["detail"]

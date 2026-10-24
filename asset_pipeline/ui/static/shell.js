@@ -392,14 +392,15 @@ function laneTip(lane) {
 
 // short: the Jobs panel row (the VRAM note goes in its tooltip)
 const jobWaitText = (j, short = false) => !j.waiting ? "" : j.waiting.reason === "vram" ? (short || !j.note ? "waiting for VRAM" : j.note)
-  : `#${j.waiting.position} in line${j.status === "running" ? ` for ${LANE_NAMES[j.waiting.lane] || j.waiting.lane}` : ""}`;
+  : `#${j.waiting.position} in line${j.status === "running" ? ` for ${laneLabel(j.waiting.lane)}` : ""}`;
 
 function renderLanes() {
   // rows are kept and updated in place: a rebuilt bar would restart its animation every poll
   const el = $("#lanes");
   const jobs = data ? data.jobs : [];
   const rows = [];
-  for (const [lane, name] of LANES) {
+  for (const [lane, fixed] of LANES) {
+    const name = lane === "gpu0" || lane === "comfy" ? laneLabel(lane).replace(/ \(.*\)$/, lane === "comfy" ? " · Comfy" : "") : fixed;
     // on this lane: jobs holding its slot (their own, or borrowed for a VLM request), then the line
     const holds = j => j.holds || (j.status === "running" ? [j.lane] : []);
     const holding = jobs.filter(j => isActive(j) && holds(j).includes(lane) && !(j.waiting && j.waiting.lane === lane));

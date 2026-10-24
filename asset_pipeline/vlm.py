@@ -29,6 +29,11 @@ class VLMError(LLMError):
     pass
 
 
+class VLMMemoryError(VLMError):
+    """The server ran out of GPU memory while loading: said in plain words (no traceback)."""
+    plain = True
+
+
 def _logs() -> Path:
     d = config.ap_root() / "logs"
     d.mkdir(parents=True, exist_ok=True)
@@ -145,12 +150,24 @@ def _start(model: str, gpu: int, idle: float) -> dict:
         raise VLMError(f"{m['url']} is already taken by a server this tool didn't start")
     cmd = _command(model, m, gpu, idle)
     log = (_logs() / f"vlm-{model}.log").open("a")
-    env = dict(os.environ, **gpu_mod.visible_devices_env(gpu), AP_ROOT=str(config.ap_root()))
+    from . import profiles
+    env = dict(os.environ, **gpu_mod.visible_devices_env(gpu), AP_ROOT=str(config.ap_root()), **profiles.allocator_env())
+    log.flush()
+    start = Path(log.name).stat().st_size
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
                             start_new_session=True)
     deadline = time.time() + 600  # the 32B loads 24 GB of weights before /health is 200
     while not _healthy(m["url"]):
         if proc.poll() is not None:
+            with open(log.name) as fh:
+                fh.seek(start)
+                out = fh.read()
+            from . import gpu_policy
+            if gpu_policy.is_oom(out):
+                pol = gpu_policy.GpuPolicy()
+                need, free = pol.vlm_need(), pol.free_fn(gpu, set())
+                raise VLMMemoryError(gpu_policy.oom_message(float(m.get("vram_gb") or need), free, pol.report(gpu),
+                                                            "pick a smaller vision model in Setup"))
             raise VLMError(f"{model} server exited with code {proc.returncode}; see {log.name}")
         if time.time() > deadline:
             proc.kill()

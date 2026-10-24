@@ -2,7 +2,13 @@
 
 Runs scripts/trellis as a subprocess on GPU 0. The wrapper claims the GPU (lock file) and
 stops the local VLM first. Under a UI job, Stop kills the subprocess's process group and
-removes the claim even if the wrapper had no chance to.
+removes the claim even if the wrapper had no chance to. However a run ends, its process group
+is killed and its claim removed, so nothing it started keeps GPU memory.
+
+Out of GPU memory: the run frees what the app can (the vision model; on one shared GPU
+ComfyUI's models), waits for the memory, and retries once. If that fails too the error says in
+plain words what was needed, what was free and what holds the GPU (gpu_policy.GpuMemoryError);
+the full log stays in trellis.log. AP_TRELLIS_CMD replaces scripts/trellis (tests, simulations).
 
 Every usage tag goes this way for now; hero assets get the multi-view path (orbit video
 -> multi-view 3D, PLAN.md) once it exists.
@@ -33,6 +39,32 @@ def out_dir(store: ProjectStore, plan: str, asset_id: str) -> Path:
     return store.root / OUT / plan / asset_id
 
 
+def _reap(proc: subprocess.Popen, gpu: int) -> None:
+    """After the wrapper exits: kill anything left in its process group (it was started in a new
+    session, so the group is its own), drop its GPU claim. Never pid 0/1 or our own group: killpg(0)
+    would signal the app itself."""
+    if isinstance(proc.pid, int) and proc.pid > 1 and proc.pid != os.getpgrp():
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    (config.ap_root() / "logs" / f"trellis-gpu{gpu}-{proc.pid}.lock").unlink(missing_ok=True)
+
+
+def _command() -> list[str]:
+    import shlex
+    return shlex.split(os.environ["AP_TRELLIS_CMD"]) if os.environ.get("AP_TRELLIS_CMD") else [str(TRELLIS)]
+
+
+def _failure_line(lines: list[str]) -> str:
+    """The last line that says what went wrong (no traceback frames)."""
+    for ln in reversed(lines):
+        t = ln.strip()
+        if t and not t.startswith(("File \"", "Traceback", "^", "~")) and not t.startswith("    "):
+            return t[:300]
+    return "no output"
+
+
 def _stop(proc: subprocess.Popen, gpu: int) -> None:
     """SIGTERM the wrapper and TRELLIS (one process group), SIGKILL after 15 s, then drop
     the GPU claim: the wrapper's EXIT trap can't run if it was SIGKILLed."""
@@ -48,11 +80,14 @@ def _stop(proc: subprocess.Popen, gpu: int) -> None:
 
 
 def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
-        mode: str = "1024_cascade", seed: int | None = 42, gpu: int = 0) -> dict:
+        mode: str = "1024_cascade", seed: int | None = 42, gpu: int | None = None) -> dict:
     """TRELLIS.2 on the asset's chosen view (or `view`). Returns the run's stats. seed=None draws a
     new random seed (Make 3D, new seed); every result JSON carries the seed it used."""
     if seed is None:
         seed = random.randrange(2**31)
+    if gpu is None:
+        from .. import gpu_policy
+        gpu = gpu_policy.settings()["gpus"]["gpu0"]
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
     key = review.rel(store, view) if view else review.chosen(store, plan, asset_id)
@@ -67,32 +102,52 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
     stage = out / "_staging"
     shutil.rmtree(stage, ignore_errors=True)
     stage.mkdir()
-    cmd = [str(TRELLIS), str(store.root / key),
+    cmd = [*_command(), str(store.root / key),
            "--type", mode, "--seed", str(seed), "--out-dir", str(stage)]
     stem = f"{Path(key).stem[:24]}_{mode}_s{seed}"
     t = time.time()
-    with (out / "trellis.log").open("a") as log:
-        log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
-        log.flush()
-        proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                                env=dict(os.environ, TRELLIS_GPU=str(gpu), AP_ROOT=str(config.ap_root())))
     job = current_job()
-    release = job.on_cancel(lambda: _stop(proc, gpu)) if job else (lambda: None)
-    try:
-        while proc.poll() is None:
-            if job and job.cancel_event.is_set():
-                _stop(proc, gpu)
-                raise Canceled(f"TRELLIS on {key} canceled")
-            time.sleep(1)
-    finally:
-        release()
-    if job and job.cancel_event.is_set():
+    from .. import gpu_policy, profiles
+    for attempt in (1, 2):
         shutil.rmtree(stage, ignore_errors=True)
-        raise Canceled(f"TRELLIS on {key} canceled")
-    if proc.returncode != 0 or not (stage / f"{stem}.json").is_file():
+        stage.mkdir()
+        logf = out / "trellis.log"
+        with logf.open("a") as log:
+            log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}" + (" (retry)" if attempt > 1 else "") + "\n")
+            log.flush()
+            start = logf.stat().st_size
+            proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                                    env=dict(os.environ, TRELLIS_GPU=str(gpu), AP_ROOT=str(config.ap_root()),
+                                             **profiles.allocator_env()))
+        release = job.on_cancel(lambda: _stop(proc, gpu)) if job else (lambda: None)
+        try:
+            while proc.poll() is None:
+                if job and job.cancel_event.is_set():
+                    _stop(proc, gpu)
+                    raise Canceled(f"TRELLIS on {key} canceled")
+                time.sleep(1)
+        finally:
+            release()
+            _reap(proc, gpu)                              # ended, failed or canceled: nothing keeps VRAM
+        if job and job.cancel_event.is_set():
+            shutil.rmtree(stage, ignore_errors=True)
+            raise Canceled(f"TRELLIS on {key} canceled")
+        if proc.returncode == 0 and (stage / f"{stem}.json").is_file():
+            break
         shutil.rmtree(stage, ignore_errors=True)
-        tail = (out / "trellis.log").read_text().splitlines()[-15:]
-        raise RuntimeError(f"trellis exited with code {proc.returncode}:\n" + "\n".join(tail))
+        with logf.open() as fh:
+            fh.seek(start)
+            run_log = fh.read()
+        if gpu_policy.is_oom(run_log):
+            if job:
+                job.note = "Out of GPU memory: freeing memory and trying once more…"
+            need, free, holders = gpu_policy.free_for_retry("gpu0", "gpu", job)
+            if attempt == 1:
+                continue
+            lighter = "pick a lighter 3D mode (512)" if mode != "512" else "free the GPU first"
+            raise gpu_policy.GpuMemoryError(gpu_policy.oom_message(need, free, holders, lighter))
+        raise RuntimeError(f"TRELLIS failed (exit code {proc.returncode}): {_failure_line(run_log.splitlines())}. "
+                           f"The full log is {OUT}/{plan}/{asset_id}/trellis.log.")
     for f in sorted(stage.iterdir()):
         filestore.detach(out / f.name)                  # a rerun's old files: own files, not shared ones
         os.replace(f, out / f.name)

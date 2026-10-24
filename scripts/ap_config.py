@@ -4,7 +4,8 @@
 Runs with the system python3 (>= 3.11, stdlib only): it reads asset_pipeline/config.py straight
 from the checkout, so the order is the app's (environment > user config > backends.local.toml >
 repo defaults). Keys: paths.ap_root, paths.venv (the orchestrator venv), comfyui.ports (the
-ComfyUI ports this machine runs: url's port plus other_ports), or any "section.key"."""
+ComfyUI ports this machine runs: url's port plus other_ports), hardware.torch (the PyTorch build of
+the hardware profile), or any "section.key"."""
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -27,6 +28,9 @@ def ports() -> str:
 
 
 def value(key: str) -> str:
+    if key == "hardware.torch":
+        from asset_pipeline import profiles
+        return profiles.torch_tag()
     if key == "paths.venv":
         return venv()
     if key == "comfyui.ports":

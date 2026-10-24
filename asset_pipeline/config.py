@@ -27,6 +27,7 @@ ENV_OVERRIDES = {
     "AP_COMFY_SDK_URL": ("comfyui", "sdk_url"),
     "AP_COMFY_MODELS": ("comfyui", "models_dir"),
     "AP_DINOV3_REPO": ("models", "dinov3_repo"),
+    "AP_PROFILE": ("hardware", "profile"),
     "AP_UE_EDITOR_CMD": ("unreal", "editor_cmd"),
     "AP_UE_PROJECTS": ("unreal", "projects_dir"),
     "AP_UE_BACKUPS": ("unreal", "backup_dir"),
@@ -45,7 +46,6 @@ ENV_VARS = {
     "AP_UE_ARGS": "extra UnrealEditor-Cmd arguments (debugging)",
     "AP_UE_BACKUP_KEEP": "UE snapshots kept ([unreal] backup_keep)",
     "AP_TORCH": "PyTorch build for model venvs: rocm7.2 or cu128 (scripts/torch_index.sh; the hardware profile)",
-    "AP_PROFILE": "hardware profile for this shell ([hardware] profile)",
     "COMFYUI_URL": "ComfyUI address for scripts/comfy_api_proxy.sh (ap passes [comfyui] url)",
     "COMFYUI_MODELS": "scripts/fetch_models.sh: ComfyUI models folder (same as AP_COMFY_MODELS)",
     "COMFY_BASE_URL": "set by sdk_client for comfy-sdk while it is constructed",
@@ -55,6 +55,8 @@ ENV_VARS = {
     "PROXY_PORT": "comfy-api-proxy port (ap passes [comfyui] sdk_url's port)",
     "PROXY_VERSION": "comfy-api-proxy version scripts/comfy_api_proxy.sh installs",
     "GFX1201_GUARD": "scripts/gfx1201_guard.py switch (ROCm gfx1201 workarounds)",
+    "AP_SIM_FREE_GB": "testing only: report this free VRAM (\"4.9\", \"0:4.9,1:30\" or \"@file\") instead of reading the GPUs",
+    "AP_TRELLIS_CMD": "testing only: run this command instead of scripts/trellis (same arguments)",
 }
 
 # API keys secrets.toml may hold ([keys] NAME = "value"); the environment wins over the file

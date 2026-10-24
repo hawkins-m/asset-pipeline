@@ -1,6 +1,10 @@
 # Source this: picks the PyTorch wheel index from AP_TORCH.
-#   AP_TORCH=rocm7.2 (default, the tested AMD path) | cu12x (e.g. cu128, cu126: NVIDIA, UNTESTED)
+#   AP_TORCH=rocm7.2 (the tested AMD path) | cu12x (e.g. cu128, cu126: NVIDIA, UNTESTED)
+#   Unset: the hardware profile's build (ap setup; [hardware] torch), else rocm7.2.
 # Sets TORCH_INDEX (wheel index URL) and TORCH_KIND (rocm | cuda).
+if [ -z "${AP_TORCH:-}" ]; then
+  AP_TORCH="$(python3 "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_config.py" hardware.torch 2>/dev/null || true)"
+fi
 AP_TORCH="${AP_TORCH:-rocm7.2}"
 case "$AP_TORCH" in
   rocm7.2) TORCH_KIND=rocm ;;

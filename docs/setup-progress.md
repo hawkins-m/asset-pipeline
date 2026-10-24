@@ -187,3 +187,36 @@ clone from GitHub, the README steps as written:
 - This machine: `comfyui.models_dir` and `models.dinov3_repo` added to the user config; `ap models
   list --all`: all 20 installed; two small models verified by checksum. Fresh HOME: all missing,
   required 50.6 GB, the disk check refused on a 32 GB volume.
+
+## Hardware profiles and GPU memory: done (2026-10-23)
+
+- `asset_pipeline/profiles.py`: rocm-2gpu (tested), rocm-1gpu (scheduling simulated), nvidia
+  (UNTESTED). `[hardware] profile` ("" = detect from rocm-smi / nvidia-smi), `[hardware] torch`
+  (scripts/torch_index.sh takes it when AP_TORCH is unset). Setup: Hardware profile (preselected;
+  changing it sets the GPU items to its lane defaults) and Vision model (offers 8b when the GPU
+  has less than the 32B's ~28 GB). Doctor: profile line; a feature whose manifest VRAM floor
+  exceeds its lane GPU is switched off with the reason.
+- One GPU (both lanes on one index): `JobQueue(shared=True)` gives the comfy and gpu0 lanes one
+  slot in submit order; a job holding either lane holds the GPU (`using` then only checks VRAM).
+  `GpuPolicy.before` on a shared GPU frees the other side once (ComfyUI `POST /free` via
+  `ComfyClient.free_memory()` before TRELLIS / the VLM; the VLM before a ComfyUI job), then waits.
+  Two GPUs: unchanged (this machine: rocm-2gpu set explicitly in the user config).
+- VRAM needs from the manifest (TRELLIS 16, the configured VLM / fallback); `[jobs.vram_gb]` and
+  `[local.models.*] vram_gb` still override. Holders named with PID, never killed.
+- Allocator: `profiles.allocator_env()` sets PYTORCH_CUDA_ALLOC_CONF=expandable_segments only on
+  the NVIDIA profile; ROCm keeps the default (silent NaNs on gfx1201, CLAUDE.md). The TRELLIS
+  script's refusal is ROCm-only now.
+- TRELLIS (`s5_3d.run`): every run's process group is killed and its claim removed however it
+  ends; OOM in the run's log -> `gpu_policy.free_for_retry` (VLM down, ComfyUI freed on one GPU,
+  wait up to 60 s) -> one retry -> `GpuMemoryError` ("Not enough GPU memory (needs ~X GB, Y GB
+  free). <holders>. Try again, or pick a lighter 3D mode (512)."). Other failures: one plain line
+  + the log path. Jobs show `plain` errors as they are (no type prefix, no traceback). VLM load
+  OOM -> `VLMMemoryError` in the same words (fallback model still tried).
+- Simulation switches (testing only, registered): `AP_SIM_FREE_GB` ("4.9", "0:4.9,1:30",
+  "@file"), `AP_TRELLIS_CMD`.
+- Verified: tests/test_profiles.py (1-GPU order and exclusivity, freeing, no deadlock on a
+  borrowed VLM, holders by PID), tests/test_stage345.py (OOM retry, plain message, cleanup); the
+  app's queue built from a 1-GPU scratch config ran tiny jobs one GPU job at a time in submit
+  order, the real 2-GPU config still ran two at once; a second app instance (scratch project,
+  simulated 1 GPU, ComfyUI pointed at a dead port) ran Make 3D against a stand-in TRELLIS that
+  ran out of memory: freed, retried once, plain message, traceback only in trellis.log.
