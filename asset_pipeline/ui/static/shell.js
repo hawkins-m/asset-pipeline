@@ -58,6 +58,42 @@ tabKeys($("#lib-tabs"), "sub", s => showSub(s));
 
 // --- classic dialogs ---------------------------------------------------------------------
 // dialog({title, body (node or html), buttons: [{label, default, onClick -> false keeps open}], onClose})
+// Fields with an automatic value (an entry's name and description, a brief's storey height): the
+// automatic value is the field's real, editable text with a mark beside it, "automatic" until it is
+// changed, then "edited" with Reset to auto. As a placeholder it vanished on click and the wording
+// to edit was lost. autoFieldHtml(tag, attrs, value, auto, {unit, state}): the field (tag input or
+// textarea; value null = automatic), its unit and its mark (state false: Reset only, for forms with
+// their own source marks); autoFieldsWire(root) wires them; autoFieldValue(el): the typed value, or
+// null when it is the automatic one (empty counts as automatic).
+function autoFieldHtml(tag, attrs, value, auto, {unit = "", state = true} = {}) {
+  const a = auto == null ? "" : String(auto), v = value == null || value === "" ? a : String(value);
+  const field = tag === "textarea" ? `<textarea ${attrs} data-auto="${esc(a)}">${esc(v)}</textarea>`
+    : `<input ${attrs} data-auto="${esc(a)}" value="${esc(v)}">`;
+  return `${field}${unit}<span class="auto-mark"><span class="auto-state"${state ? "" : " hidden"}></span> <button type="button" class="small auto-reset" title="Put the automatic value back${a ? `: ${esc(a)}` : ""}">Reset to auto</button></span>`;
+}
+function autoFieldEdited(el) {
+  const v = el.value.trim(), a = (el.dataset.auto || "").trim();
+  if (v === "") return false;
+  return el.type === "number" && a !== "" ? +v !== +a : v !== a;
+}
+const autoFieldValue = el => autoFieldEdited(el) ? el.value.trim() : null;
+function autoFieldsWire(root) {
+  root.querySelectorAll("[data-auto]").forEach(el => {
+    const mark = el.nextElementSibling;
+    if (!mark || !mark.classList.contains("auto-mark") || mark.dataset.wired) return;
+    mark.dataset.wired = "1";
+    const paint = () => {
+      const ed = autoFieldEdited(el);
+      $(".auto-state", mark).textContent = ed ? "edited" : "automatic";
+      mark.classList.toggle("edited", ed);
+      $(".auto-reset", mark).hidden = !ed;
+    };
+    el.addEventListener("input", paint);
+    $(".auto-reset", mark).onclick = () => { el.value = el.dataset.auto || ""; paint(); el.dispatchEvent(new Event("change", {bubbles: true})); el.focus(); };
+    paint();
+  });
+}
+
 function dialog({title, body, buttons = [{label: "OK", default: true}], onClose, className = ""}) {
   const back = document.createElement("div"); back.className = "modal-back";
   const win = document.createElement("div"); win.className = `window ${className}`;

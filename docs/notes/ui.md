@@ -98,3 +98,14 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   delete that changed no model card left the row and its strip stale until a reload.
 - `versionsAfterLoad()` (called in `load()`) spots version jobs finished since the last load.
 - Test: `tests/test_ui_versions_refresh.py` (browser); `_browse(..., seed=fn)` adds project data.
+
+## Automatic values are real text (2026-10-24)
+- Fields with an automatic value use `autoFieldHtml` / `autoFieldsWire` / `autoFieldValue` (shell.js): the
+  automatic value is the field's editable text with an "automatic" / "edited" mark and Reset to auto, never a
+  placeholder (it vanished on click). Unchanged or empty saves as automatic (null). Used by Manage entry's Name
+  and Description and the brief form's Storey and Bay (`state: false`: that form has its own source marks).
+- The brief form's Storey placeholder ignored `measured.storey_h`, which the builder takes first.
+- Manage entry's Save says what changed fields affect (`entrySavedNotice`): the description only reaches the
+  next reference sheets (sw_library.asset_fields -> s2_refs); form and size the next unguided Reroll or Brief &
+  build; the brief, guided Reroll and Make 3D never read the description.
+- Test: tests/test_ui_auto_fields.py (browser).

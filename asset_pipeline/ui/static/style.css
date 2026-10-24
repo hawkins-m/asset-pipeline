@@ -149,6 +149,9 @@ table.grid-table td.dirty::after { content: " *"; }
 .status-ok { background: var(--field); border: 1px solid var(--border-dark); padding: 3px 6px; color: var(--ready); }
 .status-stale { background: var(--stale); border: 1px solid var(--stale-line); padding: 3px 6px; }
 .error, p.error { color: var(--danger); }
+.auto-mark { font-size: 11px; color: var(--muted); margin-left: 6px; white-space: nowrap; }
+.auto-mark.edited .auto-state { color: var(--fg, inherit); font-weight: 600; }
+textarea + .auto-mark { display: block; margin: 2px 0 0; }
 .hint { color: var(--muted); margin: 0 0 6px; max-width: 90ch; font-size: 11px; }   /* secondary text: 11px, body 12px */
 
 /* --- apply-changes bar -------------------------------------------------------------- */

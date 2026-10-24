@@ -464,16 +464,35 @@ async function childrenSection(id, box) {
   }};
 }
 
+// After Manage entry's Save: what a changed name or description affects. The description goes into
+// the reference-sheet prompts (sw_library.asset_fields -> s2_refs); the procedural brief, Reroll
+// and TRELLIS build from sheets and the brief, so it reaches them only through new sheets.
+function entrySavedNotice(id, saved) {
+  const lines = [];
+  if (saved.some(s => s.startsWith("description")))
+    lines.push(`Description saved${saved.includes("description") ? "" : " (back to the automatic one)"}. It is used the next time sheets are generated ` +
+      "(Library › Reference sheets › Generate). The current brief, Reroll and Make 3D don't read it: to see it in 3D, generate new sheets, " +
+      "then Brief & build from the one you like (or write what to change in Reroll's guidance).");
+  if (saved.includes("form")) lines.push("Form and size saved. Used on the next Reroll (without guidance) or Brief & build, which make the brief " +
+    "again from the sheet. A Reroll with guidance edits the current brief and keeps its form and size.");
+  if (saved.includes("route")) lines.push("Build method saved. Used on the next build: procedural builds come from Reroll or Brief & build, " +
+    "TRELLIS ones from Make 3D on Views and 3D.");
+  if (saved.includes("name")) lines.push("Name saved: shown everywhere now; the next sheets use it too.");
+  const b = document.createElement("div"); b.id = "entry-saved-body";
+  b.innerHTML = lines.map(l => `<p>${esc(l)}</p>`).join("");
+  dialog({title: `Saved: ${id}`, body: b, buttons: [{label: "OK", default: true}]}).win.id = "entry-saved-dialog";
+}
+
 async function manageEntry(id) {
   const ent = libEntries().find(x => x.id === id); if (!ent) return;
   const dec = libraryData.decisions[id] || {};
   const custom = !!ent.custom;
   const body = document.createElement("form"); body.className = "form"; body.id = "entry-form";
-  const nm = dec.name || ent.name || "";
+  const nm = dec.name || ent.name || id.replace(/-/g, " ");
   body.innerHTML = `<p class="hint" style="grid-column:1/-1">Entry <b>${esc(id)}</b>${custom ? " (yours)" : " (from the library plan: its id is fixed; rename changes the display name only, duplicate to get an id of your own)"}.</p>
-    ${entryField("en-name", "Name:", `<input id="en-name" value="${esc(nm)}" placeholder="${esc(id.replace(/-/g, " "))}">`)}
-    ${entryField("en-desc", "Description:", `<textarea id="en-desc" rows="4" placeholder="${esc(ent.description_auto || "")}">${esc(dec.description || "")}</textarea>
-      <span></span><span class="hint" style="margin:0">${dec.description ? "Yours" : "Automatic"}: <button type="button" id="en-desc-reset" class="small"${dec.description ? "" : " disabled"}>Reset to auto</button></span>`)}
+    ${entryField("en-name", "Name:", `<span>${autoFieldHtml("input", `id="en-name"`, dec.name, ent.name || id.replace(/-/g, " "))}</span>`)}
+    ${entryField("en-desc", "Description:", `<span>${autoFieldHtml("textarea", `id="en-desc" rows="4"`, dec.description, ent.description_auto || "")}</span>
+      <span></span><span class="hint" style="margin:0">Sheets are drawn from it: the next Generate in Library › Reference sheets uses it. The brief and the 3D builds don't read it.</span>`)}
     ${entryField("en-route", "Build method:", `<select id="en-route"><option value="">auto (${LIB_ROUTES[ent.route_auto] || "none"})</option>
       <option value="procedural"${dec.route === "procedural" ? " selected" : ""}>procedural</option><option value="trellis"${dec.route === "trellis" ? " selected" : ""}>TRELLIS</option></select>`)}
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
@@ -490,25 +509,29 @@ async function manageEntry(id) {
     catch (err) { $("#en-form-box", body).innerHTML = `<p class="error">${esc(errorText(err))}</p>`; }
   }
   const reload = async () => { await entriesReload(); };
-  $("#en-desc-reset", body).onclick = async () => {
-    try { await api(`/api/projects/${slug}/library/entries/${id}/description`, {description: null}); } catch (err) { alert(errorText(err)); return; }
-    $("#en-desc", body).value = ""; await reload();
-  };
+  autoFieldsWire(body);
   const d = dialog({title: `Entry: ${id}`, body, className: "wide", buttons: [
     {label: "Save", default: true, onClick: async () => {
+      const saved = [];
       try {
-        const desc = $("#en-desc", body).value.trim(), name = $("#en-name", body).value.trim();
-        if (desc !== (dec.description || "")) await api(`/api/projects/${slug}/library/entries/${id}/description`, {description: desc || null});
-        if (name !== nm && name) await api(`/api/projects/${slug}/library/entries/${id}/rename`, {name});
+        const desc = autoFieldValue($("#en-desc", body)), nameEl = $("#en-name", body);
+        const name = nameEl.value.trim() || nameEl.dataset.auto;      // no "unset" for a name: Reset puts the automatic text back
+        if (desc !== (dec.description || null)) {
+          await api(`/api/projects/${slug}/library/entries/${id}/description`, {description: desc});
+          saved.push(desc ? "description" : "description (back to automatic)");
+        }
+        if (name !== nm) { await api(`/api/projects/${slug}/library/entries/${id}/rename`, {name}); saved.push("name"); }
         const route = $("#en-route", body).value || null;
-        if (route !== (dec.route || null)) await api(`/api/projects/${slug}/library/route`, {entry: id, route});
+        if (route !== (dec.route || null)) { await api(`/api/projects/${slug}/library/route`, {entry: id, route}); saved.push("route"); }
         if (finfo) {
           const ff = formFieldsRead(body);
           const same = (a, b) => JSON.stringify(a || null) === JSON.stringify(b || null);
           const mySize = finfo.size_source === "yours" ? finfo.size_m : null;
-          if (ff.form || !same(ff.dims, mySize) && !same(ff.dims, finfo.size_m))
-            await api(`/api/projects/${slug}/library/entries/${id}/form`, {form: ff.form || (finfo.source === "yours" ? finfo.form : null),
-                                                                          size_m: ff.dims && !same(ff.dims, finfo.size_m) ? ff.dims : mySize});
+          if (ff.form || !same(ff.dims, mySize) && !same(ff.dims, finfo.size_m)) {
+            const myForm = finfo.source === "yours" ? finfo.form : null, size_m = ff.dims && !same(ff.dims, finfo.size_m) ? ff.dims : mySize;
+            await api(`/api/projects/${slug}/library/entries/${id}/form`, {form: ff.form || myForm, size_m});
+            if ((ff.form || myForm) !== myForm || !same(size_m, mySize)) saved.push("form");
+          }
         }
         if (vs) await vs.save();
         if (kids) await kids.save();
@@ -519,6 +542,7 @@ async function manageEntry(id) {
         }
       } catch (err) { alert(errorText(err)); return false; }
       await reload();
+      if (saved.length) entrySavedNotice(id, saved);
     }},
     {label: "Duplicate…", onClick: () => { setTimeout(() => idPrompt({title: `Duplicate ${id}`, label: "New id:", value: `${id}-copy`, button: "Duplicate",
       intro: "Copies the entry with its description, route, decision, sheets, views, brief, build and TRELLIS results. The copy starts unreviewed; the original is untouched.",

@@ -323,9 +323,9 @@ function lrRenderBrief() {
         <span class="hint">${cat && cat.width && cat.depth ? `catalog ${cat.width.join("–")} × ${cat.depth.join("–")}` : "no catalog range"}</span></span>
       <span>Height</span><span class="inl"><input type="number" step="any" data-path="dims.2" data-t="num" value="${b.dims[2]}" aria-label="height"> m${lrSrcMark("dims.2")}
         <span class="hint">${d.usage.size_m ? `greybox ${d.usage.size_m[2]}` : ""}</span></span>
-      <span>Storey</span><span class="inl"><input type="number" step="any" data-path="params.storey_h" data-t="num" value="${b.params.storey_h ?? ""}" placeholder="${b.features.storey_h ?? cat?.storey_m ?? 3.4}"> m${lrSrcMark("params.storey_h")}
+      <span>Storey</span><span class="inl">${autoFieldHtml("input", `type="number" step="any" data-path="params.storey_h" data-t="num"`, b.params.storey_h, meas.storey_h ?? b.features.storey_h ?? "", {unit: " m", state: false})}${lrSrcMark("params.storey_h")}
         <span class="hint">${cat && cat.storeys ? `catalog ${cat.storeys.join("–")} storeys` : ""}${meas.storeys ? ` · sheet ${meas.storeys} storeys` : ""}</span></span>
-      <span>Bay rhythm</span><span class="inl"><input type="number" step="any" data-path="params.bay_m" data-t="num" value="${b.params.bay_m ?? ""}" placeholder="auto"> m${lrSrcMark("params.bay_m")}
+      <span>Bay rhythm</span><span class="inl">${autoFieldHtml("input", `type="number" step="any" data-path="params.bay_m" data-t="num"`, b.params.bay_m, meas.bay_m ?? "", {unit: " m", state: false})}${lrSrcMark("params.bay_m")}
         <span class="hint">sheet: ${meas.bay_m ? meas.bay_m + " m" : "not measured"}</span></span>
       ${top.map(([k, v]) => `<span>${esc(k.replace(/_/g, " "))}</span><span>${lrField("features." + k, v, "").replace('<span></span>', "")}</span>`).join("")}
     </div>` : `<p class="hint" style="margin:0 0 4px">A kit piece (${esc(d.brief.kind)}): its measurements in metres.</p>
@@ -340,6 +340,7 @@ function lrRenderBrief() {
     <div class="row end"><span id="lr-dirty" class="hint" style="margin:0;flex:1" ${lr.dirty ? "" : "hidden"}>${(d.review || {}).status === "approved" ? "Unsaved edits · saving sets this Approved asset back to Needs review" : "Unsaved edits"}</span>
       <span id="lr-errors" class="err"></span><span id="lr-warnings" class="hint" style="margin:0"></span><button type="button" id="lr-revert">Revert</button><button type="button" id="lr-guide" title="Describe what should change; the vision model proposes brief edits">Guidance…</button><button type="button" class="default" id="lr-rebuild">Save &amp; Rebuild</button></div>`;
   box.querySelectorAll("[data-path]").forEach(el => el.addEventListener("change", lrFieldChange));
+  autoFieldsWire(box);
   box.querySelectorAll("[data-toggle]").forEach(el => el.addEventListener("change", ev => {
     const p = ev.target.dataset.toggle, name = p.split(".").at(-1);
     const dflt = p.split(".").slice(1).reduce((o, k) => o == null ? undefined : o[k], d.defaults);
@@ -411,7 +412,7 @@ function lrFieldChange(ev) {
   const el = ev.target, t = el.dataset.t, p = el.dataset.path;
   let v;
   if (t === "bool") v = el.checked;
-  else if (t === "num") v = el.value === "" ? null : +el.value;
+  else if (t === "num") v = el.dataset.auto != null ? (autoFieldEdited(el) ? +el.value : null) : el.value === "" ? null : +el.value;
   else if (t === "list") v = el.value.split(",").map(s => s.trim()).filter(Boolean).map(s => isNaN(+s) ? s : +s);
   else if (t === "json") { try { v = JSON.parse(el.value); el.classList.remove("bad"); } catch (_) { el.classList.add("bad"); return; } }
   else v = el.value;
