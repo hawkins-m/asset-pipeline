@@ -6,11 +6,15 @@
 async function setupDialog() {
   const body = document.createElement("div"); body.id = "setup-body";
   body.innerHTML = `<p class="hint">Checking this machine…</p>`;
+  // until the machine is checked there is nothing to test or save: the buttons wait
+  let testAll = async () => {}, save = async () => false;
   const d = dialog({title: "Setup", body, className: "tool-window setup-window", buttons: [
     {label: "Test all", onClick: () => { testAll(); return false; }},
     {label: "Save", default: true, onClick: () => save()},
     {label: "Cancel"}]});
   d.win.id = "setup-dialog";
+  const btns = [...d.win.querySelectorAll(".wbuttons button")].slice(0, 2);
+  btns.forEach(b => { b.disabled = true; b.title = "Checking this machine…"; });
   let st;
   try { st = await api("/api/setup", undefined, "GET"); }
   catch (err) { body.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
@@ -60,7 +64,7 @@ async function setupDialog() {
       return r;
     } catch (err) { out.className = "su-result error"; out.textContent = errorText(err); return {ok: false}; }
   };
-  const testAll = async () => {
+  testAll = async () => {
     const ids = st.items.map(it => it.id).filter(id => !$(`.setup-item[data-id="${id}"]`, body).hidden);
     return Promise.all(ids.map(test));
   };
@@ -70,7 +74,7 @@ async function setupDialog() {
     $(`#su-${id}`, body).value = st.items.find(it => it.id === id).detected;
     test(id);
   });
-  const save = async () => {
+  save = async () => {
     const vals = values();
     for (const it of st.items) if ($(`.setup-item[data-id="${it.id}"]`, body).hidden) delete vals[it.id];
     const secrets = {};
@@ -83,6 +87,7 @@ async function setupDialog() {
       await loadProjects(slug || undefined);
     } catch (err) { alert(errorText(err)); return false; }
   };
+  btns.forEach(b => { b.disabled = false; b.title = ""; });
   testAll();
 }
 
