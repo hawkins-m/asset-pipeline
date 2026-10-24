@@ -65,8 +65,39 @@ async function versionStrip(boxOrSel, asset, onChange) {
   versionStripDraw(box, asset, d, onChange);
 }
 
+// One refresh for every version action (Delete, Use this version, Keep / Stop keeping, Remove old
+// versions, and a finished Make 3D / Reroll / rebuild / restore): fetch the asset's versions, mark
+// its rows changed (ROW_REV, in the Views and 3D row's sig), reload the view, then redraw every
+// strip of the asset on the page. The bug: Views and 3D rows are keyed on /review data, which a Keep
+// or deleting a version without a 3D model doesn't change, so the row and its strip stayed stale.
+const ROW_REV = {};
+const verRev = asset => ROW_REV[`${slug}/${asset}`] || 0;
+async function versionsChanged(asset, onChange) {
+  const ck = `${slug}/${asset}`;
+  try { VER_CACHE[ck] = await api(`/api/projects/${slug}/library/asset/${asset}/versions`, undefined, "GET"); }
+  catch (err) { delete VER_CACHE[ck]; }
+  ROW_REV[ck] = verRev(asset) + 1;
+  if (onChange) { try { await onChange(); } catch (err) { alert(errorText(err)); } }
+  const d = VER_CACHE[ck];
+  if (d) document.querySelectorAll(".version-strip").forEach(box => {
+    if (box.dataset.asset === asset && box.isConnected) versionStripDraw(box, asset, d, box._onChange);
+  });
+}
+
+// load(): a job that makes or switches versions has finished since the last load -> refresh its asset
+const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build"]);
+let verJobsSeen = null;
+async function versionsAfterLoad() {
+  const done = data.jobs.filter(j => VERSION_JOBS.has(j.kind) && j.tag && j.tag.asset && (j.tag.plan || "library") === "library" && !isActive(j));
+  if (!verJobsSeen || verJobsSeen.slug !== slug) { verJobsSeen = {slug, ids: new Set(done.map(j => j.id))}; return; }
+  const assets = [...new Set(done.filter(j => !verJobsSeen.ids.has(j.id)).map(j => j.tag.asset))];
+  done.forEach(j => verJobsSeen.ids.add(j.id));
+  await Promise.all(assets.map(a => versionsChanged(a)));     // load() renders the rows next
+}
+
 function versionStripDraw(box, asset, d, onChange) {
   box.dataset.drawn = "1";
+  box._onChange = onChange;
   if (box.dataset.asset !== asset) box.dataset.sel = "[]";
   box.dataset.asset = asset;
   const sel = new Set(JSON.parse(box.dataset.sel || "[]").filter(n => d.versions.some(v => v.n === n)));
@@ -100,10 +131,10 @@ function versionStripDraw(box, asset, d, onChange) {
       $(".ver-pin", row).onclick = async () => {
         try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/${v.pinned ? "unpin" : "pin"}`, {}); }
         catch (err) { alert(errorText(err)); }
-        if (onChange) await onChange(); else versionStrip(box, asset, onChange);
+        await versionsChanged(asset, onChange);
       };
       // the page's model cards come from the versions: refresh the whole view, not just the strip
-      $(".ver-delete", row).onclick = () => versionDelete(asset, v, async () => { if (onChange) await onChange(); else versionStrip(box, asset, onChange); });
+      $(".ver-delete", row).onclick = () => versionDelete(asset, v, () => versionsChanged(asset, onChange));
     });
     const cmp = $(".ver-compare", box);
     if (cmp) cmp.onclick = () => versionCompare(asset, ...[...sel].sort((a, b) => a - b));
@@ -116,7 +147,7 @@ function versionStripDraw(box, asset, d, onChange) {
       if (!ok) return;
       try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/prune`, {dry_run: false}); }
       catch (err) { alert(errorText(err)); }
-      versionStrip(box, asset, onChange);
+      await versionsChanged(asset, onChange);
     };
   };
   draw();
@@ -133,7 +164,7 @@ async function versionRestore(asset, v, onChange) {
   let j = null;
   try { const job = await api(`/api/projects/${slug}/library/asset/${asset}/versions/${v.n}/restore`, {}); j = await versionJob(job); }
   catch (err) { alert(errorText(err)); }
-  if (onChange) await onChange();
+  await versionsChanged(asset, onChange);
   const r = j && j.status === "done" && j.result;
   if (r) {
     const done = document.createElement("div"); done.id = "version-used-body";
@@ -152,7 +183,7 @@ async function versionDelete(asset, v, after) {
   if (!ok) return;
   try { await api(url + (v.pinned ? "?confirm_pinned=true" : ""), {}, "DELETE"); }
   catch (err) { alert(errorText(err)); }
-  after();
+  await after();
 }
 
 async function versionCompare(asset, a, b) {

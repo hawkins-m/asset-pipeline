@@ -114,11 +114,15 @@ print("RESULT " + json.dumps(out))
 '''
 
 
-def _browse(tmp_path, monkeypatch, script: str) -> dict:
-    """A real `ap ui` on a scratch project, driven by `script` in the browser-test env."""
+def _browse(tmp_path, monkeypatch, script: str, seed=None) -> dict:
+    """A real `ap ui` on a scratch project, driven by `script` in the browser-test env.
+    seed(store): more project data before the server starts."""
     root = tmp_path / "root"
     monkeypatch.setenv("AP_ROOT", str(root))
-    _project(ProjectStore.create("p"))
+    store = ProjectStore.create("p")
+    _project(store)
+    if seed:
+        seed(store)
     env = dict(os.environ, AP_ROOT=str(root))
     config.save_user({"paths": {"ap_root": str(root)}})        # set up already: no first-run Setup window
     port = _free_port()

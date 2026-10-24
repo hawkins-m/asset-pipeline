@@ -183,6 +183,7 @@ async function load() {
     api(`/api/projects/${slug}/status`)]);
   unrealData = await api(`/api/projects/${slug}/unreal`);
   await loadLibrary();
+  await versionsAfterLoad();         // versions.js: refresh assets whose version jobs just finished
   fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));
   diskAfterLoad();
   render();

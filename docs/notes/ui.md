@@ -89,3 +89,12 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   lines in their own confirm and pass {confirmed: true}. A canceled start throws "Not started.",
   which alert() ignores.
 - Jobs the panel can't count show their time left from the job's est_s.
+
+## Version actions refresh the row (2026-10-23)
+- Every version action (Delete, Use this version, Keep / Stop keeping, Remove old versions) and a finished
+  Make 3D / Reroll / rebuild / restore job goes through `versionsChanged(asset, onChange)` (versions.js):
+  it refetches the listing into VER_CACHE, bumps `ROW_REV` (part of the Views and 3D row's sig, so the
+  row is rebuilt), runs onChange, then redraws every `.version-strip` of the asset. Before, a Keep or a
+  delete that changed no model card left the row and its strip stale until a reload.
+- `versionsAfterLoad()` (called in `load()`) spots version jobs finished since the last load.
+- Test: `tests/test_ui_versions_refresh.py` (browser); `_browse(..., seed=fn)` adds project data.

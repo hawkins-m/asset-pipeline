@@ -28,7 +28,7 @@ function renderReview() {
   keyedSections($("#review-list"), plans.map(p => ({key: p, items: reviewData.assets.filter(x => x.plan === p)})), {
     heading: g => `<h3>${esc(g.key)}</h3>`,
     key: a => `${a.plan}/${a.asset.id}`,
-    sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name),
+    sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
       ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status))]),
     build: assetReview,
   });
