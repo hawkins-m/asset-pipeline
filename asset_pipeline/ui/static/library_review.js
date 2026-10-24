@@ -128,7 +128,7 @@ function lrRenderViewer() {
   const ref = lrImg(im.reference, "Reference · " + (lr.data.brief.sheet || "").split("/").pop() + (lr.data.brief.position != null ? ` · ${["left", "middle", "right"][lr.data.brief.position] || lr.data.brief.position}` : ""),
                     `frontality ${(lr.data.brief.measured || {}).frontality ?? "–"}`, "lr-ref");
   const center = lr.orbit && im.glb
-    ? `<figure class="lr-orbit"><model-viewer src="${fileUrl(im.glb)}" camera-controls shadow-intensity="0.7" exposure="0.9"
+    ? `<figure class="lr-orbit"><model-viewer src="${fileUrl(im.glb)}" camera-controls ${MV_LOOK}
          environment-image="neutral" alt="3D model of ${esc(lr.data.asset)}"></model-viewer><figcaption><span>${im.assembly && im.assembly.fresh ? "Current build with its attached pieces" : "Current build"} · orbit: drag to turn, scroll to zoom</span><span>${im.assembly && !im.assembly.fresh ? `<button type="button" class="small" id="lr-asm">Update attached pieces</button>` : ""}</span></figcaption></figure>`
     : lrImg(cur.sheet, `Current · sheet angle${q}`, im.current_round ? `round ${im.current_round}` : "") +
       lrImg(cur.threeq, `Current · three-quarter${q}`, "");

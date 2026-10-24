@@ -262,13 +262,19 @@ def _fit(items: list[str], budget: int) -> str:
     return ", ".join(shown) + (f" +{rest} more" if rest else "")
 
 
-def change_line(changes: list[str], unsupported: list[str]) -> str:
-    """The full "what changed" of a version: every brief change, and what the guidance asked for
-    that the builder has no setting for (the card's tooltip)."""
+def change_line(changes: list[str], unsupported: list[str], no_texture: list[str] = ()) -> str:
+    """The full "what changed" of a version: every brief change, what the guidance asked for
+    that the builder has no setting for, and materials it named that the surface library has no
+    scan for (the card's tooltip)."""
     line = ("Changed: " + "; ".join(changes)) if changes else "Brief unchanged"
     if unsupported:
         line += " · no setting for: " + ", ".join(unsupported)
+    if no_texture:
+        line += " · " + NO_TEXTURE.format(", ".join(no_texture))
     return line
+
+
+NO_TEXTURE = "no surface-library texture for {} (that surface keeps its look)"
 
 
 def stored_lines(line: str) -> tuple[str, str]:
@@ -285,11 +291,13 @@ def stored_lines(line: str) -> tuple[str, str]:
     return change_line(changes, unsupported), change_short(changes, unsupported)
 
 
-def change_short(changes: list[str], unsupported: list[str], budget: int = 60) -> str:
+def change_short(changes: list[str], unsupported: list[str], budget: int = 60, no_texture: list[str] = ()) -> str:
     """The one short line a version card shows: "Changed: a 1 → 2, b 3 → 4 +5 more"."""
     line = ("Changed: " + _fit(changes, budget)) if changes else "Brief unchanged"
     if unsupported:
         line += " · no setting for: " + _fit(unsupported, 30)
+    if no_texture:
+        line += " · no texture for: " + _fit(no_texture, 30)
     return line
 
 
@@ -306,7 +314,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     version: the result says which one it matches and why ("unchanged", "message"). Guidance
     that no setting of this builder carries adds none either and lists the settings it has. A new version carries "changes", one line
     on what changed in the brief and what the guidance asked for that no setting covers."""
-    from . import brief_guide, building_proc, library_entries, versions
+    from . import brief_guide, building_proc, library_entries, material_lib, versions
     sp = kit_proc.spec_path(store, asset)
     brief = read_json(sp, default=None)
     if brief is None:
@@ -335,6 +343,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         if (out / f).is_file():
             filestore.copy(store, out / f, bak / f)
     vn, unsupported, line, same = None, [], "", None
+    no_tex = material_lib.missing_materials(guidance)
     try:
         if guidance:
             at(1, "VLM: brief edits from the guidance…")
@@ -343,7 +352,8 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             if not prop["edits"]:                          # nothing to build: no version
                 return {"version": None, "current": cur, "guidance": guidance, "unchanged": True,
                         "message": "Guidance didn't match any setting this builder has: "
-                                   + ", ".join(prop.get("settings") or []) + "."}
+                                   + ", ".join(prop.get("settings") or []) + "."
+                                   + (f" Note: {NO_TEXTURE.format(', '.join(no_tex))}." if no_tex else "")}
             brief_guide.apply(store, asset, prop["edits"], guidance)
         else:
             at(1, "VLM: measuring the sheet again…")
@@ -353,7 +363,7 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         to_cpu()
         at(2, "Blender build…")
         changes = brief_changes(brief, read_json(sp, default={}) or {})
-        line, short = change_line(changes, unsupported), change_short(changes, unsupported)
+        line, short = change_line(changes, unsupported, no_tex), change_short(changes, unsupported, no_texture=no_tex)
         res = kit_proc.build_any(store, asset, log=log, make_current=False)
         vn = res["version"]
         same = builds.get(res.get("build_sha")) or hashes.get(filestore.digest(out / "procedural.glb"))

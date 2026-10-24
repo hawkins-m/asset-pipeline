@@ -188,3 +188,22 @@ def test_guidance_keeps_template_values_that_switch_a_part_on(monkeypatch):
     new = brief_guide.apply_edits(brief, kept)
     assert new["features"]["attic"]["storey_h"] == bg.TEMPLATES["attic"]["storey_h"]
     assert new["features"]["arcade"]["gallery"]["grid"] == bg.TEMPLATES["grid"]
+
+
+def test_taller_arches_take_a_taller_arcade_storey_with_them(monkeypatch):
+    """Found in the reroll audit (2026-10-23): "taller arches" became arcade.arch_h up to the storey
+    height, validation dropped it (the crown stays 0.3 m under h) and the reroll built nothing of it."""
+    layout = type("L", (), {"city": None, "shots": []})()
+    monkeypatch.setattr(lr.sw_site, "load_layout", lambda store: layout)
+    monkeypatch.setattr(lr, "entry_of", lambda store, asset: None)
+    brief = {"kind": "building", "form": "arcade", "dims": [4.5, 16, 20.4], "features": {}}
+    A = bg.arcade_spec(bg.form_features("arcade", {})["arcade"])
+    kept, dropped = brief_guide.check(None, "bay", brief, [{"path": "features.arcade.arch_h", "after": A["h"], "why": "taller"}])
+    assert not dropped
+    assert [(e["path"], e["after"]) for e in kept] == [("features.arcade.arch_h", A["h"]), ("features.arcade.h", round(A["h"] + 0.3, 3))]
+    assert kept[1]["before"] == A["h"] and kept[1]["why"].startswith("moves with arch_h")
+    assert brief_guide.check(None, "bay", brief, [{k: e[k] for k in ("path", "after", "why")} for e in kept])[1] == []   # apply() re-checks
+    # an explicit edit of the partner is the artist's: no companion overrides it, the clash is dropped
+    kept, dropped = brief_guide.check(None, "bay", brief, [{"path": "features.arcade.arch_h", "after": A["h"], "why": ""},
+                                                           {"path": "features.arcade.h", "after": A["h"] - 0.1, "why": ""}])
+    assert [d["path"] for d in dropped] == ["features.arcade.arch_h"]

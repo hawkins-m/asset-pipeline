@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from . import config, filestore
 
-TYPES = ("concrete", "limestone", "marble", "render", "brick", "timber")
+TYPES = ("concrete", "limestone", "marble", "render", "brick", "timber")      # what the VLM reads off a sheet
 
 # tile_m: metres one texture repeat covers (width, height): from ambientCG's measured size when
 # it has one, else read off the preview (course heights, board widths)
@@ -46,7 +46,16 @@ LIBRARY = {
                   "words": "fired brick: small units in running courses, mortar lines every ~7 cm"},
     "timber":    {"acg": "WoodSiding009", "tile_m": [2.0, 2.0], "megascans": ["Wooden Planks Wall", "Wooden Wall Panel"],
                   "words": "timber cladding: boards or slats with visible grain"},
+    # briefs and guidance only (not a sheet reading): the limestone alternative's scan as its own type
+    "travertine": {"acg": "Travertine009", "tile_m": [1.2, 1.2], "megascans": ["Travertine Wall", "Travertine"],
+                   "words": "travertine: warm cream stone with small pits and veins, in large blocks"},
 }
+# material words guidance may use -> the library type, or None when the library has no scan for it
+MATERIAL_WORDS = {"concrete": "concrete", "brick": "brick", "marble": "marble", "limestone": "limestone",
+                  "travertine": "travertine", "render": "render", "stucco": "render", "plaster": "render",
+                  "timber": "timber", "wood": "timber", "wooden": "timber",
+                  "granite": None, "sandstone": None, "tuff": None, "basalt": None, "slate": None,
+                  "terracotta": None, "tile": None, "steel": None, "copper": None, "zinc": None}
 MAPS = {"color": "Color", "normal_gl": "NormalGL", "normal_dx": "NormalDX", "rough": "Roughness"}
 RES = "2K-JPG"
 
@@ -93,6 +102,22 @@ def fetch(kind: str, log=print, acg: str | None = None) -> dict:
     m = json.loads(meta.read_text())
     return {**{k: str(d / f"{aid}_{RES}_{s}.jpg") for k, s in MAPS.items()}, "mean_lin": m["mean_lin"],
             "tile_m": tile, "acg": aid}
+
+
+def missing_materials(text: str) -> list[str]:
+    """Materials `text` names that the library has no scan for ("granite"): a reroll says so
+    instead of quietly keeping the old surface."""
+    out = []
+    for w in re.findall(r"[a-z]+", (text or "").lower()):
+        k = w if w in MATERIAL_WORDS else w.rstrip("s")              # "tiles" -> "tile"
+        if k in MATERIAL_WORDS and MATERIAL_WORDS[k] is None and k not in out:
+            out.append(k)
+    return out
+
+
+def natural_rgb(kind: str) -> list[int]:
+    """The type's scan's own average colour (sRGB 0-255): tinting to it leaves the scan as it is."""
+    return [int(round(float(v))) for v in _lin_to_srgb(np.array(fetch(kind)["mean_lin"], np.float64))]
 
 
 def scaled_tile(tile_m, scale: float = 1.0) -> list[float]:

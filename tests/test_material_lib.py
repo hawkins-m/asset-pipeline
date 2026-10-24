@@ -25,13 +25,13 @@ def _fake_acg(root, aid, rgb=(120, 110, 100)):
 @pytest.fixture
 def lib(tmp_path, monkeypatch):
     monkeypatch.setattr(ml, "root", lambda: tmp_path / "acg")
-    for k in ml.TYPES:
-        _fake_acg(tmp_path / "acg", ml.LIBRARY[k]["acg"])
+    for k in ml.LIBRARY:
+        _fake_acg(tmp_path / "acg", ml.LIBRARY[k]["acg"], {"brick": (160, 90, 70), "concrete": (184, 184, 184)}.get(k, (120, 110, 100)))
     return tmp_path
 
 
 def test_every_type_has_a_scan_and_megascans_names():
-    assert set(ml.LIBRARY) == set(ml.TYPES)
+    assert set(ml.TYPES) < set(ml.LIBRARY)            # travertine: briefs and guidance only
     for v in ml.LIBRARY.values():
         assert v["acg"] and v["megascans"] and len(v["tile_m"]) == 2
 
@@ -196,3 +196,33 @@ def test_patch_surface_tiles_scale_too(tmp_path):
     assert abs(sc["wall"]["tile_m"] - 2 * plain["wall"]["tile_m"]) < 1e-3
     assert abs(sc["roof"]["tile_m"] - 2 * plain["roof"]["tile_m"]) < 1e-3
     assert sc["base"]["tile_m"] == plain["base"]["tile_m"]
+
+
+def test_a_band_named_unlike_the_sheet_takes_the_scans_own_colour_and_detail(lib, tmp_path, monkeypatch):
+    """The bug: "base material brick → concrete" was tinted to the sheet's pale band colour at the
+    sheet's low contrast, so the new material looked like the old one (in the GLB and in Unreal)."""
+    b = _brief(tmp_path)
+    monkeypatch.setattr(ml, "classify", lambda *a, **k: {n: {"type": "render", "why": ""} for n in ("base", "wall", "top")})
+    sheet = bp.materials(_Store(tmp_path), b, tmp_path / "m0", surface="library", log=lambda *a: None)
+    assert bp.named_bands(b) == set()
+    b["material_types"] = {"base": "concrete", "wall": "render"}           # wall: what the sheet shows
+    assert bp.named_bands(b) == {"base"}
+    mats = bp.materials(_Store(tmp_path), b, tmp_path / "m1", surface="library", log=lambda *a: None)
+    assert mats["base"]["type"] == "concrete" and mats["base"]["colour"] == ml.natural_rgb("concrete")
+    assert mats["base"]["contrast"] == 1.0 and sheet["base"]["contrast"] < 1.0
+    assert mats["wall"] == sheet["wall"] | {"base": mats["wall"]["base"]}   # the sheet's band as it was
+    b["colors"] = {"base": [90, 80, 70]}                                    # the brief's colour for the band wins
+    assert bp.materials(_Store(tmp_path), b, tmp_path / "m2", surface="library", log=lambda *a: None)["base"]["colour"] == [90, 80, 70]
+
+
+def test_sheet_patch_surfaces_switch_a_named_band_to_its_library_scan(lib, tmp_path):
+    b = _brief(tmp_path) | {"material_types": {"wall": "brick"}}
+    mats = bp.materials(_Store(tmp_path), b, tmp_path / "maps", surface="patch")
+    assert mats["wall"]["type"] == "brick" and mats["roof"]["type"] == "brick"
+    assert "type" not in mats["base"] and mats["base"]["base"].endswith("tile_base.png")
+
+
+def test_travertine_is_a_library_material_and_unknown_ones_are_named(lib):
+    assert ml.LIBRARY["travertine"]["acg"] == "Travertine009" and ml.fetch("travertine")["acg"] == "Travertine009"
+    assert ml.missing_materials("granite base, concrete walls, travertine top, terracotta tiles") == ["granite", "terracotta", "tile"]
+    assert ml.missing_materials("marble and brick, timber or stucco") == []

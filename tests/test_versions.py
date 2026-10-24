@@ -583,6 +583,14 @@ def test_change_line_names_what_has_no_setting():
     assert lr.change_line(["shading auto → smooth"], []) == "Changed: shading auto → smooth"
 
 
+def test_a_reroll_naming_a_material_the_library_lacks_says_so(store, monkeypatch):
+    _fake_reroll_deps(store, monkeypatch)
+    _build(store)
+    res = lr.reroll(store, "gate", "wider, in granite")
+    assert res["changes"] == "Changed: width 10 → 14 · no surface-library texture for granite (that surface keeps its look)"
+    assert versions.get(store, "gate", 2)["changes_short"] == "Changed: width 10 → 14 · no texture for: granite"
+
+
 def test_defaults_a_part_brings_with_it_are_not_changes():
     # switching a part on lists the part and its explicit fields, not every template default it fills in
     old = {"kind": "building", "form": "arcade", "dims": [20, 15, 12], "features": {"arcade": {"h": 5.7}}}

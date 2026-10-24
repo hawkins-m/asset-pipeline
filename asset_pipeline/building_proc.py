@@ -265,6 +265,23 @@ def band_types(store: ProjectStore, brief: dict, log=print) -> dict:
     return {b: (brief.get("material_types") or {}).get(b) or meas["materials"][b]["type"] for b in ("base", "wall", "top")}
 
 
+def named_bands(brief: dict) -> set[str]:
+    """Bands whose material the brief names (guidance, the brief form) unlike what the sheet shows
+    there (measured.materials; a band with no reading counts as named). The sheet's colour and
+    surface spread belong to the material it drew, so a named band takes its scan's own colour
+    and detail, or the brief's colour for the band: brick → concrete then shows as concrete, in
+    the GLB and in Unreal (both take the job's colour and contrast)."""
+    mt = brief.get("material_types") or {}
+    read = (brief.get("measured") or {}).get("materials") or {}
+    return {b for b in ("base", "wall", "top") if mt.get(b) and mt[b] != (read.get(b) or {}).get("type")}
+
+
+def _named_surface(brief: dict, band: str, kind: str, maps: Path, log=print) -> dict:
+    from . import material_lib
+    rgb = (brief.get("colors") or {}).get(band) or material_lib.natural_rgb(kind)
+    return material_lib.tinted(kind, rgb, maps / f"{band}_{kind}.jpg", log=log, scale=band_scales(brief)[band])
+
+
 def read_band_materials(store: ProjectStore, asset: str, log=print) -> bool:
     """Read the band materials off the sheet now (vision LLM) and keep them in the brief, as the
     first build would: Brief & build does it while it holds GPU 0, so the Blender step on the CPU
@@ -328,11 +345,17 @@ def materials(store: ProjectStore, brief: dict, maps: Path, surface: str | None 
     if surface == "patch":
         out = _patch_tiles(brief, maps, a, colours)
         _scale_patch_tiles(out, band_scales(brief))
+        # a material the brief names replaces the sheet's tile with that material's scan
+        for n in sorted(named_bands(brief)):
+            out[n] = _named_surface(brief, n, brief["material_types"][n], maps, log)
+            if n == "wall":
+                out["vault"], out["roof"] = dict(out["wall"]), dict(out["wall"])
     else:
         from . import material_lib
         types = band_types(store, brief, log)
-        meas = brief["measured"]
-        out = {n: material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log,
+        meas, named = brief["measured"], named_bands(brief)
+        out = {n: _named_surface(brief, n, types[n], maps, log) if n in named else
+                  material_lib.tinted(types[n], colours[n], maps / f"{n}_{types[n]}.jpg", log=log,
                                       contrast_std=band_contrast(a, (meas.get("patches") or {}).get(n) or meas.get("patch_px")),
                                       scale=band_scales(brief)[n])
                for n in ("wall", "base", "top")}

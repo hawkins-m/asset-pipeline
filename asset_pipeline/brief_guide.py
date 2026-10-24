@@ -220,6 +220,10 @@ def apply_edits(brief: dict, edits: list[dict]) -> dict:
     return new
 
 
+def _short_num(x) -> str:
+    return f"{x:g}" if isinstance(x, float) else str(x)
+
+
 def _number(after) -> float:
     if isinstance(after, (bool, list, dict)):
         raise ValueError("must be a number")
@@ -249,6 +253,34 @@ def _coerce(before, after):
     if isinstance(after, (list, dict)):
         raise ValueError("must be text")
     return str(after)
+
+
+def _companions(brief: dict, path: str, after) -> dict:
+    """Arcade fields that hold each other back (library_review._arcade_checks): the partner values
+    an edit needs to pass, {path: value}. Taller arches need a taller arcade storey, thicker piers
+    a wider bay; the VLM edits the field the guidance names and the build used to drop it."""
+    head, _, key = path.rpartition(".")
+    if not head.endswith(".arcade") or not isinstance(after, (int, float)) or isinstance(after, bool):
+        return {}
+    feats = apply_edits(brief, [{"path": path, "after": after}])["features"]
+    A = dict(building_gen.arcade_spec(feats.get("arcade") or {}))
+    if not all(isinstance(A.get(k), (int, float)) for k in ("bay_m", "pier_w", "arch_h", "h", "depth")):
+        return {}
+    out = {}
+    if key == "pier_w" and A["bay_m"] - A["pier_w"] < 0.5:
+        out["bay_m"] = A["bay_m"] = round(A["pier_w"] + 0.5, 3)
+    if key == "bay_m" and A["bay_m"] - A["pier_w"] < 0.5:
+        out["pier_w"] = A["pier_w"] = round(A["bay_m"] - 0.5, 3)
+    if key == "pier_w" and A["depth"] < A["pier_w"] + 0.4:
+        out["depth"] = A["depth"] = round(A["pier_w"] + 0.4, 3)
+    gap = A["bay_m"] - A["pier_w"]
+    if key in ("bay_m", "pier_w") and A.get("arch", "round") == "round" and A["arch_h"] < gap / 2 + 0.2:
+        out["arch_h"] = A["arch_h"] = round(gap / 2 + 0.2, 3)
+    if key == "h" and A["arch_h"] > A["h"] - 0.3:
+        out["arch_h"] = A["arch_h"] = round(A["h"] - 0.3, 3)
+    elif A["arch_h"] > A["h"] - 0.3:
+        out["h"] = A["h"] = round(A["arch_h"] + 0.3, 3)
+    return {f"{head}.{k}": v for k, v in out.items() if k != key}
 
 
 def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict],
@@ -299,11 +331,27 @@ def check(store: ProjectStore, asset: str, brief: dict, raw: list[dict],
             continue
         cand = brief | apply_edits(brief, [{"path": path, "after": after}])
         errs = [e for e in lr.validate(store, asset, cand)["errors"] if e not in base_errs]
+        # a partner the edits set themselves is checked with their value (apply() re-checks saved rows)
+        # and kept as theirs; otherwise it moves with this edit
+        extra = _companions(brief, path, after) if errs else {}
+        given = {r["path"]: r["after"] for r in raw if r["path"] in extra}
+        if extra and not any(p in seen for p in extra):
+            both = [{"path": path, "after": after}] + [{"path": p, "after": given.get(p, v)} for p, v in extra.items()]
+            try:
+                cand = brief | apply_edits(brief, both)
+                ok = not [e for e in lr.validate(store, asset, cand)["errors"] if e not in base_errs]
+            except (TypeError, ValueError):
+                ok = False
+            errs = [] if ok else errs
+            extra = {p: v for p, v in extra.items() if p not in given} if ok else {}
         if errs:
             dropped.append(row | {"reason": "; ".join(errs)})
             continue
         seen.add(path)
         kept.append({"path": path, "before": before, "after": after, "why": why} | ({"switch_on": part} if part else {}))
+        for p, v in extra.items():                 # the partner moves with it (taller arches: a taller arcade storey)
+            seen.add(p)
+            kept.append({"path": p, "before": vals.get(p), "after": v, "why": f"moves with {path.rsplit('.', 1)[1]} {_short_num(after)}"})
     return kept, dropped
 
 

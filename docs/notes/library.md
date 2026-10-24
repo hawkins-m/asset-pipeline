@@ -259,3 +259,23 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   GLB hash, and guidance with no matching setting ends the job without a version. Run without the
   "never stand in for something with no field" rule, the local VLM answered "a gold dome with a
   flag" by removing the hall's ridge cap.
+
+## Reroll materials and the reroll audit (2026-10-23)
+- 3D previews were never untextured: the GLBs embed each slot's baked texture. They looked white because
+  (a) model-viewer's default (ACES, exposure 1) burnt pale surfaces out (now `MV_LOOK`: neutral tone
+  mapping, exposure 0.75, close to the Cycles thumbnails), and (b) every band was tinted to the sheet's
+  pale colour at the sheet's low contrast, so brick → concrete barely changed the look.
+- `building_proc.named_bands`: a band whose `material_types` differs from the sheet's reading
+  (measured.materials) takes the scan's own colour and full detail (or the brief's `colors[band]`),
+  on library and on sheet-patch surfaces. Unreal reads the same colour/contrast from the job, so it follows.
+  Existing briefs with such an override (e.g. an explicit base brick) look different on their next build.
+- `travertine` is a library type (Travertine009, already the limestone alternative); `TYPES` (what the VLM
+  reads off sheets) is unchanged. Material words without a scan (granite, sandstone, slate…) go into the
+  Changed line: "no surface-library texture for …".
+- Audit (scratch, one reroll per builder, geometry + material guidance): all 7 builders on Views and 3D
+  reach both. The one failure was arcade: "taller arches" set arch_h past the storey (crown 0.3 m under h)
+  and validation dropped it. `brief_guide._companions` now moves the coupled arcade field with the edit.
+- Geometry checks: compare `building_proc.generate` parts from the two briefs; GLB vertex data differs with
+  material tile sizes (UVs) and with code changes since the old build.
+- A scratch AP_ROOT's VLM needs its own ports (`[local.models.*] url` in its backends.local.toml), or it
+  takes the main root's 8711 and that app can't start its own.

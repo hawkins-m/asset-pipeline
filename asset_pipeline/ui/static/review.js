@@ -4,6 +4,10 @@ const USAGES = ["game", "cine", "hero"];
 const USAGE_TIPS = {game: "Game use: Clean up decimates and bakes this asset for real time.",
   cine: "Cinematic use: Clean up keeps the full mesh and textures.", hero: "Hero use: full mesh and textures, for the assets seen closest in shots."};
 const ACTIVE_TIP = "This version is the one later steps (Cleanup, Unreal look scenes) will use.";
+// 3D previews: the GLB's own baked textures per material slot, lit close to the Cycles thumbnails
+// (Standard view, exposure -0.15). model-viewer's default (ACES at exposure 1) burnt the pale,
+// sheet-tinted surfaces to white and hid material changes.
+const MV_LOOK = `tone-mapping="neutral" exposure="0.75" shadow-intensity="0.8"`;
 const APPROVE_TIP = "Unreal look scenes only place approved assets. Until then, export uses greybox stand-ins.";
 
 function renderReview() {
@@ -148,7 +152,7 @@ function assetReview(a) {
       const c = document.createElement("div"); c.className = "result";
       if (res.current) c.classList.add("current");
       c.dataset.n = res.n ?? "";
-      c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate shadow-intensity="0.6"
+      c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate ${MV_LOOK}
           alt="3D model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>${res.n != null ? `<b>v${res.n}</b> ${esc(res.kind === "trellis" ? "TRELLIS" : res.kind)}` : esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}
           ${res.current ? `<span class="mark ver-used" title="${ACTIVE_TIP}">Active</span>` : ""}</span>
@@ -163,7 +167,7 @@ function assetReview(a) {
     for (const c of a.cleanups) {
       const d = c.output_dims_m.map(v => v.toFixed(2)).join(" × ");
       const box = document.createElement("div"); box.className = "result";
-      box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls shadow-intensity="0.6"
+      box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls ${MV_LOOK}
           alt="Cleaned model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>Cleaned (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
