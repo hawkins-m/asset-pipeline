@@ -683,7 +683,8 @@ function renderShell() {
   $("#city-own").hidden = isCity() || !(siteData && siteData.layout);
   const comfyRun = active.find(j => j.lane === "comfy" && j.status === "running");
   const cp = comfyRun && jobProgress(comfyRun);
-  $("#sb-gpu").textContent = comfyRun ? `GPU 1: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : "GPU 1: idle";
+  const cg = `GPU ${((data.lanes || {}).gpus || {}).comfy ?? 1}`;
+  $("#sb-gpu").textContent = comfyRun ? `${cg}: ${JOB_LABELS[comfyRun.kind] || comfyRun.kind}${cp.count ? ` ${cp.done} / ${cp.total}` : ""}` : `${cg}: idle`;
   $("#sb-left").textContent = (statusLeft[currentTab] && statusLeft[currentTab]()) || TAB_NAMES[currentTab];
   const r = catalogData && catalogData.report;
   $("#sb-mid").textContent = (statusMid[currentTab] && statusMid[currentTab]()) ||

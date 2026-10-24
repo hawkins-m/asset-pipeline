@@ -207,8 +207,12 @@ ap config set paths.ap_root /path/to/storage/terraformer   # or export AP_ROOT=.
    `$AP_ROOT/backends.local.toml` keeps working (it is still read); `ap config migrate OLD_ROOT`
    copies it into the user config.
 
-8. `ap preflight` (add `--ue` if you will use Unreal) checks all of the above, including that
-   ComfyUI can see each model file the workflows load (also Tools › Preflight… in the app).
+8. `ap doctor` checks all of the above (storage, GPUs, ComfyUI and the proxy, that ComfyUI can see
+   each model file the workflows load, Blender, Unreal, the vision model, segmentation, TRELLIS)
+   and prints what is missing with the command that fixes it. The app shows the same in its
+   Status box (Details…, or Tools › Doctor…) and switches off only what a missing piece needs,
+   with the reason as the tooltip: without Unreal the Unreal tab explains and the rest works.
+   `ap preflight` (add `--ue` if you will use Unreal) is the older demo-path check.
 
 9. **Desktop launcher:** `ap launcher install` (or Tools › Install desktop launcher… in the app)
    adds **Terraformer** to the Linux applications menu. It starts the app if it isn't running

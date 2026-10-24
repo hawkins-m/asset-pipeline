@@ -172,6 +172,28 @@ def cmd_setup(a) -> None:
         print(f"Still to fix: {', '.join(failed)}.")
 
 
+def cmd_doctor(a) -> None:
+    """ap doctor: every check with what is missing and how to fix it; exit 1 when a required one fails."""
+    import json as _json
+    from . import doctor
+    rep = doctor.report()
+    if a.json:
+        print(_json.dumps(rep, indent=1))
+    else:
+        for c in rep["checks"]:
+            mark = {"ok": "✓", "warn": "!", "fail": "-" if c["optional"] else "✗"}[c["level"]]
+            print(f"{mark} {c['name']}: {c['detail']}")
+            if c["fix"]:
+                print(f"    fix: {c['fix']}")
+        off = [f"{v['what']} ({k})" for k, v in rep["features"].items() if not v["ok"]]
+        if off:
+            print("\nOff until fixed: " + "; ".join(off) + ".")
+        print("\n" + (f"{rep['missing']} required piece(s) missing." if rep["missing"] else "Everything required is in place.")
+              + (f" {rep['optional_missing']} optional missing." if rep["optional_missing"] else ""))
+    if rep["missing"]:
+        raise SystemExit(1)
+
+
 def cmd_preflight(a) -> None:
     from . import preflight
     checks = preflight.run(ue=a.ue)
@@ -1337,6 +1359,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--ue-projects", help="the old [unreal] projects_dir")
     p.add_argument("--ue-backups", help="the old [unreal] backup_dir")
     cf.set_defaults(fn=cmd_config)
+
+    p = sub.add_parser("doctor", help="check everything (storage, ComfyUI, models, GPUs, Blender, Unreal) and say how to fix what's missing")
+    p.add_argument("--json", action="store_true", help="the report as JSON (what the app's Status box shows)")
+    p.set_defaults(fn=cmd_doctor)
 
     p = sub.add_parser("setup", help="first-run setup: storage, ComfyUI, API keys, Blender, Unreal, GPUs (tests each)")
     p.add_argument("--yes", action="store_true", help="take the current or detected values without asking")

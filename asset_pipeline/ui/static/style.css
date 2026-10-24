@@ -651,3 +651,10 @@ details summary { cursor: default; }
 .su-result:empty { display: none; }
 .su-warn { color: var(--star); }
 .su-result.ok { color: var(--ready); }
+
+/* Doctor (doctor.js): the Status box line, and a tab's note when a piece it needs is missing */
+.doctor-line { gap: 4px; align-items: center; margin-top: 2px; }
+.needs-note { background: var(--field); border: 1px solid var(--stale-line); padding: 4px 6px; margin: 0 0 6px; }
+.doctor-window { width: min(760px, 96vw); }
+.doctor-window .wbody { max-height: 70vh; overflow: auto; }
+.doctor-window code { white-space: pre-wrap; overflow-wrap: anywhere; }

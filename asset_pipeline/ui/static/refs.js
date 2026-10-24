@@ -152,6 +152,7 @@ function refsNextStep(u, el) {
   const btn = document.createElement("button"); btn.type = "button"; btn.className = "next-btn";
   if (nx.route === "procedural") {
     btn.textContent = running.length ? "Building…" : "Brief & build"; btn.classList.add("next-brief");
+    btn.dataset.needs = "vlm blender";
     btn.title = `Brief from ${short}${starred.length > 1 ? ` (the newest of ${starred.length} starred sheets)` : ""}, then build in Blender and render the review`;
     btn.onclick = () => refsBriefBuild(u, sheet, nx);
   } else {

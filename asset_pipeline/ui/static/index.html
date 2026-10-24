@@ -35,6 +35,7 @@
       <fieldset id="side-status"><legend>Status</legend>
         <div class="line" id="status-line">No project</div>
         <div class="comfy-ctl" id="comfy-ctl" aria-live="polite"></div>
+        <div class="doctor-line row" id="doctor-line" aria-live="polite"></div>
       </fieldset>
       <fieldset><legend>Stages</legend>
         <ul class="list" id="stage-list" role="listbox" aria-label="Stages"></ul>
@@ -298,24 +299,25 @@
       <!-- Unreal -->
       <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
         <div class="applybar-slot"></div>
+        <p class="needs-note" id="unreal-missing" role="status" hidden></p>
         <fieldset><legend>Steps</legend>
           <ol class="ue-steps" id="ue-steps">
             <li data-step="init"><span class="n">1</span><b>Create UE project</b>
               <span class="hint">An empty project in the Unreal projects folder, with the plugins the import needs.</span>
-              <span class="ue-do"><button type="button" id="ue-init">Create UE project</button></span><span class="ue-state" id="ue-init-state"></span></li>
+              <span class="ue-do"><button type="button" id="ue-init" data-needs="unreal">Create UE project</button></span><span class="ue-state" id="ue-init-state"></span></li>
             <li data-step="export"><span class="n">2</span><b>Export</b>
               <span class="hint">The greybox as stand-in GLBs plus the UE manifest, in <code>export/</code> (Blender, CPU).</span>
-              <span class="ue-do"><button type="button" id="ue-export">Export to Unreal</button><span id="ue-export-stop"></span></span>
+              <span class="ue-do"><button type="button" id="ue-export" data-needs="blender">Export to Unreal</button><span id="ue-export-stop"></span></span>
               <span class="ue-state" id="ue-export-state"></span></li>
             <li data-step="import"><span class="n">3</span><b>Import</b>
               <span class="hint">The manifest into the UE level, headless (a wholesale relayout is Import with Reset layout and Prune, after a backup).</span>
-              <span class="ue-do"><button type="button" id="ue-import">Import…</button></span><span class="ue-state" id="ue-import-state"></span></li>
+              <span class="ue-do"><button type="button" id="ue-import" data-needs="unreal">Import…</button></span><span class="ue-state" id="ue-import-state"></span></li>
             <li data-step="render"><span class="n">4</span><b>Render shots</b>
               <span class="hint">Each shot camera rendered in Unreal, offscreen on a GPU with little VRAM in use.</span>
-              <span class="ue-do"><button type="button" id="ue-render">Render shots…</button></span><span class="ue-state" id="ue-render-state"></span></li>
+              <span class="ue-do"><button type="button" id="ue-render" data-needs="unreal">Render shots…</button></span><span class="ue-state" id="ue-render-state"></span></li>
             <li data-step="look"><span class="n">5</span><b>Match look</b>
               <span class="hint">A look scene per approved shot: its library builds, light and ground matched to the locked frame.</span>
-              <span class="ue-do"><button type="button" id="ue-look">Match look…</button></span><span class="ue-state" id="ue-look-state"></span></li>
+              <span class="ue-do"><button type="button" id="ue-look" data-needs="unreal">Match look…</button></span><span class="ue-state" id="ue-look-state"></span></li>
           </ol>
         </fieldset>
         <fieldset><legend>Back up the UE project</legend>
@@ -358,6 +360,7 @@
 <script src="/static/library_review.js"></script>
 <script src="/static/tools.js"></script>
 <script src="/static/setup.js"></script>
+<script src="/static/doctor.js"></script>
 <script src="/static/versions.js"></script>
 <script src="/static/estimate.js"></script>
 <script src="/static/disk.js"></script>

@@ -8,7 +8,7 @@ Phases, one commit each; this file says where a stopped session picks up.
 | 1 | Audit of machine-specific values (below) | done |
 | 2 | One user config (`~/.config/terraformer/config.toml` + `secrets.toml`), env overrides, migrate the current machine | done |
 | 3 | `ap setup` (CLI) and the first-run Setup screen, with a Test per item | done |
-| 4 | `ap doctor`, the same results in the Status box, features disabled with a reason | todo |
+| 4 | `ap doctor`, the same results in the Status box, features disabled with a reason | done |
 | 5 | Clean-install test with a fresh HOME, README Quick start fixed | todo |
 
 Rules while doing this: test on a second `ap ui` (not port 8700) and a scratch AP_ROOT; no GPU jobs;
@@ -122,3 +122,22 @@ machine, kept), `docs/notes/*` (machine notes, kept by design), `docs/ue-build-p
   only to test or save, never sent back.
 - `tests/test_setup.py`; `tests/test_ui_layout.py` writes a user config for its server (else the
   first-run window covers the page) and finds the browser env through the config.
+
+## Phase 4: done
+
+- `asset_pipeline/doctor.py`: checks settings, storage, GPUs (roles exist), the Comfy proxy (sdk),
+  ComfyUI through the configured backend, its model files (`/object_info`), Blender, Unreal
+  (optional; full editor next to UnrealEditor-Cmd), vision LLM, seg/depth, TRELLIS (optional), keys
+  for paid defaults. Each check names the features it switches off (`FEATURES`: comfy, blender,
+  unreal, vlm, segdepth, trellis). ComfyUI or the proxy merely not running is a note while Start
+  ComfyUI can launch them, not "missing".
+- `ap doctor [--json]`: exit 1 when a required piece is missing (optional ones don't count).
+- App: `GET /api/doctor` (lazy: the first call starts a background run; cached 5 min; `refresh=1`;
+  re-run after a Setup save). `static/doctor.js`: Status box line ("Setup: all set / N missing",
+  Details…), Tools › Doctor…, `ACTION_NEEDS` wraps menu actions (disabled + tooltip),
+  `data-needs="…"` on tab buttons kept off by a MutationObserver across re-renders, the
+  `#unreal-missing` note at the top of the Unreal tab. Tagged: Unreal steps, Export (blender),
+  Make 3D (blender or trellis), Brief & build (vlm blender), greybox/passes/frames actions.
+- Status bar "GPU n" follows `[jobs] comfy_gpu`.
+- Verified on a second instance (8702) with a fresh config and empty storage: the Unreal tab note,
+  buttons off with reasons through polling redraws, Doctor dialog; sdk through a real proxy (8195).
